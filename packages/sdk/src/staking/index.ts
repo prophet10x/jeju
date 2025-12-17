@@ -408,8 +408,8 @@ export function createStakingModule(
   // Helper to safely get contract addresses
   const tryGetContract = (category: string, name: string): Address => {
     try {
-      // Use category-name pattern
-      return getContractAddress(category as "staking" | "rpc" | "governance" | "registry" | "defi" | "identity" | "moderation" | "games" | "containers" | "launchpad" | "nfts" | "payments" | "compute" | "storage", name, network) as Address;
+      // @ts-expect-error - category names may vary by deployment
+      return getContractAddress(network, category, name) as Address;
     } catch {
       return "0x0000000000000000000000000000000000000000" as Address;
     }
@@ -524,7 +524,9 @@ export function createStakingModule(
 
       // Fetch from API for more stats
       const response = await fetch(`${services.gateway.api}/staking/stats`).catch(() => null);
-      const data = response?.ok ? await response.json() : null;
+      const data = response?.ok 
+        ? await response.json() as { totalStakers?: number; currentAPY?: number }
+        : null;
 
       return {
         totalStaked,
@@ -640,7 +642,7 @@ export function createStakingModule(
         `${services.gateway.api}/staking/nodes?type=${nodeType}`
       );
       if (!response.ok) return [];
-      const data = await response.json();
+      const data = await response.json() as { nodes?: NodeStakeInfo[] };
       return data.nodes ?? [];
     },
 

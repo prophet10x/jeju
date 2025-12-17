@@ -164,7 +164,7 @@ contract FederationIntegrationTest is Test {
         vm.warp(baseTime + 8 days);
         governance.resolveMarketVoting(proposalId);
 
-        // Autocrat approves (sets timelockEnds = now + 7 days)
+        // Autocrat approves (sets timelockEnds = block.timestamp + 7 days)
         vm.prank(councilGovernance);
         governance.submitAutocratDecision(
             proposalId,
@@ -579,14 +579,8 @@ contract FederationIntegrationTest is Test {
     }
 
     function _getProposalId(uint256 chainId) internal view returns (bytes32) {
-        address operator = networkRegistry.networkOperators(chainId);
-        NetworkRegistry.NetworkInfo memory network = networkRegistry.getNetwork(chainId);
-        return keccak256(abi.encodePacked(
-            chainId,
-            operator,
-            network.stake,
-            network.registeredAt
-        ));
+        // Use the governance's chainIdToProposal mapping directly
+        return governance.chainIdToProposal(chainId);
     }
 
     function _createVerifiedNetwork(uint256 chainId, address operator) internal {
@@ -612,4 +606,3 @@ contract FederationIntegrationTest is Test {
         governance.executeProposal(proposalId);
     }
 }
-

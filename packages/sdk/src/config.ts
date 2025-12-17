@@ -57,6 +57,16 @@ export interface ContractAddresses {
   // Cross-chain contracts
   inputSettler?: Address;
   solverRegistry?: Address;
+
+  // Staking contracts
+  staking?: Address;
+  nodeStakingManager?: Address;
+  rpcProviderRegistry?: Address;
+
+  // Federation contracts
+  networkRegistry?: Address;
+  registryHub?: Address;
+  federationGovernance?: Address;
 }
 
 /** Get all contract addresses for a network */

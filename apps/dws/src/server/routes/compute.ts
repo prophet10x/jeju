@@ -38,6 +38,9 @@ const SHELL_CONFIG: Record<string, { path: string; args: (cmd: string) => string
 
 export function createComputeRouter(): Hono {
   const app = new Hono();
+  
+  // Add training routes to compute router
+  addTrainingRoutes(app);
 
   app.get('/health', async (c) => {
     const queued = await computeJobState.getQueued();
@@ -304,4 +307,101 @@ async function finishJob(job: ComputeJob, output: string, exitCode: number): Pro
   await computeJobState.save(job);
   activeJobs.delete(job.jobId);
   processQueue();
+}
+
+// ============ Training Routes ============
+
+interface TrainingRun {
+  runId: string;
+  model: string;
+  state: number;
+  clients: number;
+  step: number;
+  totalSteps: number;
+  createdAt: number;
+}
+
+interface TrainingNode {
+  address: string;
+  gpuTier: number;
+  score: number;
+  latencyMs: number;
+  bandwidthMbps: number;
+  isActive: boolean;
+}
+
+// Mock storage for training runs (in production, reads from chain)
+const trainingRuns: Map<string, TrainingRun> = new Map();
+const trainingNodes: Map<string, TrainingNode> = new Map();
+
+export function addTrainingRoutes(app: Hono): void {
+  // List training runs
+  app.get('/training/runs', async (c) => {
+    const status = c.req.query('status');
+    let runs = Array.from(trainingRuns.values());
+    
+    if (status === 'active') {
+      runs = runs.filter(r => r.state >= 1 && r.state <= 5);
+    } else if (status === 'completed') {
+      runs = runs.filter(r => r.state === 6);
+    } else if (status === 'paused') {
+      runs = runs.filter(r => r.state === 7);
+    }
+    
+    return c.json(runs);
+  });
+
+  // Get training run
+  app.get('/training/runs/:runId', async (c) => {
+    const runId = c.req.param('runId');
+    const run = trainingRuns.get(runId);
+    
+    if (!run) {
+      return c.json({ error: 'Run not found' }, 404);
+    }
+    
+    return c.json(run);
+  });
+
+  // List compute nodes
+  app.get('/nodes', async (c) => {
+    const nodes = Array.from(trainingNodes.values()).filter(n => n.isActive);
+    return c.json(nodes);
+  });
+
+  // Get node info
+  app.get('/nodes/:address', async (c) => {
+    const address = c.req.param('address');
+    const node = trainingNodes.get(address.toLowerCase());
+    
+    if (!node) {
+      return c.json({ error: 'Node not found' }, 404);
+    }
+    
+    return c.json(node);
+  });
+
+  // Register as training node (for DWS nodes)
+  app.post('/nodes/register', async (c) => {
+    const body = await c.req.json<{ address: string; gpuTier: number }>();
+    const address = body.address.toLowerCase();
+    
+    trainingNodes.set(address, {
+      address,
+      gpuTier: body.gpuTier,
+      score: 100,
+      latencyMs: 50,
+      bandwidthMbps: 1000,
+      isActive: true,
+    });
+    
+    return c.json({ success: true, address });
+  });
+
+  // Training webhook for state updates
+  app.post('/training/webhook', async (c) => {
+    const body = await c.req.json<TrainingRun>();
+    trainingRuns.set(body.runId, body);
+    return c.json({ success: true });
+  });
 }

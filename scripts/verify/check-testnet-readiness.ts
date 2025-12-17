@@ -124,13 +124,21 @@ async function checkAWSInfra() {
   // Check ACM certificate
   const acmCheck = await $`aws acm list-certificates --region us-east-1`.quiet().nothrow();
   if (acmCheck.exitCode === 0) {
-    const certs = JSON.parse(acmCheck.stdout.toString()) as { CertificateSummaryList: Array<{ DomainName: string; Status: string }> };
-    const jejuCert = certs.CertificateSummaryList.find(c => c.DomainName === 'jeju.network');
-    if (jejuCert) {
-      addResult(category, 'ACM Certificate', jejuCert.Status === 'ISSUED' ? 'pass' : 'warn', `Status: ${jejuCert.Status}`);
-    } else {
-      addResult(category, 'ACM Certificate', 'fail', 'Certificate not found');
+    try {
+      const certs = JSON.parse(acmCheck.stdout.toString());
+      const jejuCert = certs.CertificateSummaryList.find((c: {DomainName: string}) => c.DomainName === 'jejunetwork.org');
+      if (jejuCert) {
+        addResult(category, 'ACM Certificate', jejuCert.Status === 'ISSUED' ? 'pass' : 'warn', `Status: ${jejuCert.Status}`);
+      } else {
+        addResult(category, 'ACM Certificate', 'fail', 'Certificate not found');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Invalid JSON';
+      addResult(category, 'ACM Certificate', 'fail', `Failed to parse certificates: ${errorMsg}`);
     }
+  } else {
+    const errorMsg = acmCheck.stderr.toString() || 'Certificate check failed';
+    addResult(category, 'ACM Certificate', 'fail', errorMsg.split('\n')[0]);
   }
 }
 
@@ -383,7 +391,7 @@ function printResults() {
 ╚══════════════════════════════════════════════════════════════════════╝
 `);
 
-  const categories = [...new Set(results.map(r => r.category))];
+  const categories = Array.from(new Set(results.map(r => r.category)));
   
   for (const cat of categories) {
     console.log(`\n═══ ${cat} ═══`);
