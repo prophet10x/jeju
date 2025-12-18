@@ -36,3 +36,6 @@ export * from './solver/external';
 
 // Shared chains
 export * from './shared/chains';
+
+// Proof-of-Cloud
+export * from './poc';

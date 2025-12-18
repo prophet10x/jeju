@@ -401,14 +401,15 @@ export function createAPIMarketplaceRouter(): Hono {
     });
   });
 
-  app.get('/account/balance', (c) => {
+  app.get('/account/balance', async (c) => {
     const userAddress = c.req.header('x-jeju-address') as Address;
     if (!userAddress) {
       return c.json({ error: 'Missing x-jeju-address header' }, 401);
     }
 
+    const balance = await getBalance(userAddress);
     return c.json({
-      balance: getBalance(userAddress).toString(),
+      balance: balance.toString(),
       minimumDeposit: getMinimumDeposit().toString(),
     });
   });

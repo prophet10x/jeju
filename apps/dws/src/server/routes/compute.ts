@@ -383,7 +383,14 @@ export function addTrainingRoutes(app: Hono): void {
 
   // Register as training node (for DWS nodes)
   app.post('/nodes/register', async (c) => {
-    const body = await c.req.json<{ address: string; gpuTier: number }>();
+    const body = await c.req.json<{
+      address: string;
+      gpuTier: number;
+      capabilities?: string[];
+      endpoint?: string;
+      region?: string;
+      teeProvider?: string;
+    }>();
     const address = body.address.toLowerCase();
     
     trainingNodes.set(address, {
@@ -394,8 +401,19 @@ export function addTrainingRoutes(app: Hono): void {
       bandwidthMbps: 1000,
       isActive: true,
     });
+
+    console.log(`[Compute] Registered node ${address} with GPU tier ${body.gpuTier}`, {
+      capabilities: body.capabilities,
+      teeProvider: body.teeProvider,
+      region: body.region,
+    });
     
-    return c.json({ success: true, address });
+    return c.json({
+      success: true,
+      address,
+      gpuTier: body.gpuTier,
+      capabilities: body.capabilities,
+    });
   });
 
   // Training webhook for state updates

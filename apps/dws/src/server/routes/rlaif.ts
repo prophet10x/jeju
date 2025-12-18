@@ -15,12 +15,16 @@ import type { RLAIFRunConfig, RLAlgorithm } from '../../rlaif/types';
 
 const app = new Hono();
 
-// Initialize services
+// Initialize services with Phala TEE support
 const coordinator = createRLAIFCoordinator({
   rpcUrl: process.env.RPC_URL ?? 'http://localhost:8545',
   coordinatorAddress: (process.env.RLAIF_COORDINATOR_ADDRESS ?? '0x0') as `0x${string}`,
   computeApiUrl: process.env.COMPUTE_API_URL ?? 'http://localhost:4010',
   storageApiUrl: process.env.STORAGE_API_URL ?? 'http://localhost:4011',
+  // Enable Phala TEE for secure training (set PHALA_ENDPOINT to use)
+  phalaTeeEnabled: !!process.env.PHALA_ENDPOINT,
+  phalaEndpoint: process.env.PHALA_ENDPOINT,
+  phalaApiKey: process.env.PHALA_API_KEY,
 });
 
 const trajectoryStore = createTrajectoryStore({
@@ -91,7 +95,7 @@ app.post('/runs', async (c) => {
       clipRange: 0.2,
     },
     judge: {
-      modelCID: body.judge?.modelCID ?? 'gpt-4o-mini',
+      modelCID: body.judge?.modelCID ?? 'gpt-5',
       rubricId: body.judge?.rubricId ?? 'default',
       temperature: body.judge?.temperature ?? 0.3,
     },

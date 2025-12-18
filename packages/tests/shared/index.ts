@@ -10,9 +10,10 @@ export {
 
 export {
   createSynpressConfig, createWalletSetup, createSmokeTestConfig,
-  SEED_PHRASE, PASSWORD, TEST_WALLET_ADDRESS,
-  JEJU_CHAIN_ID, JEJU_RPC_URL, SYNPRESS_CACHE_DIR,
+  SEED_PHRASE, PASSWORD, TEST_WALLET_ADDRESS, TEST_ACCOUNTS,
+  JEJU_CHAIN, JEJU_CHAIN_ID, JEJU_RPC_URL, SYNPRESS_CACHE_DIR,
   GLOBAL_SETUP_PATH, GLOBAL_TEARDOWN_PATH,
+  type SynpressConfigOptions, type WalletSetupOptions, type WalletSetupResult,
 } from './synpress.config.base';
 
 // Playwright config
@@ -20,7 +21,6 @@ export {
   createAppConfig,
   createPlaywrightConfig,
   getTestEnv,
-  TEST_ACCOUNTS,
   type AppConfigOptions,
 } from './playwright.config.base';
 
@@ -40,6 +40,14 @@ export {
 
 // Dev startup
 export { ensureInfra, cleanup as devCleanup } from './dev-startup';
+
+// Mock OAuth3 server for testing
+export {
+  startMockOAuth3Server,
+  stopMockOAuth3Server,
+  getMockOAuth3Url,
+  clearMockOAuth3State,
+} from './mock-oauth3-server';
 
 // Helpers
 export * from './fixtures/wallet';
