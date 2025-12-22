@@ -5,12 +5,26 @@
  */
 
 import { Command } from 'commander';
-import { spawn } from 'bun';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../lib/logger';
-import { getChainStatus } from '../lib/chain';
+import { getChainStatus, bootstrapContracts } from '../lib/chain';
+import { createInfrastructureService } from '../services/infrastructure';
+import { findMonorepoRoot } from '../lib/system';
 import { DEFAULT_PORTS } from '../types';
+import { 
+  validate, 
+  ServiceHealthResponseSchema, 
+  UploadResponseSchema,
+  RepoListResponseSchema,
+  RepoSchema,
+  CreateRepoResponseSchema,
+  PackageSearchResultSchema,
+  PackageInfoSchema,
+  WorkflowListResponseSchema,
+  CIRunListResponseSchema,
+  CIRunSchema,
+} from '../schemas';
 import type { Address } from 'viem';
 
 const DWS_PORT = parseInt(process.env.DWS_PORT || '4030');
@@ -26,6 +40,15 @@ function getDefaultAddress(): Address {
 export const dwsCommand = new Command('dws')
   .description('Decentralized Web Services (storage, git, pkg, ci, cdn)')
   .addCommand(
+    new Command('dev')
+      .description('Start DWS in development mode (auto-starts infrastructure)')
+      .option('--port <port>', 'Server port', String(DWS_PORT))
+      .option('--no-bootstrap', 'Skip contract bootstrapping')
+      .action(async (options) => {
+        await startDwsDev(options);
+      })
+  )
+  .addCommand(
     new Command('status')
       .description('Check DWS services status')
       .action(async () => {
@@ -34,7 +57,7 @@ export const dwsCommand = new Command('dws')
   )
   .addCommand(
     new Command('start')
-      .description('Start DWS server')
+      .description('Start DWS server (requires infrastructure to be running)')
       .option('--network <network>', 'Network: localnet, testnet, mainnet', 'localnet')
       .option('--port <port>', 'Server port', String(DWS_PORT))
       .action(async (options) => {
@@ -134,6 +157,31 @@ export const dwsCommand = new Command('dws')
         await getRunDetails(runId);
       })
   )
+  // Seeding and setup
+  .addCommand(
+    new Command('seed')
+      .description('Seed development environment with test data')
+      .action(async () => {
+        await seedDev();
+      })
+  )
+  .addCommand(
+    new Command('self-host')
+      .description('Upload DWS to DWS storage (self-hosting)')
+      .action(async () => {
+        await selfHost();
+      })
+  )
+  .addCommand(
+    new Command('build-runner')
+      .description('Build CI runner Docker images (ARM64 + AMD64)')
+      .option('--push', 'Push images to registry')
+      .option('--version <version>', 'Image version tag', 'latest')
+      .option('--registry <url>', 'Docker registry URL', 'ghcr.io/jeju-labs')
+      .action(async (options) => {
+        await buildRunner(options);
+      })
+  )
   // CDN subcommands
   .addCommand(
     new Command('cdn-status')
@@ -163,42 +211,33 @@ async function checkStatus(): Promise<void> {
     });
 
     if (response.ok) {
-      const health = (await response.json()) as {
-        status: string;
-        service: string;
-        version: string;
-        uptime: number;
-        decentralized?: {
-          identityRegistry: string;
-          registeredNodes: number;
-          connectedPeers: number;
-          frontendCid: string;
-          p2pEnabled: boolean;
-        };
-        services: Record<string, { status: string }>;
-        backends: { available: string[]; health: Record<string, boolean> };
-      };
+      const rawData = await response.json();
+      const health = validate(rawData, ServiceHealthResponseSchema, 'DWS health');
 
       logger.newline();
       logger.subheader('DWS Server');
       logger.table([
         { label: 'Status', value: health.status, status: health.status === 'healthy' ? 'ok' : 'error' },
-        { label: 'Version', value: health.version, status: 'ok' },
-        { label: 'Uptime', value: `${Math.floor(health.uptime / 1000)}s`, status: 'ok' },
+        { label: 'Version', value: health.version ?? 'unknown', status: 'ok' },
+        { label: 'Uptime', value: health.uptime ? `${Math.floor(health.uptime / 1000)}s` : 'unknown', status: 'ok' },
       ]);
 
       logger.newline();
       logger.subheader('Services');
-      for (const [name, svc] of Object.entries(health.services)) {
-        const status = svc.status === 'healthy' ? 'ok' : svc.status === 'not-configured' ? 'warn' : 'error';
-        logger.table([{ label: name, value: svc.status, status }]);
+      if (health.services) {
+        for (const [name, svc] of Object.entries(health.services)) {
+          const status = svc.status === 'healthy' ? 'ok' : svc.status === 'not-configured' ? 'warn' : 'error';
+          logger.table([{ label: name, value: svc.status, status }]);
+        }
       }
 
-      logger.newline();
-      logger.subheader('Storage Backends');
-      for (const backend of health.backends.available) {
-        const healthy = health.backends.health[backend];
-        logger.table([{ label: backend, value: healthy ? 'healthy' : 'unhealthy', status: healthy ? 'ok' : 'error' }]);
+      if (health.backends) {
+        logger.newline();
+        logger.subheader('Storage Backends');
+        for (const backend of health.backends.available) {
+          const healthy = health.backends.health[backend];
+          logger.table([{ label: backend, value: healthy ? 'healthy' : 'unhealthy', status: healthy ? 'ok' : 'error' }]);
+        }
       }
 
       if (health.decentralized) {
@@ -219,10 +258,91 @@ async function checkStatus(): Promise<void> {
   }
 }
 
+/**
+ * Start DWS in development mode with full infrastructure
+ * This is the main development entry point - starts Docker, services, localnet, and DWS
+ */
+async function startDwsDev(options: { port: string; bootstrap?: boolean }): Promise<void> {
+  const rootDir = findMonorepoRoot();
+  const dwsDir = join(rootDir, 'apps/dws');
+
+  if (!existsSync(dwsDir)) {
+    logger.error('DWS app not found');
+    process.exit(1);
+  }
+
+  console.log('\n╔══════════════════════════════════════════════════════════════╗');
+  console.log('║                     JEJU DWS DEV MODE                        ║');
+  console.log('╠══════════════════════════════════════════════════════════════╣');
+  console.log('║  All infrastructure required - no fallbacks.                 ║');
+  console.log('╚══════════════════════════════════════════════════════════════╝\n');
+
+  // Step 1: Start all infrastructure (Docker, services, localnet)
+  const infra = createInfrastructureService(rootDir);
+  const infraReady = await infra.ensureRunning();
+  
+  if (!infraReady) {
+    logger.error('Failed to start infrastructure');
+    logger.info('  Run: jeju infra status');
+    process.exit(1);
+  }
+
+  const rpcUrl = `http://127.0.0.1:${DEFAULT_PORTS.l2Rpc}`;
+
+  // Step 2: Bootstrap contracts (if enabled)
+  if (options.bootstrap !== false) {
+    const bootstrapFile = join(rootDir, 'packages/contracts/deployments/localnet-complete.json');
+    if (!existsSync(bootstrapFile)) {
+      logger.subheader('Contracts');
+      logger.step('Bootstrapping contracts...');
+      await bootstrapContracts(rootDir, rpcUrl);
+    } else {
+      logger.success('Contracts already deployed');
+    }
+  }
+
+  // Step 3: Start DWS server
+  logger.subheader('DWS Server');
+  logger.keyValue('Port', options.port);
+  logger.keyValue('RPC', rpcUrl);
+  logger.keyValue('CQL', 'http://127.0.0.1:4661');
+  logger.newline();
+
+  // Get environment from infrastructure service
+  const infraEnv = infra.getEnvVars();
+  
+  const proc = Bun.spawn({
+    cmd: ['bun', 'run', 'src/server/index.ts'],
+    cwd: dwsDir,
+    stdout: 'inherit',
+    stderr: 'inherit',
+    env: {
+      ...process.env,
+      ...infraEnv,
+      PORT: options.port,
+      DWS_PORT: options.port,
+      NETWORK: 'localnet',
+    },
+  });
+
+  // Handle shutdown
+  const cleanup = () => {
+    logger.newline();
+    logger.step('Shutting down...');
+    proc.kill('SIGTERM');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+
+  await proc.exited;
+}
+
 async function startDws(options: { network: string; port: string }): Promise<void> {
   logger.header('DWS SERVER');
 
-  const rootDir = process.cwd();
+  const rootDir = findMonorepoRoot();
   const dwsDir = join(rootDir, 'apps/dws');
 
   if (!existsSync(dwsDir)) {
@@ -232,7 +352,8 @@ async function startDws(options: { network: string; port: string }): Promise<voi
 
   const chain = await getChainStatus(options.network as 'localnet' | 'testnet' | 'mainnet');
   if (!chain.running && options.network === 'localnet') {
-    logger.warn('Chain not running. Start with: jeju dev');
+    logger.warn('Chain not running. Use: jeju dws dev (auto-starts everything)');
+    logger.info('  Or start infrastructure manually: jeju infra start');
     process.exit(1);
   }
 
@@ -246,13 +367,21 @@ async function startDws(options: { network: string; port: string }): Promise<voi
   logger.keyValue('Network', options.network);
   logger.keyValue('RPC URL', rpcUrl);
 
-  const proc = spawn({
-    cmd: ['bun', 'run', 'start'],
+  // For localnet, get environment from infrastructure service
+  let infraEnv: Record<string, string> = {};
+  if (options.network === 'localnet') {
+    const infra = createInfrastructureService(rootDir);
+    infraEnv = infra.getEnvVars();
+  }
+
+  const proc = Bun.spawn({
+    cmd: ['bun', 'run', 'src/server/index.ts'],
     cwd: dwsDir,
     stdout: 'inherit',
     stderr: 'inherit',
     env: {
       ...process.env,
+      ...infraEnv,
       PORT: options.port,
       DWS_PORT: options.port,
       NETWORK: options.network,
@@ -306,10 +435,11 @@ async function uploadFile(filePath: string): Promise<void> {
       throw new Error(error);
     }
 
-    const result = (await response.json()) as { cid: string; backend: string; size: number };
+    const rawResult = await response.json();
+    const result = validate(rawResult, UploadResponseSchema, 'upload response');
     logger.success('Upload complete');
     logger.keyValue('CID', result.cid);
-    logger.keyValue('Backend', result.backend);
+    if (result.backend) logger.keyValue('Backend', result.backend);
     logger.newline();
     logger.info(`Download with: jeju dws download ${result.cid}`);
   } catch (error) {
@@ -368,18 +498,8 @@ async function listRepos(options: { user?: string; limit: string }): Promise<voi
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = (await response.json()) as {
-      repositories: Array<{
-        repoId: string;
-        owner: string;
-        name: string;
-        description: string;
-        visibility: string;
-        starCount: number;
-        cloneUrl: string;
-      }>;
-      total?: number;
-    };
+    const rawData = await response.json();
+    const data = validate(rawData, RepoListResponseSchema, 'repo list response');
 
     if (data.repositories.length === 0) {
       logger.info('No repositories found');
@@ -392,7 +512,7 @@ async function listRepos(options: { user?: string; limit: string }): Promise<voi
       const visibility = repo.visibility === 'private' ? '🔒' : '📦';
       console.log(`  ${visibility} ${repo.owner.slice(0, 8)}.../${repo.name}`);
       if (repo.description) console.log(`     ${repo.description}`);
-      console.log(`     ⭐ ${repo.starCount} | Clone: ${repo.cloneUrl}`);
+      console.log(`     ⭐ ${repo.starCount ?? 0}${repo.cloneUrl ? ` | Clone: ${repo.cloneUrl}` : ''}`);
       console.log('');
     }
   } catch (error) {
@@ -418,33 +538,21 @@ async function getRepo(owner: string, name: string): Promise<void> {
       process.exit(1);
     }
 
-    const repo = (await response.json()) as {
-      repoId: string;
-      owner: string;
-      name: string;
-      description: string;
-      visibility: string;
-      starCount: number;
-      forkCount: number;
-      createdAt: number;
-      updatedAt: number;
-      defaultBranch: string;
-      branches: Array<{ name: string; tipCommit: string; protected: boolean }>;
-      cloneUrl: string;
-    };
+    const rawRepo = await response.json();
+    const repo = validate(rawRepo, RepoSchema, 'repo details');
 
     logger.header('REPOSITORY DETAILS');
     logger.keyValue('Name', `${repo.owner.slice(0, 10)}.../${repo.name}`);
     logger.keyValue('ID', repo.repoId);
-    logger.keyValue('Visibility', repo.visibility);
+    if (repo.visibility) logger.keyValue('Visibility', repo.visibility);
     if (repo.description) logger.keyValue('Description', repo.description);
-    logger.keyValue('Stars', String(repo.starCount));
-    logger.keyValue('Forks', String(repo.forkCount));
-    logger.keyValue('Default Branch', repo.defaultBranch);
-    logger.keyValue('Created', new Date(repo.createdAt * 1000).toISOString());
-    logger.keyValue('Clone URL', repo.cloneUrl);
+    if (repo.starCount !== undefined) logger.keyValue('Stars', String(repo.starCount));
+    if (repo.forkCount !== undefined) logger.keyValue('Forks', String(repo.forkCount));
+    if (repo.defaultBranch) logger.keyValue('Default Branch', repo.defaultBranch);
+    if (repo.createdAt) logger.keyValue('Created', new Date(repo.createdAt * 1000).toISOString());
+    if (repo.cloneUrl) logger.keyValue('Clone URL', repo.cloneUrl);
 
-    if (repo.branches.length > 0) {
+    if (repo.branches && repo.branches.length > 0) {
       logger.newline();
       logger.subheader('Branches');
       for (const branch of repo.branches) {
@@ -494,7 +602,8 @@ async function createRepo(
       throw new Error(error);
     }
 
-    const result = (await response.json()) as { repoId: string; cloneUrl: string };
+    const rawResult = await response.json();
+    const result = validate(rawResult, CreateRepoResponseSchema, 'create repo response');
     logger.success('Repository created');
     logger.keyValue('Repo ID', result.repoId);
     logger.keyValue('Clone URL', result.cloneUrl);
@@ -522,18 +631,8 @@ async function searchPackages(query: string, options: { limit: string }): Promis
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = (await response.json()) as {
-      objects: Array<{
-        package: {
-          name: string;
-          scope?: string;
-          version: string;
-          description: string;
-          publisher: { username: string };
-        };
-      }>;
-      total: number;
-    };
+    const rawData = await response.json();
+    const data = validate(rawData, PackageSearchResultSchema, 'package search result');
 
     if (data.objects.length === 0) {
       logger.info('No packages found');
@@ -573,13 +672,8 @@ async function getPackageInfo(name: string): Promise<void> {
       process.exit(1);
     }
 
-    const pkg = (await response.json()) as {
-      name: string;
-      description?: string;
-      'dist-tags'?: Record<string, string>;
-      versions: Record<string, { version: string; description?: string }>;
-      time?: Record<string, string>;
-    };
+    const rawPkg = await response.json();
+    const pkg = validate(rawPkg, PackageInfoSchema, 'package info');
 
     logger.header('PACKAGE INFO');
     logger.keyValue('Name', pkg.name);
@@ -619,16 +713,8 @@ async function listWorkflows(repoId: string): Promise<void> {
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = (await response.json()) as {
-      workflows: Array<{
-        workflowId: string;
-        name: string;
-        description: string;
-        triggers: string[];
-        jobs: Array<{ name: string; stepCount: number }>;
-        active: boolean;
-      }>;
-    };
+    const rawData = await response.json();
+    const data = validate(rawData, WorkflowListResponseSchema, 'workflow list');
 
     if (data.workflows.length === 0) {
       logger.info('No workflows found');
@@ -667,20 +753,8 @@ async function listRuns(repoId: string, options: { status?: string; limit: strin
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = (await response.json()) as {
-      runs: Array<{
-        runId: string;
-        workflowId: string;
-        status: string;
-        conclusion: string | null;
-        branch: string;
-        commitSha: string;
-        startedAt: number;
-        completedAt: number | null;
-        duration: number;
-      }>;
-      total: number;
-    };
+    const rawData = await response.json();
+    const data = validate(rawData, CIRunListResponseSchema, 'CI run list');
 
     if (data.runs.length === 0) {
       logger.info('No runs found');
@@ -697,7 +771,7 @@ async function listRuns(repoId: string, options: { status?: string; limit: strin
       console.log(`  ${statusIcon} ${run.runId.slice(0, 8)}...`);
       console.log(`     Branch: ${run.branch} @ ${run.commitSha}`);
       console.log(`     Status: ${run.status}${run.conclusion ? ` (${run.conclusion})` : ''}`);
-      console.log(`     Duration: ${Math.round(run.duration / 1000)}s`);
+      if (run.duration !== undefined) console.log(`     Duration: ${Math.round(run.duration / 1000)}s`);
       console.log('');
     }
   } catch (error) {
@@ -723,31 +797,8 @@ async function getRunDetails(runId: string): Promise<void> {
       process.exit(1);
     }
 
-    const run = (await response.json()) as {
-      runId: string;
-      workflowId: string;
-      repoId: string;
-      status: string;
-      conclusion: string | null;
-      branch: string;
-      commitSha: string;
-      triggeredBy: string;
-      startedAt: number;
-      completedAt: number | null;
-      jobs: Array<{
-        jobId: string;
-        name: string;
-        status: string;
-        conclusion: string | null;
-        steps: Array<{
-          stepId: string;
-          name: string;
-          status: string;
-          conclusion: string | null;
-          exitCode: number | null;
-        }>;
-      }>;
-    };
+    const rawRun = await response.json();
+    const run = validate(rawRun, CIRunSchema, 'CI run details');
 
     logger.header('RUN DETAILS');
     logger.keyValue('Run ID', run.runId);
@@ -756,11 +807,11 @@ async function getRunDetails(runId: string): Promise<void> {
     if (run.conclusion) logger.keyValue('Conclusion', run.conclusion);
     logger.keyValue('Branch', run.branch);
     logger.keyValue('Commit', run.commitSha);
-    logger.keyValue('Triggered By', run.triggeredBy);
+    if (run.triggeredBy) logger.keyValue('Triggered By', run.triggeredBy);
     logger.keyValue('Started', new Date(run.startedAt).toISOString());
     if (run.completedAt) logger.keyValue('Completed', new Date(run.completedAt).toISOString());
 
-    if (run.jobs.length > 0) {
+    if (run.jobs && run.jobs.length > 0) {
       logger.newline();
       logger.subheader('Jobs');
       for (const job of run.jobs) {
@@ -828,3 +879,281 @@ async function checkCdnStatus(): Promise<void> {
   }
 }
 
+/**
+ * Seed development environment with test data
+ */
+async function seedDev(): Promise<void> {
+  const dwsUrl = getDwsUrl();
+  const testAddress = getDefaultAddress();
+
+  logger.header('DWS SEED');
+  logger.keyValue('DWS URL', dwsUrl);
+  logger.keyValue('Test Address', testAddress);
+  logger.newline();
+
+  // Wait for DWS
+  logger.step('Waiting for DWS...');
+  for (let i = 0; i < 30; i++) {
+    try {
+      const res = await fetch(`${dwsUrl}/health`, { signal: AbortSignal.timeout(2000) });
+      if (res.ok) break;
+    } catch {
+      // Retry
+    }
+    if (i === 29) {
+      logger.error('DWS not available');
+      logger.info('  Start DWS first: jeju dws dev');
+      process.exit(1);
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  logger.success('DWS ready');
+
+  // Seed storage
+  logger.subheader('Storage');
+  const files = [
+    { name: 'readme.txt', content: 'Welcome to DWS - Decentralized Web Services' },
+    { name: 'config.json', content: JSON.stringify({ version: '1.0.0', network: 'localnet' }) },
+    { name: 'sample.html', content: '<html><body><h1>Hello DWS</h1></body></html>' },
+  ];
+
+  for (const file of files) {
+    try {
+      const res = await fetch(`${dwsUrl}/storage/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain',
+          'x-jeju-address': testAddress,
+          'x-filename': file.name,
+        },
+        body: file.content,
+      });
+      if (res.ok) {
+        const { cid } = await res.json() as { cid: string };
+        logger.success(`${file.name} -> ${cid.slice(0, 16)}...`);
+      }
+    } catch {
+      logger.warn(`Failed to upload ${file.name}`);
+    }
+  }
+
+  // Seed S3 buckets
+  logger.subheader('S3 Buckets');
+  const buckets = ['dev-assets', 'dev-uploads', 'dev-cache'];
+  for (const bucket of buckets) {
+    try {
+      const res = await fetch(`${dwsUrl}/s3/${bucket}`, {
+        method: 'PUT',
+        headers: { 'x-jeju-address': testAddress },
+      });
+      if (res.ok || res.status === 409) {
+        logger.success(`Bucket: ${bucket}`);
+      }
+    } catch {
+      logger.warn(`Failed to create bucket ${bucket}`);
+    }
+  }
+
+  // Verify services
+  logger.subheader('Services');
+  const services = [
+    { name: 'Storage', endpoint: '/storage/health' },
+    { name: 'Compute', endpoint: '/compute/health' },
+    { name: 'CDN', endpoint: '/cdn/health' },
+    { name: 'KMS', endpoint: '/kms/health' },
+    { name: 'Git', endpoint: '/git/health' },
+    { name: 'Pkg', endpoint: '/pkg/health' },
+    { name: 'CI', endpoint: '/ci/health' },
+  ];
+
+  let healthy = 0;
+  for (const service of services) {
+    try {
+      const res = await fetch(`${dwsUrl}${service.endpoint}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        logger.success(service.name);
+        healthy++;
+      } else {
+        logger.warn(`${service.name} (${res.status})`);
+      }
+    } catch {
+      logger.error(`${service.name} (unreachable)`);
+    }
+  }
+
+  logger.newline();
+  logger.success(`Seeded. ${healthy}/${services.length} services healthy.`);
+}
+
+/**
+ * Self-host DWS on DWS storage
+ */
+async function selfHost(): Promise<void> {
+  const dwsUrl = getDwsUrl();
+  const testAddress = getDefaultAddress();
+
+  logger.header('DWS SELF-HOST');
+  logger.keyValue('DWS URL', dwsUrl);
+  logger.keyValue('Deployer', testAddress);
+  logger.newline();
+
+  // Check DWS health
+  try {
+    const res = await fetch(`${dwsUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error('DWS not healthy');
+    logger.success('DWS running');
+  } catch {
+    logger.error('DWS not available');
+    logger.info('  Start DWS first: jeju dws dev');
+    process.exit(1);
+  }
+
+  // Create DWS repository on DWS Git
+  logger.step('Creating DWS repository...');
+  try {
+    const res = await fetch(`${dwsUrl}/git/repos`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-jeju-address': testAddress,
+      },
+      body: JSON.stringify({
+        name: 'dws',
+        description: 'Decentralized Web Services - Storage, Compute, CDN, Git, and NPM',
+        visibility: 'public',
+      }),
+    });
+
+    if (res.ok) {
+      const { repoId, cloneUrl } = await res.json() as { repoId: string; cloneUrl: string };
+      logger.success('Repository created');
+      logger.keyValue('Repo ID', repoId);
+      logger.keyValue('Clone URL', cloneUrl);
+    } else if (res.status === 409) {
+      logger.info('Repository already exists');
+    } else {
+      const err = await res.text();
+      logger.warn(`Failed to create repo: ${err}`);
+    }
+  } catch (e) {
+    logger.error(`Failed to create repo: ${e}`);
+  }
+
+  // Upload sample frontend
+  logger.step('Uploading sample frontend...');
+  const sampleHtml = `<!DOCTYPE html>
+<html>
+<head><title>DWS</title></head>
+<body>
+<h1>Decentralized Web Services</h1>
+<p>Running on Jeju Network</p>
+</body>
+</html>`;
+
+  try {
+    const res = await fetch(`${dwsUrl}/storage/upload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/html',
+        'x-jeju-address': testAddress,
+        'x-filename': 'index.html',
+      },
+      body: sampleHtml,
+    });
+
+    if (res.ok) {
+      const { cid } = await res.json() as { cid: string };
+      logger.success('Frontend uploaded');
+      logger.keyValue('Frontend CID', cid);
+      logger.newline();
+      logger.info('To run DWS with decentralized frontend:');
+      logger.info(`  DWS_FRONTEND_CID=${cid} jeju dws dev`);
+    }
+  } catch (e) {
+    logger.error(`Failed to upload frontend: ${e}`);
+  }
+
+  logger.newline();
+  logger.success('Self-hosting setup complete');
+}
+
+/**
+ * Build CI runner Docker images
+ */
+async function buildRunner(options: { push?: boolean; version: string; registry: string }): Promise<void> {
+  const rootDir = findMonorepoRoot();
+  const dockerDir = join(rootDir, 'apps/dws/docker');
+  const imageName = 'jeju-runner';
+
+  logger.header('BUILD CI RUNNER');
+  logger.keyValue('Registry', options.registry);
+  logger.keyValue('Version', options.version);
+  logger.keyValue('Push', options.push ? 'Yes' : 'No');
+  logger.newline();
+
+  // Create buildx builder
+  logger.step('Setting up Docker buildx...');
+  const createBuilder = Bun.spawn(['docker', 'buildx', 'create', '--use', '--name', 'jeju-builder'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  await createBuilder.exited;
+
+  const inspectBuilder = Bun.spawn(['docker', 'buildx', 'inspect', '--bootstrap'], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  await inspectBuilder.exited;
+  logger.success('Buildx ready');
+
+  // Build image
+  logger.step('Building images...');
+  const platforms = options.push ? 'linux/amd64,linux/arm64' : `linux/${process.arch === 'arm64' ? 'arm64' : 'amd64'}`;
+
+  const buildArgs = [
+    'docker', 'buildx', 'build',
+    '--platform', platforms,
+    '-f', join(dockerDir, 'Dockerfile.runner'),
+    '-t', `${options.registry}/${imageName}:${options.version}`,
+    '-t', `${options.registry}/${imageName}:latest`,
+  ];
+
+  if (options.push) {
+    buildArgs.push('--push');
+  } else {
+    buildArgs.push('--load');
+  }
+
+  buildArgs.push(dockerDir);
+
+  const build = Bun.spawn(buildArgs, {
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+
+  const exitCode = await build.exited;
+  if (exitCode !== 0) {
+    logger.error('Build failed');
+    process.exit(1);
+  }
+
+  logger.success('Build complete');
+  logger.newline();
+
+  if (options.push) {
+    logger.info('Images pushed:');
+    logger.info(`  ${options.registry}/${imageName}:${options.version}`);
+    logger.info(`  ${options.registry}/${imageName}:latest`);
+  } else {
+    logger.info('Image loaded locally:');
+    logger.info(`  ${options.registry}/${imageName}:latest`);
+  }
+
+  logger.newline();
+  logger.info('To test the runner locally:');
+  logger.info(`  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\`);
+  logger.info(`    -e JEJU_WORKFLOW=$(echo '{"runId":"test","jobId":"build","job":{"steps":[{"run":"echo hello"}]}}' | base64) \\`);
+  logger.info(`    ${options.registry}/${imageName}:latest`);
+}

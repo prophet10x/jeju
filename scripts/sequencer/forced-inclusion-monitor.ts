@@ -17,7 +17,7 @@
  *   FORCER_PRIVATE_KEY - (optional) Wallet to force-include and earn rewards
  */
 
-import { createPublicClient, createWalletClient, http, parseAbi, readContract, waitForTransactionReceipt, formatEther, getLogs, decodeEventLog, watchContractEvent, getBlockNumber, getBalance, encodePacked, type Address, type PublicClient, type WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbi, readContract, waitForTransactionReceipt, formatEther, getLogs, decodeEventLog, watchContractEvent, getBalance, encodePacked, type Address, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { inferChainFromRpcUrl } from '../shared/chain-utils';
 import { readFileSync, existsSync } from 'fs';
@@ -424,7 +424,7 @@ async function main(): Promise<void> {
   console.log('📡 Forced Inclusion Monitor\n');
 
   const network = process.env.NETWORK || 'localnet';
-  const l1RpcUrl = process.env.L1_RPC_URL || 'http://127.0.0.1:8545';
+  const l1RpcUrl = process.env.L1_RPC_URL || 'http://127.0.0.1:6545';
   const alertThreshold = parseInt(process.env.ALERT_THRESHOLD || '10', 10);
   const checkInterval = parseInt(process.env.CHECK_INTERVAL || '12000', 10);
 

@@ -3,19 +3,16 @@
  * Defines the Otto agent character for ElizaOS runtime
  */
 
-import type { Character } from '@elizaos/core';
+import type { IAgentRuntime } from '@elizaos/core';
+import { ottoPlugin } from './plugin';
 
 // Otto character definition for ElizaOS
-export const ottoCharacter: Character = {
+export const ottoCharacter = {
   name: 'Otto',
-  modelProvider: 'openrouter',
-  clients: [],
-  plugins: [],
+  plugins: ['otto'],
   
   settings: {
-    voice: {
-      model: 'en_US-male-medium',
-    },
+    voice: { model: 'en_US-male-medium' },
   },
   
   system: `You are Otto, a trading agent on the Jeju Network.
@@ -109,6 +106,45 @@ Always ask for confirmation before executing trades.`,
       'Share tips and best practices',
     ],
   },
+};
+
+export const ottoAgent = {
+  character: ottoCharacter,
+  
+  init: async (_runtime: IAgentRuntime) => {
+    console.log('[Otto] Initializing Otto agent...');
+    console.log('[Otto] Character:', ottoCharacter.name);
+  },
+  
+  plugins: [ottoPlugin],
+};
+
+// Get platform plugins based on environment
+export function getPlatformPlugins(): string[] {
+  const plugins: string[] = [];
+  
+  if (process.env.DISCORD_BOT_TOKEN?.trim()) {
+    plugins.push('@elizaos/plugin-discord');
+  }
+  
+  if (process.env.TELEGRAM_BOT_TOKEN?.trim()) {
+    plugins.push('@elizaos/plugin-telegram');
+  }
+  
+  if (
+    process.env.TWITTER_API_KEY?.trim() &&
+    process.env.TWITTER_API_SECRET?.trim() &&
+    process.env.TWITTER_ACCESS_TOKEN?.trim() &&
+    process.env.TWITTER_ACCESS_TOKEN_SECRET?.trim()
+  ) {
+    plugins.push('@elizaos/plugin-twitter');
+  }
+  
+  return plugins;
+}
+
+export const ottoProject = {
+  agents: [ottoAgent],
 };
 
 // Re-export plugin

@@ -9,7 +9,7 @@ import { createPublicClient, http, formatUnits } from 'viem';
 import { inferChainFromRpcUrl } from './chain-utils';
 
 describe('RPC Utilities', () => {
-  const LOCALNET_RPC = process.env.RPC_ETH_HTTP || 'http://127.0.0.1:9545';
+  const LOCALNET_RPC = process.env.RPC_ETH_HTTP || 'http://127.0.0.1:6546';
 
   describe('FailoverProvider', () => {
     it('should create provider with single URL', () => {
@@ -37,7 +37,7 @@ describe('RPC Utilities', () => {
         expect(blockNumber).toBeGreaterThanOrEqual(0);
         
         console.log(`   ✅ Connected to RPC at block ${blockNumber}`);
-      } catch (error) {
+      } catch {
         console.log('   ⚠️  RPC not available (localnet not running)');
       }
     }, 10000);
@@ -54,7 +54,7 @@ describe('RPC Utilities', () => {
         const blockNumber = await provider.getBlockNumber();
         
         console.log(`   ✅ Failover succeeded at block ${blockNumber}`);
-      } catch (error) {
+      } catch {
         console.log('   ℹ️  All endpoints failed (expected if localnet not running)');
       }
     }, 15000);
@@ -68,7 +68,7 @@ describe('RPC Utilities', () => {
           console.log('   ✅ RPC is healthy');
           expect(isHealthy).toBe(true);
         }
-      } catch (error) {
+      } catch {
         console.log('   ⚠️  RPC not available');
       }
     }, 10000);
@@ -103,7 +103,7 @@ describe('RPC Utilities', () => {
         console.log(`      Chain ID: ${info.chainId}`);
         console.log(`      Block: ${info.blockNumber}`);
         console.log(`      Gas Price: ${formatUnits(info.gasPrice, 'gwei')} gwei`);
-      } catch (error) {
+      } catch {
         console.log('   ⚠️  Cannot get network info (RPC not available)');
       }
     }, 10000);

@@ -220,29 +220,29 @@ export const VENDOR_PORTS = {
 } as const;
 
 // ============================================================================
-// Infrastructure Ports (8000-9999 range)
+// Infrastructure Ports (6xxx range for Jeju chain, 9xxx for other infra)
 // ============================================================================
 
 export const INFRA_PORTS = {
-  /** L1 RPC (Geth) - Static port for wallet compatibility */
+  /** L1 RPC - Jeju localnet L1 (6545 to avoid conflicts with standard anvil 8545) */
   L1_RPC: {
-    DEFAULT: 8545,
+    DEFAULT: 6545,
     ENV_VAR: 'L1_RPC_PORT',
-    get: () => parseInt(process.env.L1_RPC_PORT || '8545')
+    get: () => parseInt(process.env.L1_RPC_PORT || '6545')
   },
 
-  /** L2 RPC (OP-Geth) - Static port for wallet compatibility */
+  /** L2 RPC - Jeju localnet L2 (main chain) */
   L2_RPC: {
-    DEFAULT: 9545,
+    DEFAULT: 6546,
     ENV_VAR: 'L2_RPC_PORT',
-    get: () => parseInt(process.env.L2_RPC_PORT || '9545')
+    get: () => parseInt(process.env.L2_RPC_PORT || '6546')
   },
 
   /** L2 WebSocket */
   L2_WS: {
-    DEFAULT: 9546,
+    DEFAULT: 6547,
     ENV_VAR: 'L2_WS_PORT',
-    get: () => parseInt(process.env.L2_WS_PORT || '9546')
+    get: () => parseInt(process.env.L2_WS_PORT || '6547')
   },
 
   /** Prometheus */
@@ -271,26 +271,40 @@ export const INFRA_PORTS = {
 // URL Builders
 // ============================================================================
 
+/** Port configuration interface used by all port registries */
+interface PortConfig {
+  DEFAULT: number;
+  ENV_VAR: string;
+  get: () => number;
+}
+
+/**
+ * Generic URL builder for any port config
+ * Checks environment for full URL override, then port override, then uses default
+ */
+function buildUrl(portConfig: PortConfig, protocol: 'http' | 'ws' = 'http'): string {
+  const urlEnvVar = portConfig.ENV_VAR.replace('_PORT', '_URL');
+  
+  // Check for full URL override
+  const envUrl = process.env[urlEnvVar];
+  if (envUrl) {
+    return envUrl;
+  }
+  
+  // Build URL from port (with port override support)
+  const port = portConfig.get();
+  const host = process.env.HOST ?? 'localhost';
+  return `${protocol}://${host}:${port}`;
+}
+
 /**
  * Build URL for a core app service
- * Checks environment for full URL override, then port override, then uses default
  */
 export function getCoreAppUrl(
   appName: keyof typeof CORE_PORTS,
   protocol: 'http' | 'ws' = 'http'
 ): string {
-  const portConfig = CORE_PORTS[appName];
-  const urlEnvVar = `${portConfig.ENV_VAR.replace('_PORT', '_URL')}`;
-  
-  // 1. Check for full URL override
-  if (process.env[urlEnvVar]) {
-    return process.env[urlEnvVar]!;
-  }
-  
-  // 2. Build URL from port (with port override support)
-  const port = portConfig.get();
-  const host = process.env.HOST || 'localhost';
-  return `${protocol}://${host}:${port}`;
+  return buildUrl(CORE_PORTS[appName], protocol);
 }
 
 /**
@@ -300,18 +314,7 @@ export function getVendorAppUrl(
   appName: keyof typeof VENDOR_PORTS,
   protocol: 'http' | 'ws' = 'http'
 ): string {
-  const portConfig = VENDOR_PORTS[appName];
-  const urlEnvVar = `${portConfig.ENV_VAR.replace('_PORT', '_URL')}`;
-  
-  // 1. Check for full URL override
-  if (process.env[urlEnvVar]) {
-    return process.env[urlEnvVar]!;
-  }
-  
-  // 2. Build URL from port
-  const port = portConfig.get();
-  const host = process.env.HOST || 'localhost';
-  return `${protocol}://${host}:${port}`;
+  return buildUrl(VENDOR_PORTS[appName], protocol);
 }
 
 /**
@@ -321,18 +324,7 @@ export function getInfraUrl(
   serviceName: keyof typeof INFRA_PORTS,
   protocol: 'http' | 'ws' = 'http'
 ): string {
-  const portConfig = INFRA_PORTS[serviceName];
-  const urlEnvVar = `${portConfig.ENV_VAR.replace('_PORT', '_URL')}`;
-  
-  // 1. Check for full URL override
-  if (process.env[urlEnvVar]) {
-    return process.env[urlEnvVar]!;
-  }
-  
-  // 2. Build URL from port
-  const port = portConfig.get();
-  const host = process.env.HOST || 'localhost';
-  return `${protocol}://${host}:${port}`;
+  return buildUrl(INFRA_PORTS[serviceName], protocol);
 }
 
 // ============================================================================
@@ -411,3 +403,56 @@ export function checkPortConflicts(): { hasConflicts: boolean; conflicts: string
   };
 }
 
+// ============================================================================
+// RPC URL Helpers - Use these instead of hardcoding ports
+// ============================================================================
+
+/**
+ * Get the localnet L1 RPC URL
+ * Respects environment variable overrides: L1_RPC_URL, then L1_RPC_PORT
+ */
+export function getL1RpcUrl(): string {
+  if (process.env.L1_RPC_URL) return process.env.L1_RPC_URL;
+  const port = INFRA_PORTS.L1_RPC.get();
+  const host = process.env.RPC_HOST || '127.0.0.1';
+  return `http://${host}:${port}`;
+}
+
+/**
+ * Get the localnet L2 RPC URL (main Jeju chain)
+ * Respects environment variable overrides: L2_RPC_URL, JEJU_RPC_URL, RPC_URL, then L2_RPC_PORT
+ */
+export function getL2RpcUrl(): string {
+  if (process.env.L2_RPC_URL) return process.env.L2_RPC_URL;
+  if (process.env.JEJU_RPC_URL) return process.env.JEJU_RPC_URL;
+  if (process.env.RPC_URL) return process.env.RPC_URL;
+  const port = INFRA_PORTS.L2_RPC.get();
+  const host = process.env.RPC_HOST || '127.0.0.1';
+  return `http://${host}:${port}`;
+}
+
+/**
+ * Get the localnet L2 WebSocket URL
+ * Respects environment variable overrides: L2_WS_URL, then L2_WS_PORT
+ */
+export function getL2WsUrl(): string {
+  if (process.env.L2_WS_URL) return process.env.L2_WS_URL;
+  const port = INFRA_PORTS.L2_WS.get();
+  const host = process.env.RPC_HOST || '127.0.0.1';
+  return `ws://${host}:${port}`;
+}/**
+ * Alias for getL2RpcUrl - the "default" Jeju RPC
+ */
+export const getJejuRpcUrl = getL2RpcUrl;/**
+ * Check if a URL points to localnet
+ */
+export function isLocalnet(rpcUrl: string): boolean {
+  const l1Port = INFRA_PORTS.L1_RPC.get();
+  const l2Port = INFRA_PORTS.L2_RPC.get();
+  return (
+    rpcUrl.includes('localhost') || 
+    rpcUrl.includes('127.0.0.1') || 
+    rpcUrl.includes(`:${l1Port}`) || 
+    rpcUrl.includes(`:${l2Port}`)
+  );
+}

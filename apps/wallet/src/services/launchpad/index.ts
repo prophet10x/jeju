@@ -3,7 +3,7 @@
  * Launch tokens, buy/sell on bonding curves, ICO presales
  */
 
-import { type Address, type Hex, type PublicClient, encodeFunctionData, formatUnits, parseUnits, keccak256, toHex, createPublicClient, http } from 'viem';
+import { type Address, type Hex, type PublicClient, encodeFunctionData, createPublicClient, http } from 'viem';
 import { getChainContracts, getNetworkRpcUrl } from '../../sdk/chains';
 import { rpcService, type SupportedChainId, SUPPORTED_CHAINS } from '../rpc';
 
@@ -162,7 +162,7 @@ export class LaunchpadService {
       return rpcService.getClient(this.chainId as SupportedChainId);
     }
     if (!this.clientCache.has(this.chainId)) {
-      const rpcUrl = getNetworkRpcUrl(this.chainId) || 'http://localhost:8545';
+      const rpcUrl = getNetworkRpcUrl(this.chainId) || 'http://localhost:6546';
       this.clientCache.set(this.chainId, createPublicClient({ transport: http(rpcUrl) }));
     }
     return this.clientCache.get(this.chainId)!;

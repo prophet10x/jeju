@@ -5,285 +5,120 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { Address, Hex } from 'viem';
-import { verifyMessage } from 'viem';
-import type { ChatMessage, PlatformMessage, CommandResult } from '../types';
+import type { Address } from 'viem';
+import { isAddress, verifyMessage } from 'viem';
+import { z } from 'zod';
+import type { PlatformMessage } from '../types';
+import { processMessage } from '../eliza/runtime';
+import { getConfig } from '../config';
 import { getWalletService } from '../services/wallet';
 import { getStateManager } from '../services/state';
-import { getConfig, getChainName, getChainId, DEFAULT_CHAIN_ID } from '../config';
-import { getTradingService } from '../services/trading';
+import {
+  expectValid,
+  ChatRequestSchema,
+  ChatResponseSchema,
+  ChatMessageSchema,
+  AuthMessageResponseSchema,
+  AuthVerifyRequestSchema,
+} from '../schemas';
 
 const walletService = getWalletService();
 const stateManager = getStateManager();
-const tradingService = getTradingService();
 
 // Chat message history per session
-const sessionMessages = new Map<string, ChatMessage[]>();
-
-const PENDING_ACTION_TTL = 5 * 60 * 1000;
+const sessionMessages = new Map<string, Array<{ id: string; role: 'user' | 'assistant'; content: string; timestamp: number }>>();
 
 // ============================================================================
-// Simple message processor (mirrors ElizaOS action logic)
+// Session helpers
 // ============================================================================
 
-async function processMessage(message: PlatformMessage): Promise<CommandResult> {
-  const text = message.content.toLowerCase().trim();
-  const platform = message.platform;
-  const channelId = message.channelId;
-  const userId = message.userId;
+function createChatSession(walletAddress?: Address): { sessionId: string; messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; timestamp: number }> } {
+  // Use the state manager's createSession method
+  const session = stateManager.createSession(walletAddress);
+  const messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; timestamp: number }> = [];
+  sessionMessages.set(session.sessionId, messages);
   
-  // Get user if connected
-  const user = walletService.getUserByPlatform(platform, userId);
-  const config = getConfig();
-  
-  // Help
-  if (text === 'help' || text === 'what can you do' || text.includes('commands')) {
-    return {
-      success: true,
-      message: `**Otto Trading Agent**
+  return { sessionId: session.sessionId, messages };
+}
 
-I can help you with:
-• **Swap** - "swap 1 ETH to USDC"
-• **Bridge** - "bridge 1 ETH from ethereum to base"
-• **Balance** - "check my balance"
-• **Price** - "price of ETH"
-• **Connect** - "connect wallet"
+function getSessionMessages(sessionId: string): Array<{ id: string; role: 'user' | 'assistant'; content: string; timestamp: number }> {
+  return sessionMessages.get(sessionId) ?? [];
+}
 
-After getting a quote, reply "confirm" or "cancel".`,
-    };
-  }
-  
-  // Connect
-  if (text === 'connect' || text.includes('connect wallet') || text.includes('link wallet')) {
-    const connectUrl = walletService.getConnectUrl(platform, userId, userId);
-    return {
-      success: true,
-      message: `Connect your wallet:\n\n${connectUrl}`,
-    };
-  }
-  
-  // Confirm
-  if (text === 'confirm' || text === 'yes' || text === 'execute') {
-    const pending = stateManager.getPendingAction(platform, channelId);
-    if (!pending) {
-      return { success: false, message: 'No pending action to confirm. Start a new swap or bridge.' };
-    }
-    
-    if (!user) {
-      return { success: false, message: 'Connect your wallet first.' };
-    }
-    
-    if (Date.now() > pending.expiresAt) {
-      stateManager.clearPendingAction(platform, channelId);
-      return { success: false, message: 'Quote expired. Please request a new quote.' };
-    }
-    
-    if (pending.type === 'swap' && pending.quote) {
-      const result = await tradingService.executeSwap(user.id, pending.quote);
-      stateManager.clearPendingAction(platform, channelId);
-      
-      if (result.success) {
-        return { success: true, message: `Swap complete.\nTx: ${result.txHash}` };
-      }
-      return { success: false, message: `Swap failed: ${result.error}` };
-    }
-    
-    if (pending.type === 'bridge' && pending.quote) {
-      const result = await tradingService.executeBridge(user.id, pending.quote);
-      stateManager.clearPendingAction(platform, channelId);
-      
-      if (result.success) {
-        return { success: true, message: `Bridge initiated.\nIntent: ${result.intentId}\nTx: ${result.sourceTxHash}` };
-      }
-      return { success: false, message: `Bridge failed: ${result.error}` };
-    }
-    
-    return { success: false, message: 'Unknown pending action type.' };
-  }
-  
-  // Cancel
-  if (text === 'cancel' || text === 'no' || text === 'abort') {
-    stateManager.clearPendingAction(platform, channelId);
-    return { success: true, message: 'Cancelled.' };
-  }
-  
-  // Swap pattern: "swap 1 ETH to USDC"
-  const swapMatch = message.content.match(/(\d+(?:\.\d+)?)\s*(\w+)\s+(?:to|for|into)\s+(\w+)/i);
-  if (swapMatch && (text.includes('swap') || text.includes('exchange') || text.includes('trade'))) {
-    if (!user) {
-      const connectUrl = walletService.getConnectUrl(platform, userId, userId);
-      return { success: true, message: `Connect your wallet first:\n\n${connectUrl}` };
-    }
-    
-    const amount = swapMatch[1];
-    const from = swapMatch[2].toUpperCase();
-    const to = swapMatch[3].toUpperCase();
-    const chainId = user.settings.defaultChainId;
-    
-    const fromToken = await tradingService.getTokenInfo(from, chainId);
-    const toToken = await tradingService.getTokenInfo(to, chainId);
-    
-    if (!fromToken || !toToken) {
-      return { success: false, message: `Could not find token info for ${from} or ${to}` };
-    }
-    
-    const parsedAmount = tradingService.parseAmount(amount, fromToken.decimals);
-    const quote = await tradingService.getSwapQuote({
-      userId: user.id,
-      fromToken: fromToken.address,
-      toToken: toToken.address,
-      amount: parsedAmount,
-      chainId,
-    });
-    
-    if (!quote) {
-      return { success: false, message: 'Could not get swap quote. Try again.' };
-    }
-    
-    const toAmount = tradingService.formatAmount(quote.toAmount, toToken.decimals);
-    
-    stateManager.setPendingAction(platform, channelId, {
-      type: 'swap',
-      quote,
-      params: { amount, from, to, chainId },
-      expiresAt: Date.now() + PENDING_ACTION_TTL,
-    });
-    
-    return {
-      success: true,
-      message: `**Swap Quote**
+function addSessionMessage(sessionId: string, msg: { id: string; role: 'user' | 'assistant'; content: string; timestamp: number }): void {
+  const messages = sessionMessages.get(sessionId) ?? [];
+  messages.push(msg);
+  sessionMessages.set(sessionId, messages);
+}
 
-${amount} ${from} → ${toAmount} ${to}
-Price Impact: ${(quote.priceImpact * 100).toFixed(2)}%
-Chain: ${getChainName(chainId)}
+function getOrCreateSession(sessionId?: string, walletAddress?: Address): { sessionId: string; session: { userId: string } } {
+  if (sessionId) {
+    const session = stateManager.getSession(sessionId);
+    if (session) {
+      return { sessionId, session: { userId: session.userId } };
+    }
+  }
+  const { sessionId: newSessionId } = createChatSession(walletAddress);
+  return { sessionId: newSessionId, session: { userId: walletAddress ?? newSessionId } };
+}
 
-Reply "confirm" to execute or "cancel" to abort.`,
-    };
-  }
-  
-  // Bridge pattern: "bridge 1 ETH from ethereum to base"
-  const bridgeMatch = message.content.match(/(\d+(?:\.\d+)?)\s*(\w+)\s+from\s+(\w+)\s+to\s+(\w+)/i);
-  if (bridgeMatch && text.includes('bridge')) {
-    if (!user) {
-      const connectUrl = walletService.getConnectUrl(platform, userId, userId);
-      return { success: true, message: `Connect your wallet first:\n\n${connectUrl}` };
-    }
-    
-    const amount = bridgeMatch[1];
-    const token = bridgeMatch[2].toUpperCase();
-    const fromChain = bridgeMatch[3].toLowerCase();
-    const toChain = bridgeMatch[4].toLowerCase();
-    
-    const sourceChainId = getChainId(fromChain);
-    const destChainId = getChainId(toChain);
-    
-    if (!sourceChainId || !destChainId) {
-      return { success: false, message: `Unknown chain: ${!sourceChainId ? fromChain : toChain}` };
-    }
-    
-    const tokenInfo = await tradingService.getTokenInfo(token, sourceChainId);
-    if (!tokenInfo) {
-      return { success: false, message: `Could not find token ${token}` };
-    }
-    
-    const parsedAmount = tradingService.parseAmount(amount, tokenInfo.decimals);
-    const quote = await tradingService.getBridgeQuote({
-      userId: user.id,
-      sourceChainId,
-      destChainId,
-      sourceToken: tokenInfo.address,
-      destToken: tokenInfo.address,
-      amount: parsedAmount,
-    });
-    
-    if (!quote) {
-      return { success: false, message: 'Could not get bridge quote. Try again.' };
-    }
-    
-    const outputAmount = tradingService.formatAmount(quote.outputAmount, tokenInfo.decimals);
-    
-    stateManager.setPendingAction(platform, channelId, {
-      type: 'bridge',
-      quote,
-      params: { amount, token, fromChain, toChain, sourceChainId, destChainId },
-      expiresAt: Date.now() + PENDING_ACTION_TTL,
-    });
-    
-    return {
-      success: true,
-      message: `**Bridge Quote**
+// ============================================================================
+// Auth helpers
+// ============================================================================
 
-${amount} ${token} (${fromChain}) → ${outputAmount} ${token} (${toChain})
-Fee: ${tradingService.formatUsd(quote.feeUsd ?? 0)}
-Time: ~${Math.ceil(quote.estimatedTimeSeconds / 60)} min
+function generateAuthMessage(address: Address): { message: string; nonce: string } {
+  const nonce = crypto.randomUUID();
+  const message = `Sign this message to connect your wallet to Otto.\n\nAddress: ${address}\nNonce: ${nonce}\nTimestamp: ${Date.now()}`;
+  return { message, nonce };
+}
 
-Reply "confirm" to execute or "cancel" to abort.`,
-    };
+async function verifyAndConnectWallet(
+  address: string,
+  message: string,
+  signature: string,
+  sessionId: string,
+  platform: string
+): Promise<{ success: boolean; error?: string }> {
+  const valid = await verifyMessage({
+    address: address as Address,
+    message,
+    signature: signature as `0x${string}`,
+  });
+  
+  if (!valid) {
+    return { success: false, error: 'Invalid signature' };
   }
   
-  // Balance
-  if (text.includes('balance') || text.includes('portfolio')) {
-    if (!user) {
-      const connectUrl = walletService.getConnectUrl(platform, userId, userId);
-      return { success: true, message: `Connect your wallet first:\n\n${connectUrl}` };
-    }
-    
-    const balances = await tradingService.getBalances(
-      user.smartAccountAddress ?? user.primaryWallet,
-      user.settings.defaultChainId
-    );
-    
-    if (balances.length === 0) {
-      return { success: true, message: `No tokens found on ${getChainName(user.settings.defaultChainId)}` };
-    }
-    
-    const lines = balances.map(b => {
-      const amt = tradingService.formatAmount(b.balance, b.token.decimals);
-      const usd = b.balanceUsd ? ` ($${b.balanceUsd.toFixed(2)})` : '';
-      return `• ${amt} ${b.token.symbol}${usd}`;
-    });
-    
-    return { success: true, message: `**Balances on ${getChainName(user.settings.defaultChainId)}**\n\n${lines.join('\n')}` };
-  }
+  // Connect via verifyAndConnect - this stores the user
+  await walletService.verifyAndConnect(
+    platform as 'web',
+    sessionId,
+    sessionId, // username
+    address as Address,
+    signature as `0x${string}`,
+    crypto.randomUUID() // nonce
+  );
   
-  // Price
-  if (text.includes('price')) {
-    const tokenMatch = message.content.match(/price\s+(?:of\s+)?(\w+)/i) || message.content.match(/(\w+)\s+price/i);
-    const token = tokenMatch?.[1]?.toUpperCase();
-    
-    if (!token || ['OF', 'THE', 'GET', 'CHECK'].includes(token)) {
-      return { success: false, message: 'Which token? Example: "price of ETH"' };
-    }
-    
-    const tokenInfo = await tradingService.getTokenInfo(token, DEFAULT_CHAIN_ID);
-    if (!tokenInfo) {
-      return { success: false, message: `Could not find token: ${token}` };
-    }
-    
-    const price = tokenInfo.price?.toFixed(2) ?? 'N/A';
-    const change = tokenInfo.priceChange24h ? `${tokenInfo.priceChange24h >= 0 ? '+' : ''}${tokenInfo.priceChange24h.toFixed(2)}%` : '';
-    
-    return { success: true, message: `**${tokenInfo.name} (${tokenInfo.symbol})**\nPrice: $${price} ${change}` };
+  return { success: true };
+}
+
+// ============================================================================
+// Validation helpers
+// ============================================================================
+
+function validateAddress(address: string): Address {
+  if (!isAddress(address)) {
+    throw new Error(`Invalid address: ${address}`);
   }
-  
-  // Greeting / default
-  if (text === 'hi' || text === 'hello' || text === 'hey') {
-    return {
-      success: true,
-      message: `Hey. I'm Otto, your crypto trading assistant. I can help you swap tokens, bridge between chains, check balances, and get prices. What would you like to do?`,
-    };
+  return address;
+}
+
+function validateSessionId(sessionId: string): string {
+  const result = z.string().uuid().safeParse(sessionId);
+  if (!result.success) {
+    throw new Error('Invalid session ID');
   }
-  
-  // Default response
-  return {
-    success: true,
-    message: `I can help you with:
-• **Swap** - "swap 1 ETH to USDC"
-• **Bridge** - "bridge 1 ETH from ethereum to base"
-• **Balance** - "check my balance"
-• **Price** - "price of ETH"
-• **Connect** - "connect wallet"`,
-  };
+  return result.data;
 }
 
 // ============================================================================
@@ -300,62 +135,65 @@ chatApi.use('/*', cors({
 
 // Create session
 chatApi.post('/session', async (c) => {
-  const body = await c.req.json().catch(() => ({})) as { walletAddress?: Address };
+  const rawBody = await c.req.json().catch(() => ({}));
+  const SessionCreateSchema = z.object({
+    walletAddress: z.string().refine((val) => !val || isAddress(val), { message: 'Invalid address' }).optional(),
+  });
+  const body = expectValid(SessionCreateSchema, rawBody, 'create session');
 
-  const session = stateManager.createSession(body.walletAddress);
-
-  const welcome: ChatMessage = {
-    id: crypto.randomUUID(),
-    role: 'assistant',
-    content: body.walletAddress
-      ? `Connected. Ready to trade. Try: \`swap 1 ETH to USDC\``
-      : `Otto here. Type \`help\` or \`connect\` to start.`,
-    timestamp: Date.now(),
-  };
-
-  sessionMessages.set(session.sessionId, [welcome]);
-  return c.json({ sessionId: session.sessionId, messages: [welcome] });
+  const walletAddress = body.walletAddress ? validateAddress(body.walletAddress) as Address : undefined;
+  const { sessionId, messages } = createChatSession(walletAddress);
+  
+  return c.json({ sessionId, messages });
 });
 
 // Get session
 chatApi.get('/session/:id', (c) => {
-  const session = stateManager.getSession(c.req.param('id'));
-  if (!session) return c.json({ error: 'Session not found' }, 404);
+  const sessionIdParam = c.req.param('id');
+  const sessionId = validateSessionId(sessionIdParam);
   
-  const messages = sessionMessages.get(session.sessionId) ?? [];
+  const session = stateManager.getSession(sessionId);
+  
+  if (!session) {
+    return c.json({ error: 'Session not found' }, 404);
+  }
+  
+  const messages = getSessionMessages(sessionId);
+  
   return c.json({ sessionId: session.sessionId, messages, userId: session.userId });
 });
 
 // Send message
 chatApi.post('/chat', async (c) => {
-  const body = await c.req.json() as { sessionId?: string; message: string; userId?: string };
-  const walletAddress = c.req.header('X-Wallet-Address') as Address | undefined;
+  const rawBody = await c.req.json();
+  const body = expectValid(ChatRequestSchema, rawBody, 'chat request');
+  
+  const walletAddressHeader = c.req.header('X-Wallet-Address');
+  const walletAddress = walletAddressHeader 
+    ? validateAddress(walletAddressHeader) as Address
+    : undefined;
 
-  let sessionId = body.sessionId ?? c.req.header('X-Session-Id');
-  let session = sessionId ? stateManager.getSession(sessionId) : null;
-
-  if (!session) {
-    session = stateManager.createSession(walletAddress);
-    sessionId = session.sessionId;
-    sessionMessages.set(sessionId, []);
-  }
-
-  const messages = sessionMessages.get(sessionId) ?? [];
+  const { sessionId, session } = getOrCreateSession(
+    body.sessionId ?? c.req.header('X-Session-Id'),
+    walletAddress
+  );
 
   // Add user message
-  const userMsg: ChatMessage = {
+  const userMsg = {
     id: crypto.randomUUID(),
-    role: 'user',
+    role: 'user' as const,
     content: body.message,
     timestamp: Date.now(),
   };
-  messages.push(userMsg);
+  const validatedUserMsg = expectValid(ChatMessageSchema, userMsg, 'user message');
+  addSessionMessage(sessionId, validatedUserMsg);
+
   stateManager.updateSession(sessionId, {});
 
   // Process message
   const platformMessage: PlatformMessage = {
     platform: 'web',
-    messageId: userMsg.id,
+    messageId: validatedUserMsg.id,
     channelId: sessionId,
     userId: session.userId,
     content: body.message.trim(),
@@ -366,60 +204,57 @@ chatApi.post('/chat', async (c) => {
   const result = await processMessage(platformMessage);
 
   // Create response
-  const assistantMsg: ChatMessage = {
+  const assistantMsg = {
     id: crypto.randomUUID(),
-    role: 'assistant',
+    role: 'assistant' as const,
     content: result.message,
     timestamp: Date.now(),
   };
-  messages.push(assistantMsg);
+  const validatedAssistantMsg = expectValid(ChatMessageSchema, assistantMsg, 'assistant message');
+  addSessionMessage(sessionId, validatedAssistantMsg);
 
   const requiresAuth = !walletAddress && result.message.toLowerCase().includes('connect');
   const config = getConfig();
 
-  return c.json({
+  const response = {
     sessionId,
-    message: assistantMsg,
+    message: validatedAssistantMsg,
     requiresAuth,
     authUrl: requiresAuth ? `${config.baseUrl}/auth/connect` : undefined,
-  });
+  };
+  
+  return c.json(expectValid(ChatResponseSchema, response, 'chat response'));
 });
 
 // Auth message for signing
 chatApi.get('/auth/message', (c) => {
-  const address = c.req.query('address') as Address;
-  if (!address) return c.json({ error: 'Address required' }, 400);
-
-  const nonce = crypto.randomUUID();
-  const message = `Sign in to Otto\nAddress: ${address}\nNonce: ${nonce}`;
-  return c.json({ message, nonce });
+  const addressParam = c.req.query('address');
+  if (!addressParam) {
+    return c.json({ error: 'Address required' }, 400);
+  }
+  
+  const address = validateAddress(addressParam) as Address;
+  const { message, nonce } = generateAuthMessage(address);
+  const response = { message, nonce };
+  
+  return c.json(expectValid(AuthMessageResponseSchema, response, 'auth message response'));
 });
 
 // Verify signature
 chatApi.post('/auth/verify', async (c) => {
-  const body = await c.req.json() as {
-    address: Address;
-    message: string;
-    signature: Hex;
-    sessionId: string;
-  };
+  const rawBody = await c.req.json();
+  const body = expectValid(AuthVerifyRequestSchema, rawBody, 'auth verify request');
 
-  const valid = await verifyMessage({
-    address: body.address,
-    message: body.message,
-    signature: body.signature,
-  });
+  const result = await verifyAndConnectWallet(
+    body.address,
+    body.message,
+    body.signature,
+    body.sessionId,
+    'web'
+  );
 
-  if (!valid) return c.json({ error: 'Invalid signature' }, 401);
-
-  const session = stateManager.getSession(body.sessionId);
-  if (session) {
-    stateManager.updateSession(body.sessionId, { userId: body.address, walletAddress: body.address });
-  }
-
-  const nonce = body.message.match(/Nonce: ([a-zA-Z0-9-]+)/)?.[1];
-  if (nonce) {
-    await walletService.verifyAndConnect('web', body.sessionId, body.address, body.address, body.signature, nonce);
+  if (!result.success) {
+    return c.json({ error: result.error ?? 'Verification failed' }, 401);
   }
 
   return c.json({ success: true, address: body.address });

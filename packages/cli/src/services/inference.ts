@@ -29,19 +29,7 @@ export interface InferenceProvider {
   knownModels?: string[]; // Optional hints, not restrictions
 }
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-interface ChatRequest {
-  model: string;
-  messages: ChatMessage[];
-  temperature?: number;
-  max_tokens?: number;
-  stream?: boolean;
-  provider?: string; // Explicit provider override
-}
+import type { ChatRequest } from '../schemas';
 
 // DWS endpoint for decentralized inference
 const DWS_ENDPOINT = process.env.DWS_URL || 'http://localhost:4030';
@@ -106,9 +94,9 @@ class LocalInferenceServer {
   private defaultProvider: string;
 
   constructor(config: Partial<InferenceConfig> = {}) {
-    this.port = config.port || 4100;
-    this.customProviders = config.providers || [];
-    this.defaultProvider = config.defaultProvider || this.detectDefaultProvider();
+    this.port = config.port ?? 4100;
+    this.customProviders = config.providers ?? [];
+    this.defaultProvider = config.defaultProvider ?? this.detectDefaultProvider();
     this.app = new Hono();
     this.setupRoutes();
   }

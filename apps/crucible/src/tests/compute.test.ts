@@ -13,7 +13,7 @@ describe('CrucibleCompute', () => {
   beforeEach(() => {
     compute = createCompute({
       marketplaceUrl: 'http://localhost:4007',
-      rpcUrl: 'http://localhost:8545',
+      rpcUrl: 'http://localhost:6546',
       defaultModel: 'llama-3.1-8b',
     });
     mockFetch = mock(() => Promise.resolve(new Response()));
@@ -233,7 +233,7 @@ describe('CrucibleCompute', () => {
       const character: AgentCharacter = {
         id: 'memory-test',
         name: 'MemBot',
-        description: '',
+        description: 'A test agent for memory tests',
         system: 'You remember things.',
         bio: [],
         messageExamples: [],
@@ -269,7 +269,7 @@ describe('CrucibleCompute', () => {
       const character: AgentCharacter = {
         id: 'no-pref',
         name: 'NoPrefs',
-        description: '',
+        description: 'A test agent with no model preferences',
         system: 'Basic agent.',
         bio: [],
         messageExamples: [],
@@ -320,14 +320,8 @@ describe('CrucibleCompute', () => {
     });
 
     it('should handle empty text embedding', async () => {
-      const mockEmbedding = { embedding: Array(1536).fill(0) };
-
-      mockFetch.mockImplementation(() =>
-        Promise.resolve(new Response(JSON.stringify(mockEmbedding), { status: 200 }))
-      );
-
-      const embedding = await compute.generateEmbedding('');
-      expect(embedding.length).toBe(1536);
+      // Empty text should be rejected
+      await expect(compute.generateEmbedding('')).rejects.toThrow('Text is required');
     });
 
     it('should handle very long text', async () => {

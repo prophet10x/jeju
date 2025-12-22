@@ -21,7 +21,7 @@ import { privateKeyToAccount } from "viem/accounts";
 // ============ Constants ============
 
 export const TEST_CHAIN_ID = 31337;
-export const TEST_RPC_URL = "http://127.0.0.1:8545";
+export const TEST_RPC_URL = "http://127.0.0.1:6546";
 
 // Anvil default accounts
 export const TEST_ACCOUNTS = {
@@ -64,10 +64,14 @@ export interface TestContext {
 
 let anvilProcess: ChildProcess | null = null;
 
+function getAnvilPath(): string {
+  // ANVIL_PATH can override default, but anvil must be available
+  return process.env.ANVIL_PATH ?? "anvil";
+}
+
 export async function startAnvil(): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
-    // Find anvil in path or use foundry installation
-    const anvilPath = process.env.ANVIL_PATH || "anvil";
+    const anvilPath = getAnvilPath();
 
     const proc = spawn(anvilPath, [
       "--host", "127.0.0.1",

@@ -21,6 +21,7 @@ import { dwsClient } from '@/lib/services/dws';
 export default function NewRepoPage() {
   const { isConnected, address } = useAccount();
   const router = useRouter();
+  void router; // Suppress unused variable warning
   
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -33,8 +34,8 @@ export default function NewRepoPage() {
   const [copied, setCopied] = useState<string | null>(null);
 
   const ownerName = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'your-username';
-  const repoUrl = `https://git.jeju.network/${ownerName}/${name || 'my-repo'}.git`;
-  const sshUrl = `git@git.jeju.network:${ownerName}/${name || 'my-repo'}.git`;
+  const repoUrl = `https://git.jejunetwork.org/${ownerName}/${name || 'my-repo'}.git`;
+  // const sshUrl = `git@git.jejunetwork.org:${ownerName}/${name || 'my-repo'}.git`;
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -68,8 +69,8 @@ export default function NewRepoPage() {
 
   if (createdRepo) {
     const fullName = `${createdRepo.owner}/${createdRepo.name}`;
-    const httpsUrl = `https://git.jeju.network/${fullName}.git`;
-    const sshCloneUrl = `git@git.jeju.network:${fullName}.git`;
+    const httpsUrl = `https://git.jejunetwork.org/${fullName}.git`;
+    const sshCloneUrl = `git@git.jejunetwork.org:${fullName}.git`;
 
     return (
       <div className="min-h-screen p-8">

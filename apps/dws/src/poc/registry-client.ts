@@ -1,12 +1,18 @@
 /**
  * Proof-of-Cloud Registry Client
  * 
- * Client for interacting with the PoC Alliance registry.
- * Supports both direct API access (for alliance members) and
- * public verification endpoints.
+ * Decentralized access pattern:
+ * 1. On-chain: Query ProofOfCloudValidator contract (primary source of truth)
+ * 2. Off-chain: Multiple API endpoints with failover (cache/performance)
+ * 
+ * Configuration is loaded from packages/config:
+ * - Validator address: contracts.json -> external.baseSepolia.poc.validator
+ * - RPC URL: contracts.json -> external.baseSepolia.rpcUrl (Jeju's own node)
  */
 
-import type { Hex } from 'viem';
+import { createPublicClient, http, type PublicClient, type Hex, type Address, type Chain } from 'viem';
+import { base, baseSepolia } from 'viem/chains';
+import { getPoCConfig, getCurrentNetwork } from '@jejunetwork/config';
 import {
   type PoCRegistryEntry,
   type PoCVerificationLevel,
@@ -16,14 +22,48 @@ import {
   PoCErrorCode,
 } from './types';
 
-// ============================================================================
-// API Types
-// ============================================================================
-
-interface VerifyQuoteRequest {
-  quote: Hex;
-  expectedMeasurement?: Hex;
-}
+// ABI matches ProofOfCloudValidator.sol HardwareRecord struct
+const VALIDATOR_ABI = [
+  {
+    name: 'getHardwareRecord',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'hardwareIdHash', type: 'bytes32' }],
+    outputs: [{
+      name: 'record',
+      type: 'tuple',
+      components: [
+        { name: 'hardwareIdHash', type: 'bytes32' },
+        { name: 'level', type: 'uint8' },
+        { name: 'agentId', type: 'uint256' },
+        { name: 'verifiedAt', type: 'uint256' },
+        { name: 'expiresAt', type: 'uint256' },
+        { name: 'revoked', type: 'bool' },
+        { name: 'cloudProvider', type: 'string' },
+        { name: 'region', type: 'string' },
+      ],
+    }],
+  },
+  {
+    name: 'getAgentStatus',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    outputs: [
+      { name: 'verified', type: 'bool' },
+      { name: 'level', type: 'uint8' },
+      { name: 'hardwareIdHash', type: 'bytes32' },
+      { name: 'expiresAt', type: 'uint256' },
+    ],
+  },
+  {
+    name: 'needsReverification',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+] as const;
 
 interface VerifyQuoteResponse {
   verified: boolean;
@@ -42,85 +82,66 @@ interface HardwareLookupResponse {
   entry: PoCRegistryEntry | null;
 }
 
-interface RegistrySnapshot {
-  version: number;
-  timestamp: number;
-  entriesHash: Hex;
-  entries: PoCRegistryEntry[];
-  signatures: Record<string, Hex>;
-}
-
 interface RevocationFeed {
   revocations: PoCRevocation[];
   lastTimestamp: number;
 }
 
-// ============================================================================
-// Registry Client Configuration
-// ============================================================================
+interface OnChainHardwareRecord {
+  hardwareIdHash: Hex;
+  level: number;
+  agentId: bigint;
+  verifiedAt: bigint;
+  expiresAt: bigint;
+  revoked: boolean;
+  cloudProvider: string;
+  region: string;
+}
 
 interface RegistryClientConfig {
-  /** Base API endpoint */
-  endpoint: string;
-  /** API key for authenticated requests (alliance members) */
+  chain?: Chain;
+  rpcUrl?: string;
+  validatorAddress?: Address;
+  offChainEndpoints?: string[];
   apiKey?: string;
-  /** Request timeout in ms */
   timeout?: number;
-  /** Enable snapshot caching */
   enableCache?: boolean;
-  /** Cache TTL in ms */
   cacheTtl?: number;
 }
 
-// ============================================================================
-// PoCRegistryClient Class
-// ============================================================================
-
 export class PoCRegistryClient {
-  private readonly endpoint: string;
+  private readonly publicClient: PublicClient;
+  private readonly validatorAddress: Address;
+  private readonly offChainEndpoints: string[];
   private readonly apiKey: string | null;
   private readonly timeout: number;
   private readonly enableCache: boolean;
   private readonly cacheTtl: number;
+  private readonly hardwareCache = new Map<string, { entry: PoCRegistryEntry | null; timestamp: number }>();
+  private currentEndpointIndex = 0;
 
-  // Local cache of registry entries
-  private snapshotCache: RegistrySnapshot | null = null;
-  private snapshotCacheTime: number = 0;
-  private hardwareCache: Map<string, { entry: PoCRegistryEntry | null; timestamp: number }> = new Map();
+  constructor(config: RegistryClientConfig = {}) {
+    // Load defaults from config package
+    const pocConfig = getPoCConfig();
+    const network = getCurrentNetwork();
+    
+    const chain = config.chain ?? (network === 'mainnet' ? base : baseSepolia);
+    const rpcUrl = config.rpcUrl ?? pocConfig.rpcUrl;
+    const validatorAddress = config.validatorAddress ?? pocConfig.validatorAddress as Address;
+    
+    if (!rpcUrl) throw new PoCError(PoCErrorCode.ORACLE_UNAVAILABLE, 'PoC RPC URL not configured');
+    if (!validatorAddress) throw new PoCError(PoCErrorCode.ORACLE_UNAVAILABLE, 'PoC validator address not configured');
 
-  constructor(endpoint: string, config?: Partial<RegistryClientConfig>) {
-    this.endpoint = endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
-    this.apiKey = config?.apiKey ?? null;
-    this.timeout = config?.timeout ?? 30000;
-    this.enableCache = config?.enableCache ?? true;
-    this.cacheTtl = config?.cacheTtl ?? 5 * 60 * 1000; // 5 minutes default
+    this.publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    this.validatorAddress = validatorAddress;
+    this.offChainEndpoints = config.offChainEndpoints ?? [];
+    this.apiKey = config.apiKey ?? null;
+    this.timeout = config.timeout ?? 30000;
+    this.enableCache = config.enableCache ?? true;
+    this.cacheTtl = config.cacheTtl ?? 5 * 60 * 1000;
   }
 
-  // ============================================================================
-  // Public API
-  // ============================================================================
-
-  /**
-   * Verify an attestation quote against the PoC registry
-   * Uses the public verification endpoint
-   */
-  async verifyQuote(quote: Hex, expectedMeasurement?: Hex): Promise<VerifyQuoteResponse> {
-    const response = await this.request<VerifyQuoteResponse>('/verify', {
-      method: 'POST',
-      body: JSON.stringify({
-        quote,
-        expectedMeasurement,
-      } satisfies VerifyQuoteRequest),
-    });
-
-    return response;
-  }
-
-  /**
-   * Check if a hardware ID is registered in the PoC registry
-   */
   async checkHardware(hardwareIdHash: Hex): Promise<PoCRegistryEntry | null> {
-    // Check cache first
     if (this.enableCache) {
       const cached = this.hardwareCache.get(hardwareIdHash);
       if (cached && Date.now() - cached.timestamp < this.cacheTtl) {
@@ -128,390 +149,352 @@ export class PoCRegistryClient {
       }
     }
 
-    const response = await this.request<HardwareLookupResponse>(
-      `/hardware/${hardwareIdHash}`,
-      { method: 'GET' },
-    );
+    const entry = await this.checkHardwareOnChain(hardwareIdHash);
 
-    // Update cache
     if (this.enableCache) {
-      this.hardwareCache.set(hardwareIdHash, {
-        entry: response.entry,
+      this.hardwareCache.set(hardwareIdHash, { entry, timestamp: Date.now() });
+    }
+
+    return entry;
+  }
+
+  private async checkHardwareOnChain(hardwareIdHash: Hex): Promise<PoCRegistryEntry | null> {
+    const record = await this.publicClient.readContract({
+      address: this.validatorAddress,
+      abi: VALIDATOR_ABI,
+      functionName: 'getHardwareRecord',
+      args: [hardwareIdHash as `0x${string}`],
+    }) as OnChainHardwareRecord;
+
+    if (record.verifiedAt === 0n) {
+      return null;
+    }
+
+    return {
+      hardwareIdHash: record.hardwareIdHash,
+      level: record.level as PoCVerificationLevel,
+      cloudProvider: record.cloudProvider,
+      region: record.region,
+      expiresAt: Number(record.expiresAt) * 1000,
+      active: !record.revoked && Number(record.expiresAt) * 1000 > Date.now(),
+      registeredAt: Number(record.verifiedAt) * 1000,
+      endorsements: [],
+      evidenceHashes: [],
+    };
+  }
+
+  async verifyQuote(quote: Hex): Promise<VerifyQuoteResponse> {
+    const hardwareIdHash = ('0x' + quote.slice(2, 66).padEnd(64, '0')) as Hex;
+    const entry = await this.checkHardware(hardwareIdHash);
+
+    if (!entry) {
+      return {
+        verified: false,
+        level: null,
+        hardwareIdHash,
+        cloudProvider: null,
+        region: null,
+        evidenceHash: '0x' as Hex,
         timestamp: Date.now(),
-      });
+        endorsements: [],
+        error: 'Hardware not registered',
+      };
     }
 
-    return response.entry;
+    if (!entry.active) {
+      return {
+        verified: false,
+        level: null,
+        hardwareIdHash,
+        cloudProvider: entry.cloudProvider,
+        region: entry.region,
+        evidenceHash: '0x' as Hex,
+        timestamp: Date.now(),
+        endorsements: [],
+        error: 'Hardware revoked or expired',
+      };
+    }
+
+    return {
+      verified: true,
+      level: entry.level,
+      hardwareIdHash,
+      cloudProvider: entry.cloudProvider,
+      region: entry.region,
+      evidenceHash: (entry.evidenceHashes[0] ?? '0x') as Hex,
+      timestamp: Date.now(),
+      endorsements: entry.endorsements,
+    };
   }
 
-  /**
-   * Get the current registry snapshot
-   * Requires API key for full data access
-   */
-  async getSnapshot(): Promise<RegistrySnapshot> {
-    // Check cache
-    if (this.enableCache && this.snapshotCache && 
-        Date.now() - this.snapshotCacheTime < this.cacheTtl) {
-      return this.snapshotCache;
-    }
+  async getAgentStatus(agentId: bigint): Promise<{
+    verified: boolean;
+    level: PoCVerificationLevel;
+    hardwareIdHash: Hex;
+    expiresAt: number;
+  }> {
+    const [verified, level, hardwareIdHash, expiresAt] = await this.publicClient.readContract({
+      address: this.validatorAddress,
+      abi: VALIDATOR_ABI,
+      functionName: 'getAgentStatus',
+      args: [agentId],
+    }) as [boolean, number, Hex, bigint];
 
-    const response = await this.request<RegistrySnapshot>('/snapshot', {
-      method: 'GET',
-    });
-
-    // Update cache
-    if (this.enableCache) {
-      this.snapshotCache = response;
-      this.snapshotCacheTime = Date.now();
-    }
-
-    return response;
+    return {
+      verified,
+      level: level as PoCVerificationLevel,
+      hardwareIdHash,
+      expiresAt: Number(expiresAt) * 1000,
+    };
   }
 
-  /**
-   * Get recent revocations
-   */
+  async needsReverification(agentId: bigint): Promise<boolean> {
+    return this.publicClient.readContract({
+      address: this.validatorAddress,
+      abi: VALIDATOR_ABI,
+      functionName: 'needsReverification',
+      args: [agentId],
+    }) as Promise<boolean>;
+  }
+
   async getRevocations(sinceTimestamp?: number): Promise<PoCRevocation[]> {
-    const url = sinceTimestamp 
-      ? `/revocations?since=${sinceTimestamp}`
-      : '/revocations';
+    if (this.offChainEndpoints.length === 0) {
+      throw new PoCError(PoCErrorCode.ORACLE_UNAVAILABLE, 'No off-chain endpoints configured for revocation feed');
+    }
 
-    const response = await this.request<RevocationFeed>(url, {
-      method: 'GET',
-    });
+    const errors: string[] = [];
+    for (let i = 0; i < this.offChainEndpoints.length; i++) {
+      const endpointIndex = (this.currentEndpointIndex + i) % this.offChainEndpoints.length;
+      const endpoint = this.offChainEndpoints[endpointIndex];
+      const url = sinceTimestamp ? `${endpoint}/revocations?since=${sinceTimestamp}` : `${endpoint}/revocations`;
 
-    return response.revocations;
+      const result = await this.request<RevocationFeed>(url, { method: 'GET' });
+      if (result.ok) {
+        this.currentEndpointIndex = endpointIndex;
+        return result.data.revocations;
+      }
+      errors.push(`${endpoint}: ${result.error}`);
+    }
+
+    throw new PoCError(PoCErrorCode.ORACLE_UNAVAILABLE, `All endpoints failed: ${errors.join(', ')}`);
   }
 
-  /**
-   * Subscribe to revocation events (WebSocket)
-   */
-  subscribeToRevocations(
-    onRevocation: (revocation: PoCRevocation) => void,
-    onError?: (error: Error) => void,
-  ): () => void {
-    const wsEndpoint = this.endpoint.replace(/^http/, 'ws') + '/ws/revocations';
-    
+  subscribeToRevocations(onRevocation: (revocation: PoCRevocation) => void): () => void {
+    if (this.offChainEndpoints.length === 0) {
+      throw new PoCError(PoCErrorCode.ORACLE_UNAVAILABLE, 'No off-chain endpoints configured');
+    }
+
+    let currentEndpointIndex = 0;
     let ws: WebSocket | null = null;
     let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
     let isClosing = false;
 
     const connect = () => {
+      const endpoint = this.offChainEndpoints[currentEndpointIndex];
+      const wsEndpoint = endpoint.replace(/^http/, 'ws') + '/ws/revocations';
+
       ws = new WebSocket(wsEndpoint);
-
-      ws.onopen = () => {
-        console.log('[PoCRegistry] WebSocket connected');
-        reconnectAttempts = 0;
+      ws.onopen = () => { reconnectAttempts = 0; };
+      ws.onmessage = (e) => onRevocation(JSON.parse(e.data as string));
+      ws.onerror = () => {
+        currentEndpointIndex = (currentEndpointIndex + 1) % this.offChainEndpoints.length;
       };
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data as string) as PoCRevocation;
-        onRevocation(data);
-      };
-
-      ws.onerror = (event) => {
-        console.error('[PoCRegistry] WebSocket error:', event);
-        onError?.(new Error('WebSocket connection error'));
-      };
-
       ws.onclose = () => {
         if (isClosing) return;
-        
-        console.log('[PoCRegistry] WebSocket closed, attempting reconnect...');
-        if (reconnectAttempts < maxReconnectAttempts) {
-          reconnectAttempts++;
-          setTimeout(connect, Math.min(1000 * Math.pow(2, reconnectAttempts), 30000));
+        if (reconnectAttempts++ < this.offChainEndpoints.length * 3) {
+          const delay = Math.min(1000 * 2 ** Math.floor(reconnectAttempts / this.offChainEndpoints.length), 30000);
+          setTimeout(connect, delay);
         } else {
-          onError?.(new Error('Max reconnection attempts reached'));
+          throw new PoCError(PoCErrorCode.ORACLE_UNAVAILABLE, 'All WebSocket endpoints exhausted');
         }
       };
     };
 
     connect();
-
-    // Return cleanup function
-    return () => {
-      isClosing = true;
-      ws?.close();
-    };
+    return () => { isClosing = true; ws?.close(); };
   }
 
-  /**
-   * Check if a hardware entry is still valid
-   */
   async isHardwareValid(hardwareIdHash: Hex): Promise<boolean> {
     const entry = await this.checkHardware(hardwareIdHash);
-    if (!entry) return false;
-    return entry.active && !await this.isRevoked(hardwareIdHash);
+    return entry?.active === true;
   }
 
-  /**
-   * Check if hardware has been revoked
-   */
   async isRevoked(hardwareIdHash: Hex): Promise<boolean> {
-    // Check local cache entry first
-    if (this.enableCache) {
-      const cached = this.hardwareCache.get(hardwareIdHash);
-      if (cached?.entry && !cached.entry.active) {
-        return true;
-      }
-    }
-
-    // Query revocations API
-    const revocations = await this.getRevocations();
-    return revocations.some(r => r.hardwareIdHash === hardwareIdHash);
+    const entry = await this.checkHardware(hardwareIdHash);
+    return entry !== null && !entry.active;
   }
 
-  /**
-   * Get endorsements for a hardware entry
-   */
   async getEndorsements(hardwareIdHash: Hex): Promise<PoCEndorsement[]> {
     const entry = await this.checkHardware(hardwareIdHash);
     return entry?.endorsements ?? [];
   }
 
-  // ============================================================================
-  // Alliance Member API (requires API key)
-  // ============================================================================
-
-  /**
-   * Submit a new verification (alliance members only)
-   */
-  async submitVerification(
-    hardwareIdHash: Hex,
-    level: PoCVerificationLevel,
-    cloudProvider: string,
-    region: string,
-    evidenceHash: Hex,
-    signature: Hex,
-  ): Promise<{ success: boolean; entry: PoCRegistryEntry }> {
-    if (!this.apiKey) {
-      throw new PoCError(
-        PoCErrorCode.ORACLE_UNAVAILABLE,
-        'API key required for verification submission',
-      );
-    }
-
-    return this.request('/verify/submit', {
-      method: 'POST',
-      body: JSON.stringify({
-        hardwareIdHash,
-        level,
-        cloudProvider,
-        region,
-        evidenceHash,
-        signature,
-      }),
-    });
-  }
-
-  /**
-   * Submit a revocation request (alliance members only)
-   */
-  async submitRevocation(
-    hardwareIdHash: Hex,
-    reason: string,
-    evidenceHash: Hex,
-    signature: Hex,
-  ): Promise<{ success: boolean; revocation: PoCRevocation }> {
-    if (!this.apiKey) {
-      throw new PoCError(
-        PoCErrorCode.ORACLE_UNAVAILABLE,
-        'API key required for revocation submission',
-      );
-    }
-
-    return this.request('/revoke', {
-      method: 'POST',
-      body: JSON.stringify({
-        hardwareIdHash,
-        reason,
-        evidenceHash,
-        signature,
-      }),
-    });
-  }
-
-  /**
-   * Add endorsement to existing entry (alliance members only)
-   */
-  async addEndorsement(
-    hardwareIdHash: Hex,
-    signature: Hex,
-  ): Promise<{ success: boolean }> {
-    if (!this.apiKey) {
-      throw new PoCError(
-        PoCErrorCode.ORACLE_UNAVAILABLE,
-        'API key required for endorsement',
-      );
-    }
-
-    return this.request('/endorse', {
-      method: 'POST',
-      body: JSON.stringify({
-        hardwareIdHash,
-        signature,
-      }),
-    });
-  }
-
-  // ============================================================================
-  // Cache Management
-  // ============================================================================
-
-  /**
-   * Clear all caches
-   */
   clearCache(): void {
-    this.snapshotCache = null;
-    this.snapshotCacheTime = 0;
     this.hardwareCache.clear();
   }
 
-  /**
-   * Refresh hardware cache for specific entry
-   */
-  async refreshHardwareCache(hardwareIdHash: Hex): Promise<PoCRegistryEntry | null> {
-    this.hardwareCache.delete(hardwareIdHash);
-    return this.checkHardware(hardwareIdHash);
-  }
-
-  /**
-   * Preload hardware entries into cache
-   */
-  async preloadHardware(hardwareIdHashes: Hex[]): Promise<void> {
-    // Batch lookup would be ideal, but fetch individually for now
-    await Promise.all(
-      hardwareIdHashes.map(hash => this.checkHardware(hash)),
-    );
-  }
-
-  // ============================================================================
-  // Internal Methods
-  // ============================================================================
-
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
-    const url = `${this.endpoint}${path}`;
-    
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+  getDataSourceInfo(): { validatorAddress: Address; offChainEndpoints: string[] } {
+    return {
+      validatorAddress: this.validatorAddress,
+      offChainEndpoints: this.offChainEndpoints,
     };
+  }
 
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
-    }
+  private async request<T>(url: string, init: RequestInit): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    const response = await fetch(url, {
-      ...init,
-      headers: { ...headers, ...init.headers },
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeoutId));
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        headers: { ...headers, ...init.headers },
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timeoutId);
+      return { ok: false, error: e instanceof Error ? e.message : 'fetch failed' };
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new PoCError(
-        PoCErrorCode.ORACLE_UNAVAILABLE,
-        `Registry API error: ${response.status} ${errorText}`,
-        { status: response.status, url },
-      );
+      return { ok: false, error: `${response.status} ${errorText}` };
     }
 
-    return response.json() as Promise<T>;
+    return { ok: true, data: await response.json() as T };
   }
 }
 
-// ============================================================================
-// Mock Registry Client (for testing/development)
-// ============================================================================
+// Mock for testing
 
-/**
- * Mock registry client for development without actual PoC registry access
- */
-export class MockPoCRegistryClient extends PoCRegistryClient {
-  private mockEntries: Map<string, PoCRegistryEntry> = new Map();
+export class MockPoCRegistryClient {
+  private mockEntries = new Map<string, PoCRegistryEntry>();
   private mockRevocations: PoCRevocation[] = [];
+  private mockAgentStatus = new Map<string, { verified: boolean; level: PoCVerificationLevel; hardwareIdHash: Hex; expiresAt: number }>();
 
-  constructor() {
-    super('http://localhost:0', { enableCache: false });
-  }
-
-  /**
-   * Add a mock hardware entry
-   */
   addMockEntry(entry: PoCRegistryEntry): void {
     this.mockEntries.set(entry.hardwareIdHash, entry);
   }
 
-  /**
-   * Add a mock revocation
-   */
   addMockRevocation(revocation: PoCRevocation): void {
     this.mockRevocations.push(revocation);
-    
-    // Mark entry as inactive
     const entry = this.mockEntries.get(revocation.hardwareIdHash);
-    if (entry) {
-      entry.active = false;
-    }
+    if (entry) entry.active = false;
   }
 
-  override async verifyQuote(quote: Hex): Promise<VerifyQuoteResponse> {
-    // Mock: always return verified for testing
+  addMockAgentStatus(agentId: bigint, status: { verified: boolean; level: PoCVerificationLevel; hardwareIdHash: Hex; expiresAt: number }): void {
+    this.mockAgentStatus.set(agentId.toString(), status);
+  }
+
+  async verifyQuote(quote: Hex): Promise<VerifyQuoteResponse> {
+    const hardwareIdHash = ('0x' + quote.slice(2, 66).padEnd(64, '0')) as Hex;
+    const entry = this.mockEntries.get(hardwareIdHash);
+
+    if (!entry) {
+      return {
+        verified: false,
+        level: null,
+        hardwareIdHash,
+        cloudProvider: null,
+        region: null,
+        evidenceHash: '0x' as Hex,
+        timestamp: Date.now(),
+        endorsements: [],
+        error: 'Hardware not found',
+      };
+    }
+
+    if (!entry.active) {
+      return {
+        verified: false,
+        level: null,
+        hardwareIdHash,
+        cloudProvider: entry.cloudProvider,
+        region: entry.region,
+        evidenceHash: '0x' as Hex,
+        timestamp: Date.now(),
+        endorsements: [],
+        error: 'Hardware revoked',
+      };
+    }
+
     return {
       verified: true,
-      level: 1,
-      hardwareIdHash: quote.slice(0, 66) as Hex,
-      cloudProvider: 'mock-provider',
-      region: 'mock-region',
-      evidenceHash: quote.slice(0, 66) as Hex,
+      level: entry.level,
+      hardwareIdHash,
+      cloudProvider: entry.cloudProvider,
+      region: entry.region,
+      evidenceHash: (entry.evidenceHashes[0] ?? '0x') as Hex,
       timestamp: Date.now(),
-      endorsements: [],
+      endorsements: entry.endorsements,
     };
   }
 
-  override async checkHardware(hardwareIdHash: Hex): Promise<PoCRegistryEntry | null> {
+  async checkHardware(hardwareIdHash: Hex): Promise<PoCRegistryEntry | null> {
     return this.mockEntries.get(hardwareIdHash) ?? null;
   }
 
-  override async getRevocations(): Promise<PoCRevocation[]> {
+  async getRevocations(): Promise<PoCRevocation[]> {
     return this.mockRevocations;
   }
 
-  override async isHardwareValid(hardwareIdHash: Hex): Promise<boolean> {
+  async isHardwareValid(hardwareIdHash: Hex): Promise<boolean> {
     const entry = this.mockEntries.get(hardwareIdHash);
-    return entry ? entry.active : false;
+    return entry?.active === true;
   }
 
-  override async isRevoked(hardwareIdHash: Hex): Promise<boolean> {
+  async isRevoked(hardwareIdHash: Hex): Promise<boolean> {
     return this.mockRevocations.some(r => r.hardwareIdHash === hardwareIdHash);
+  }
+
+  async getAgentStatus(agentId: bigint): Promise<{ verified: boolean; level: PoCVerificationLevel; hardwareIdHash: Hex; expiresAt: number }> {
+    const status = this.mockAgentStatus.get(agentId.toString());
+    if (!status) throw new PoCError(PoCErrorCode.HARDWARE_NOT_FOUND, `Agent ${agentId} not found`);
+    return status;
+  }
+
+  async needsReverification(agentId: bigint): Promise<boolean> {
+    const status = this.mockAgentStatus.get(agentId.toString());
+    if (!status) return true;
+    return status.expiresAt < Date.now();
+  }
+
+  async getEndorsements(hardwareIdHash: Hex): Promise<PoCEndorsement[]> {
+    const entry = this.mockEntries.get(hardwareIdHash);
+    return entry?.endorsements ?? [];
+  }
+
+  clearCache(): void {}
+
+  getDataSourceInfo(): { validatorAddress: Address; offChainEndpoints: string[] } {
+    return { validatorAddress: '0x0000000000000000000000000000000000000000', offChainEndpoints: [] };
   }
 }
 
-// ============================================================================
-// Factory Functions
-// ============================================================================
-
 /**
- * Create registry client from environment variables
+ * Create a registry client with config-first defaults
+ * 
+ * Config is loaded from packages/config:
+ * - contracts.json -> external.baseSepolia.poc.validator
+ * - contracts.json -> external.baseSepolia.rpcUrl (Jeju's Base Sepolia node)
+ * 
+ * Optional env overrides:
+ * - POC_REGISTRY_ENDPOINTS: comma-separated off-chain API endpoints
+ * - POC_REGISTRY_API_KEY: API key for off-chain endpoints
  */
 export function createRegistryClient(): PoCRegistryClient {
-  const endpoint = process.env.POC_REGISTRY_ENDPOINT;
-  
-  if (!endpoint) {
-    console.warn('[PoCRegistry] No endpoint configured, using mock client');
-    return new MockPoCRegistryClient();
-  }
+  const offChainEndpoints = process.env.POC_REGISTRY_ENDPOINTS?.split(',').map(e => e.trim()).filter(Boolean) ?? [];
 
-  return new PoCRegistryClient(endpoint, {
+  return new PoCRegistryClient({
+    offChainEndpoints,
     apiKey: process.env.POC_REGISTRY_API_KEY,
     timeout: Number(process.env.POC_REGISTRY_TIMEOUT) || 30000,
     enableCache: process.env.POC_REGISTRY_CACHE !== 'false',
     cacheTtl: Number(process.env.POC_REGISTRY_CACHE_TTL) || 5 * 60 * 1000,
   });
 }
-
-

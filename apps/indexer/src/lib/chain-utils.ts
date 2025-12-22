@@ -1,7 +1,11 @@
 import type { Chain } from 'viem';
 
 export function inferChainFromRpcUrl(rpcUrl: string): Chain {
-  if (rpcUrl.includes('localhost') || rpcUrl.includes('127.0.0.1') || rpcUrl.includes(':9545') || rpcUrl.includes(':8545')) {
+  if (!rpcUrl || typeof rpcUrl !== 'string' || rpcUrl.trim().length === 0) {
+    throw new Error('rpcUrl is required and must be a non-empty string');
+  }
+  
+  if (rpcUrl.includes('localhost') || rpcUrl.includes('127.0.0.1') || rpcUrl.includes(':6546') || rpcUrl.includes(':6545')) {
     return {
       id: 1337,
       name: 'Local Network',

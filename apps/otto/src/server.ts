@@ -11,6 +11,16 @@ import { getStateManager } from './services/state';
 import { chatApi } from './web/chat-api';
 import { frameApi } from './web/frame';
 import { miniappApi } from './web/miniapp';
+import { z } from 'zod';
+import {
+  expectValid,
+  DiscordWebhookPayloadSchema,
+  TelegramWebhookPayloadSchema,
+  TwilioWebhookPayloadSchema,
+  FarcasterFramePayloadSchema,
+  TwitterWebhookPayloadSchema,
+} from './schemas';
+import { validateAddress, validateHex, validatePlatform, validateNonce } from './utils/validation';
 
 // Re-export for use by ElizaOS agents
 export { ottoPlugin, ottoCharacter } from './eliza';
@@ -24,6 +34,7 @@ const stateManager = getStateManager();
 
 const app = new Hono();
 
+// Middleware
 app.use('/*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -55,7 +66,109 @@ app.get('/status', (c) => {
   });
 });
 
+// ============================================================================
+// Webhooks
+// ============================================================================
+
+// Discord webhook (for interactions API)
+app.post('/webhooks/discord', async (c) => {
+  const rawPayload = await c.req.json();
+  const payload = expectValid(DiscordWebhookPayloadSchema, rawPayload, 'Discord webhook');
+  
+  // Discord requires immediate response for interaction verification
+  if (payload.type === 1) {
+    // PING - respond with PONG
+    return c.json({ type: 1 });
+  }
+  
+  // Acknowledge receipt
+  return c.json({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+});
+
+// Telegram webhook
+app.post('/webhooks/telegram', async (c) => {
+  // Verify secret token if configured
+  if (config.telegram.webhookSecret) {
+    const secretToken = c.req.header('X-Telegram-Bot-Api-Secret-Token');
+    if (!secretToken || secretToken !== config.telegram.webhookSecret) {
+      return c.json({ error: 'Invalid secret token' }, 403);
+    }
+  }
+  
+  const rawPayload = await c.req.json();
+  expectValid(TelegramWebhookPayloadSchema, rawPayload, 'Telegram webhook');
+  
+  return c.json({ ok: true });
+});
+
+// WhatsApp webhook (Twilio)
+app.post('/webhooks/whatsapp', async (c) => {
+  // Parse form data (Twilio sends as application/x-www-form-urlencoded)
+  const formData = await c.req.parseBody();
+  
+  const rawPayload = {
+    MessageSid: String(formData['MessageSid'] ?? ''),
+    From: String(formData['From'] ?? ''),
+    To: String(formData['To'] ?? ''),
+    Body: String(formData['Body'] ?? ''),
+    NumMedia: String(formData['NumMedia'] ?? '0'),
+    MediaUrl0: formData['MediaUrl0'] ? String(formData['MediaUrl0']) : undefined,
+  };
+  
+  expectValid(TwilioWebhookPayloadSchema, rawPayload, 'WhatsApp webhook');
+  
+  // Return empty TwiML response
+  c.header('Content-Type', 'text/xml');
+  return c.body('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+});
+
+// WhatsApp webhook verification (Twilio)
+app.get('/webhooks/whatsapp', (c) => {
+  // Twilio may send GET for verification
+  return c.text('OK');
+});
+
+// Farcaster Frame webhook
+app.post('/webhooks/farcaster', async (c) => {
+  const rawPayload = await c.req.json();
+  expectValid(FarcasterFramePayloadSchema, rawPayload, 'Farcaster webhook');
+  
+  return c.json({ ok: true });
+});
+
+// Twitter webhook (Account Activity API)
+app.post('/webhooks/twitter', async (c) => {
+  const rawPayload = await c.req.json();
+  expectValid(TwitterWebhookPayloadSchema, rawPayload, 'Twitter webhook');
+  
+  return c.json({ ok: true });
+});
+
+// Twitter webhook verification (CRC challenge)
+app.get('/webhooks/twitter', async (c) => {
+  const crcTokenParam = c.req.query('crc_token');
+  if (!crcTokenParam) {
+    return c.text('Missing crc_token', 400);
+  }
+  
+  const apiSecret = process.env.TWITTER_API_SECRET ?? '';
+  if (!apiSecret) {
+    throw new Error('TWITTER_API_SECRET is required for CRC verification');
+  }
+  
+  // Generate CRC response
+  const crypto = await import('crypto');
+  const hmac = crypto.createHmac('sha256', apiSecret);
+  hmac.update(crcTokenParam);
+  const responseToken = `sha256=${hmac.digest('base64')}`;
+  
+  return c.json({ response_token: responseToken });
+});
+
+// ============================================================================
 // API Routes
+// ============================================================================
+
 app.get('/api/chains', (c) => {
   return c.json({
     chains: config.trading.supportedChains,
@@ -90,6 +203,41 @@ app.route('/frame', frameApi);
 app.route('/miniapp', miniappApi);
 app.get('/miniapp/', (c) => c.redirect('/miniapp'));
 app.get('/', (c) => c.redirect('/miniapp'));
+
+// Auth callback
+app.get('/auth/callback', async (c) => {
+  const { address, signature, platform, platformId, nonce } = c.req.query();
+  
+  if (!address || !signature || !platform || !platformId || !nonce) {
+    return c.html(`<!DOCTYPE html><html><head><title>Error</title></head><body><h1>Connection Failed</h1><p>Missing required parameters.</p></body></html>`);
+  }
+  
+  // Validate parameters with fail-fast
+  validateAddress(address);
+  validateHex(signature);
+  validatePlatform(platform);
+  expectValid(z.string().min(1), platformId, 'auth callback platformId');
+  validateNonce(nonce);
+  
+  return c.html(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Connected</title>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
+    .container { text-align: center; padding: 2rem; }
+    h1 { color: #00d4ff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Wallet Connected</h1>
+    <p>Address: ${address.slice(0, 6)}...${address.slice(-4)}</p>
+    <p>You can close this window.</p>
+  </div>
+</body>
+</html>`);
+});
 
 // Wallet connect page
 app.get('/auth/connect', (c) => {
@@ -168,8 +316,7 @@ async function main() {
   console.log('========================================');
   console.log('');
   
-  // Start limit order monitor
-  stateManager.startLimitOrderMonitor();
+  // Limit order monitor will be started when trading service is ready
   
   // Start HTTP server
   const port = config.port;
@@ -210,8 +357,9 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-main().catch(err => {
-  console.error('[Otto] Fatal error:', err);
+main().catch((err: Error) => {
+  const errorMessage = err instanceof Error ? err.message : String(err);
+  console.error('[Otto] Fatal error:', errorMessage);
   process.exit(1);
 });
 

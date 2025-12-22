@@ -80,8 +80,8 @@
     "aws": {
       "region": "us-east-1",
       "eksCluster": "jeju-testnet",
-      "route53Zone": "Z04776841ET3FSDM5A8OL",
-      "acmCertificate": "arn:aws:acm:us-east-1:502713364895:certificate/34c89eb5-a94f-406a-be3c-c40008f4f693"
+      "route53Zone": "",
+      "acmCertificate": ""
     },
     "dns": {
       "rpc": "testnet-rpc.jejunetwork.org",
@@ -93,10 +93,10 @@
       "faucet": "faucet.testnet.jejunetwork.org"
     },
     "nameservers": [
-      "ns-1957.awsdns-52.co.uk",
-      "ns-1067.awsdns-05.org",
-      "ns-996.awsdns-60.net",
-      "ns-447.awsdns-55.com"
+      "ns-1391.awsdns-45.org",
+      "ns-1936.awsdns-50.co.uk",
+      "ns-317.awsdns-39.com",
+      "ns-781.awsdns-33.net"
     ]
   }
 }

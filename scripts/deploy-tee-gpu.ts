@@ -11,11 +11,10 @@
 
 import { parseArgs } from 'util';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createPublicClient, createWalletClient, http, type Hex, type Address } from 'viem';
+import { createPublicClient, createWalletClient, http, type Hex } from 'viem';
 import { baseSepolia, localhost } from 'viem/chains';
 import {
-  createH200Provider,
-  createH100Provider,
+  createTEEGPUProvider,
   TEEProvider,
   GPUType,
   type TEEGPUProvider,
@@ -55,8 +54,8 @@ function getConfig(): DeployConfig {
   // Default endpoints based on network
   const defaultDwsEndpoints: Record<string, string> = {
     localnet: 'http://localhost:4030',
-    testnet: 'https://dws-testnet.jeju.network',
-    mainnet: 'https://dws.jeju.network',
+    testnet: 'https://dws-testnet.jejunetwork.org',
+    mainnet: 'https://dws.jejunetwork.org',
   };
 
   return {
@@ -103,14 +102,14 @@ async function deploy() {
 
   // Setup clients
   const chain = config.network === 'localnet' ? localhost : baseSepolia;
-  const rpcUrl = process.env.RPC_URL ?? (config.network === 'localnet' ? 'http://localhost:8545' : undefined);
+  const rpcUrl = process.env.RPC_URL ?? (config.network === 'localnet' ? 'http://localhost:6546' : undefined);
 
-  const publicClient = createPublicClient({
+  createPublicClient({
     chain,
     transport: http(rpcUrl),
   });
 
-  const walletClient = createWalletClient({
+  createWalletClient({
     account,
     chain,
     transport: http(rpcUrl),
@@ -125,25 +124,16 @@ async function deploy() {
     const nodeId = `${config.gpuType}-node-${Date.now()}-${i}`;
     console.log(`\n[${i + 1}/${config.nodeCount}] Deploying node: ${nodeId}`);
 
-    const provider = config.gpuType === 'h200'
-      ? createH200Provider({
-          nodeId,
-          address: account.address,
-          endpoint: config.dwsEndpoint,
-          teeProvider: config.teeProvider,
-          teeEndpoint: config.phalaEndpoint,
-          teeApiKey: config.phalaApiKey,
-          gpuCount: config.gpuCount,
-        })
-      : createH100Provider({
-          nodeId,
-          address: account.address,
-          endpoint: config.dwsEndpoint,
-          teeProvider: config.teeProvider,
-          teeEndpoint: config.phalaEndpoint,
-          teeApiKey: config.phalaApiKey,
-          gpuCount: config.gpuCount,
-        });
+    const provider = createTEEGPUProvider({
+      gpuType: config.gpuType === 'h200' ? GPUType.H200 : GPUType.H100,
+      nodeId,
+      address: account.address,
+      endpoint: config.dwsEndpoint,
+      teeProvider: config.teeProvider,
+      teeEndpoint: config.phalaEndpoint,
+      teeApiKey: config.phalaApiKey,
+      gpuCount: config.gpuCount,
+    });
 
     // Initialize provider
     const attestation = await provider.initialize();
@@ -261,7 +251,7 @@ async function deploy() {
   // Keep running to serve requests
   if (config.teeProvider !== TEEProvider.LOCAL) {
     console.log('\nPress Ctrl+C to shutdown...');
-    await new Promise(() => {}); // Keep running
+    await new Promise(() => { /* keep process running */ });
   }
 }
 

@@ -10,9 +10,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { logger } from '../lib/logger';
-import { getNetworkName, getNetworkDisplayName } from '@jejunetwork/config';
+import { getNetworkDisplayName } from '@jejunetwork/config';
 
-const networkName = getNetworkName();
 const displayName = getNetworkDisplayName();
 
 // Superchain requirements
@@ -172,7 +171,7 @@ superchainCommand
     console.log(chalk.cyan(`\n${displayName} Superchain Status\n`));
 
     console.log(chalk.bold('OP Stack Components:'));
-    console.log('  op-reth:     Running on port 9545');
+    console.log('  op-reth:     Running on port 6546');
     console.log('  op-node:     Running');
     console.log('  op-batcher:  Running');
     console.log('  op-proposer: Running');

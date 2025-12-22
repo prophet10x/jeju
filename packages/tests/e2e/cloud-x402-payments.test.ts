@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, beforeAll } from 'bun:test';
-import { createPublicClient, createWalletClient, http, parseAbi, readContract, writeContract, waitForTransactionReceipt, formatEther, formatUnits, parseUnits, decodeEventLog, type Address, type PublicClient, type WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbi, readContract, waitForTransactionReceipt, formatEther, formatUnits, parseUnits, decodeEventLog, type Address, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { inferChainFromRpcUrl } from '../../../scripts/shared/chain-utils';
 import { Logger } from '../../../scripts/shared/logger';
@@ -33,7 +33,7 @@ const CREDIT_MANAGER_ADDRESS = process.env.CREDIT_MANAGER_ADDRESS || '0xDc64a140
 const SERVICE_REGISTRY_ADDRESS = process.env.SERVICE_REGISTRY_ADDRESS || '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9';
 
 // Check if localnet is available
-const rpcUrl = process.env.RPC_URL || 'http://localhost:8545';
+const rpcUrl = process.env.RPC_URL || 'http://localhost:6546';
 let localnetAvailable = false;
 try {
   const response = await fetch(rpcUrl, {
@@ -586,7 +586,7 @@ describe.skipIf(!localnetAvailable)('Cloud x402 E2E - Volume Discounts', () => {
       args: [userAccount.address, serviceName],
     }) as [bigint, bigint, bigint, bigint];
     
-    const [totalSpent, requestCount, lastUsedBlock, volumeDiscount] = usageResult;
+    const [totalSpent, requestCount, _lastUsedBlock, volumeDiscount] = usageResult;
     
     logger.info(`  User stats:`);
     logger.info(`    Total spent: ${formatEther(totalSpent)} elizaOS`);

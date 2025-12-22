@@ -74,6 +74,12 @@ variable "enable_cdn" {
   default     = true
 }
 
+variable "enable_solana" {
+  description = "Enable Solana RPC nodes (optional, requires EC2 quota + keypair)"
+  type        = bool
+  default     = false
+}
+
 variable "enable_dns_records" {
   description = "Create DNS records for services. Requires valid ACM certificate."
   type        = bool
@@ -154,6 +160,18 @@ module "acm" {
     "bazaar.testnet.${var.domain_name}",
     "docs.testnet.${var.domain_name}",
     "api.testnet.${var.domain_name}",
+    "dws.testnet.${var.domain_name}",
+    "storage.testnet.${var.domain_name}",
+    "git.testnet.${var.domain_name}",
+    "npm.testnet.${var.domain_name}",
+    "hub.testnet.${var.domain_name}",
+    "registry.testnet.${var.domain_name}",
+    "jns.testnet.${var.domain_name}",
+    "*.jns.testnet.${var.domain_name}",
+    "indexer.testnet.${var.domain_name}",
+    "bundler.testnet.${var.domain_name}",
+    "explorer.testnet.${var.domain_name}",
+    "faucet.testnet.${var.domain_name}",
   ]
 
   tags = local.common_tags
@@ -188,10 +206,10 @@ module "eks" {
   node_groups = [
     {
       name          = "general"
-      instance_type = "t3.large"
-      desired_size  = 3
+      instance_type = "t3.xlarge"  # Upgraded from t3.large for more CPU (4 vCPU)
+      desired_size  = 6
       min_size      = 2
-      max_size      = 10
+      max_size      = 12
       disk_size     = 50
       labels = {
         workload = "general"
@@ -218,11 +236,11 @@ module "eks" {
     },
     {
       name          = "indexer"
-      instance_type = "t3.large"
+      instance_type = "t3.xlarge"  # Upgraded for L1 node workloads
       desired_size  = 2
       min_size      = 1
       max_size      = 4
-      disk_size     = 100
+      disk_size     = 200  # More disk for blockchain data
       labels = {
         workload = "indexer"
       }
@@ -379,6 +397,127 @@ resource "aws_route53_record" "testnet_main" {
   count   = var.enable_dns_records ? 1 : 0
   zone_id = module.route53.zone_id
   name    = "testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+# DWS Services DNS Records
+resource "aws_route53_record" "dws" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "dws.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "storage" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "storage.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "git" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "git.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "jns" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "jns.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "jns_wildcard" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "*.jns.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "indexer" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "indexer.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "bundler" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "bundler.testnet"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+
+  depends_on = [module.route53, module.alb]
+}
+
+resource "aws_route53_record" "explorer" {
+  count   = var.enable_dns_records ? 1 : 0
+  zone_id = module.route53.zone_id
+  name    = "explorer.testnet"
   type    = "A"
 
   alias {
@@ -749,8 +888,8 @@ output "testnet_urls" {
     relay         = module.messaging.relay_endpoint
     kms           = module.messaging.kms_endpoint
     covenantsql   = module.covenantsql.http_endpoint
-    solana_rpc    = module.solana.rpc_endpoint
-    solana_ws     = module.solana.ws_endpoint
+    solana_rpc    = var.enable_solana ? module.solana[0].rpc_endpoint : ""
+    solana_ws     = var.enable_solana ? module.solana[0].ws_endpoint : ""
   }
 }
 
@@ -778,7 +917,7 @@ module "covenantsql" {
   environment         = local.environment
   vpc_id              = module.network.vpc_id
   subnet_ids          = module.network.private_subnet_ids
-  node_count          = 3
+  node_count          = 1
   instance_type       = "t3.medium"      # x86 instance type (fallback)
   arm_instance_type   = "t4g.medium"     # ARM instance type (Graviton)
   use_arm64           = var.use_arm64_cql
@@ -825,6 +964,7 @@ module "messaging" {
 # ============================================================
 module "solana" {
   source = "../../modules/solana"
+  count  = var.enable_solana ? 1 : 0
 
   environment    = local.environment
   vpc_id         = module.network.vpc_id
@@ -841,12 +981,76 @@ module "solana" {
 
 output "solana_rpc_endpoint" {
   description = "Solana RPC endpoint for cross-chain operations"
-  value       = module.solana.rpc_endpoint
+  value       = var.enable_solana ? module.solana[0].rpc_endpoint : ""
 }
 
 output "solana_ws_endpoint" {
   description = "Solana WebSocket endpoint"
-  value       = module.solana.ws_endpoint
+  value       = var.enable_solana ? module.solana[0].ws_endpoint : ""
+}
+
+# ============================================================
+# Module: Email Infrastructure (Decentralized Email)
+# Provides jeju.mail addresses with full IMAP/SMTP support
+# ============================================================
+variable "enable_email" {
+  description = "Enable email infrastructure (SES, SMTP gateway, IMAP)"
+  type        = bool
+  default     = true
+}
+
+variable "email_domain" {
+  description = "Email domain (e.g., jeju.mail)"
+  type        = string
+  default     = "jeju.mail"
+}
+
+variable "email_registry_address" {
+  description = "EmailRegistry contract address (deployed separately)"
+  type        = string
+  default     = ""
+}
+
+variable "email_staking_address" {
+  description = "EmailProviderStaking contract address (deployed separately)"
+  type        = string
+  default     = ""
+}
+
+module "email" {
+  source = "../../modules/email"
+  count  = var.enable_email ? 1 : 0
+
+  environment            = local.environment
+  domain_name            = var.domain_name
+  email_domain           = var.email_domain
+  vpc_id                 = module.network.vpc_id
+  private_subnet_ids     = module.network.private_subnet_ids
+  public_subnet_ids      = module.network.public_subnet_ids
+  zone_id                = module.route53.zone_id
+  acm_certificate_arn    = module.acm.certificate_arn
+  eks_cluster_name       = module.eks.cluster_name
+  jeju_rpc_url           = "https://testnet-rpc.${var.domain_name}"
+  email_registry_address = var.email_registry_address
+  email_staking_address  = var.email_staking_address
+  dws_endpoint           = "https://dws.testnet.${var.domain_name}"
+  relay_node_count       = 3
+  kms_key_arn            = module.kms.main_key_arn
+  enable_ses_production  = false  # Enable after AWS approval
+  tags                   = local.common_tags
+
+  depends_on = [module.eks, module.kms, module.route53, module.acm]
+}
+
+output "email_config" {
+  description = "Email infrastructure configuration"
+  value = var.enable_email ? {
+    api_endpoint  = module.email[0].email_api_endpoint
+    smtp_endpoint = module.email[0].smtp_endpoint
+    imap_endpoint = module.email[0].imap_endpoint
+    ses_domain    = module.email[0].ses_domain
+    ecs_cluster   = module.email[0].ecs_cluster_name
+  } : null
 }
 
 output "deployment_summary" {
@@ -862,7 +1066,7 @@ output "deployment_summary" {
     route53_zone_id     = module.route53.zone_id
     acm_certificate_arn = module.acm.certificate_arn
     alb_controller_role = aws_iam_role.alb_controller.arn
-    solana_rpc          = module.solana.rpc_endpoint
+    solana_rpc          = var.enable_solana ? module.solana[0].rpc_endpoint : ""
   }
 }
 

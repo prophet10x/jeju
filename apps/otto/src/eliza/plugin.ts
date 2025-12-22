@@ -3,44 +3,61 @@
  * Trading actions for the Otto agent
  */
 
-import type { Plugin, Action, Provider } from '@elizaos/core';
+import type {
+  Plugin,
+  Action,
+  IAgentRuntime,
+  Memory,
+  State,
+  HandlerCallback,
+  Provider,
+  HandlerOptions,
+} from '@elizaos/core';
 import { getTradingService } from '../services/trading';
 import { getWalletService } from '../services/wallet';
 import { getStateManager } from '../services/state';
 import { getChainId, DEFAULT_CHAIN_ID, getChainName } from '../config';
-import type { Platform } from '../types';
+import type { OttoUser, Platform } from '../types';
+import { expectValid, OttoUserSchema } from '../schemas';
+import { parseSwapParams, parseBridgeParams, validateSwapParams } from '../utils/parsing';
+
+function getUserId(message: Memory): string {
+  return String(message.content?.userId ?? message.agentId ?? '');
+}
+
+function getRoomId(message: Memory): string {
+  return String(message.roomId ?? '');
+}
+
+function getPlatform(message: Memory): Platform {
+  const source = message.content?.source;
+  if (source === 'discord' || source === 'telegram' || source === 'whatsapp' || 
+      source === 'farcaster' || source === 'twitter' || source === 'web') {
+    return source;
+  }
+  return 'web';
+}
 
 const tradingService = getTradingService();
 const walletService = getWalletService();
 const stateManager = getStateManager();
 
-const PENDING_ACTION_TTL = 5 * 60 * 1000;
+const PENDING_ACTION_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Helper to parse swap params
-function parseSwapParams(text: string): { amount?: string; from?: string; to?: string; chain?: string } {
-  const result: { amount?: string; from?: string; to?: string; chain?: string } = {};
-  const swapMatch = text.match(/(\d+(?:\.\d+)?)\s*(\w+)\s+(?:to|for|into)\s+(\w+)/i);
-  if (swapMatch) {
-    result.amount = swapMatch[1];
-    result.from = swapMatch[2].toUpperCase();
-    result.to = swapMatch[3].toUpperCase();
+async function getOrCreateUser(_runtime: IAgentRuntime, message: Memory): Promise<OttoUser | null> {
+  const userId = getUserId(message);
+  if (!userId) {
+    throw new Error('Message must have userId');
   }
-  const chainMatch = text.match(/\bon\s+(\w+)/i);
-  if (chainMatch) result.chain = chainMatch[1].toLowerCase();
-  return result;
-}
-
-// Helper to parse bridge params
-function parseBridgeParams(text: string): { amount?: string; token?: string; fromChain?: string; toChain?: string } {
-  const result: { amount?: string; token?: string; fromChain?: string; toChain?: string } = {};
-  const bridgeMatch = text.match(/(\d+(?:\.\d+)?)\s*(\w+)\s+from\s+(\w+)\s+to\s+(\w+)/i);
-  if (bridgeMatch) {
-    result.amount = bridgeMatch[1];
-    result.token = bridgeMatch[2].toUpperCase();
-    result.fromChain = bridgeMatch[3].toLowerCase();
-    result.toChain = bridgeMatch[4].toLowerCase();
+  
+  const platform = getPlatform(message);
+  const user = walletService.getUserByPlatform(platform, userId);
+  
+  if (!user) {
+    return null;
   }
-  return result;
+  
+  return expectValid(OttoUserSchema, user, 'getOrCreateUser');
 }
 
 // ============================================================================
@@ -51,35 +68,54 @@ export const swapAction: Action = {
   name: 'OTTO_SWAP',
   description: 'Swap tokens on the default chain or specified chain',
   similes: ['swap', 'exchange', 'trade', 'convert', 'buy', 'sell'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    _runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
     const text = String(message.content?.text ?? '');
-    const params = parseSwapParams(text);
-    const userId = String(message.agentId ?? 'anonymous');
-    const platform = (message.content?.source ?? 'web') as Platform;
-    
-    if (!params.amount || !params.from || !params.to) {
-      callback?.({ text: 'Please specify what to swap. Example: "swap 1 ETH to USDC"' });
+    if (!text) {
+      callback?.({ text: 'Invalid message content' });
       return;
     }
     
+    const params = parseSwapParams(text);
+    const validation = validateSwapParams(params);
+    
+    if (!validation.valid) {
+      callback?.({
+        text: validation.error ?? 'Please specify what to swap. Example: "swap 1 ETH to USDC" or "exchange 100 USDC for ETH on base"',
+      });
+      return;
+    }
+    
+    const userId = getUserId(message);
+    const platform = getPlatform(message);
     const user = walletService.getUserByPlatform(platform, userId);
+    
     if (!user) {
-      const connectUrl = walletService.getConnectUrl(platform, userId, userId);
+      const connectUrl = await walletService.generateConnectUrl(platform, userId, userId);
       callback?.({ text: `Connect your wallet first:\n${connectUrl}` });
       return;
     }
     
     const chainId = params.chain ? getChainId(params.chain) ?? user.settings.defaultChainId : user.settings.defaultChainId;
-    const fromToken = await tradingService.getTokenInfo(params.from, chainId);
-    const toToken = await tradingService.getTokenInfo(params.to, chainId);
+    const fromToken = await tradingService.getTokenInfo(params.from ?? '', chainId);
+    const toToken = await tradingService.getTokenInfo(params.to ?? '', chainId);
     
     if (!fromToken || !toToken) {
       callback?.({ text: `Could not find token info for ${params.from} or ${params.to}` });
       return;
     }
     
-    const amount = tradingService.parseAmount(params.amount, fromToken.decimals);
+    callback?.({ text: `Getting quote for ${params.amount} ${params.from} → ${params.to}...` });
+    
+    const amount = tradingService.parseAmount(params.amount ?? '0', fromToken.decimals);
     const quote = await tradingService.getSwapQuote({
       userId: user.id,
       fromToken: fromToken.address,
@@ -89,17 +125,22 @@ export const swapAction: Action = {
     });
     
     if (!quote) {
-      callback?.({ text: 'Could not get swap quote. Try again.' });
+      callback?.({ text: 'Could not get swap quote. Try again later.' });
       return;
     }
     
-    const channelId = String(message.roomId ?? '');
     const toAmount = tradingService.formatAmount(quote.toAmount, toToken.decimals);
+    const channelId = getRoomId(message);
     
     stateManager.setPendingAction(platform, channelId, {
       type: 'swap',
       quote,
-      params: { amount: params.amount, from: params.from, to: params.to, chainId },
+      params: {
+        amount: params.amount ?? '0',
+        from: params.from ?? '',
+        to: params.to ?? '',
+        chainId,
+      },
       expiresAt: Date.now() + PENDING_ACTION_TTL,
     });
     
@@ -115,13 +156,21 @@ export const swapAction: Action = {
 export const bridgeAction: Action = {
   name: 'OTTO_BRIDGE',
   description: 'Bridge tokens across different blockchain networks',
-  similes: ['bridge', 'cross-chain', 'transfer between chains'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
+  similes: ['bridge', 'cross-chain', 'transfer between chains', 'move to'],
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    _runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
     const text = String(message.content?.text ?? '');
     const params = parseBridgeParams(text);
-    const userId = String(message.agentId ?? 'anonymous');
-    const platform = (message.content?.source ?? 'web') as Platform;
+    const userId = getUserId(message);
+    const platform = getPlatform(message);
     
     if (!params.amount || !params.token || !params.fromChain || !params.toChain) {
       callback?.({ text: 'Please specify bridge details. Example: "bridge 1 ETH from ethereum to base"' });
@@ -130,7 +179,7 @@ export const bridgeAction: Action = {
     
     const user = walletService.getUserByPlatform(platform, userId);
     if (!user) {
-      const connectUrl = walletService.getConnectUrl(platform, userId, userId);
+      const connectUrl = await walletService.generateConnectUrl(platform, userId, userId);
       callback?.({ text: `Connect your wallet first:\n${connectUrl}` });
       return;
     }
@@ -143,29 +192,35 @@ export const bridgeAction: Action = {
       return;
     }
     
-    const tokenInfo = await tradingService.getTokenInfo(params.token, sourceChainId);
-    if (!tokenInfo) {
-      callback?.({ text: `Could not find token ${params.token}` });
+    callback?.({
+      text: `Getting bridge quote for ${params.amount} ${params.token} from ${params.fromChain} to ${params.toChain}...`,
+    });
+    
+    const sourceToken = await tradingService.getTokenInfo(params.token, sourceChainId);
+    const destToken = await tradingService.getTokenInfo(params.token, destChainId);
+    
+    if (!sourceToken || !destToken) {
+      callback?.({ text: `Could not find token ${params.token} on one of the chains.` });
       return;
     }
     
-    const amount = tradingService.parseAmount(params.amount, tokenInfo.decimals);
+    const amount = tradingService.parseAmount(params.amount, sourceToken.decimals);
     const quote = await tradingService.getBridgeQuote({
       userId: user.id,
       sourceChainId,
       destChainId,
-      sourceToken: tokenInfo.address,
-      destToken: tokenInfo.address,
+      sourceToken: sourceToken.address,
+      destToken: destToken.address,
       amount,
     });
     
     if (!quote) {
-      callback?.({ text: 'Could not get bridge quote. Try again.' });
+      callback?.({ text: 'Could not get bridge quote. Try again later.' });
       return;
     }
     
-    const channelId = String(message.roomId ?? '');
-    const outputAmount = tradingService.formatAmount(quote.outputAmount, tokenInfo.decimals);
+    const channelId = getRoomId(message);
+    const outputAmount = tradingService.formatAmount(quote.outputAmount, sourceToken.decimals);
     
     stateManager.setPendingAction(platform, channelId, {
       type: 'bridge',
@@ -186,18 +241,27 @@ export const bridgeAction: Action = {
 export const balanceAction: Action = {
   name: 'OTTO_BALANCE',
   description: 'Check token balances for connected wallet',
-  similes: ['balance', 'check balance', 'my tokens', 'portfolio'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
-    const userId = String(message.agentId ?? 'anonymous');
-    const platform = (message.content?.source ?? 'web') as Platform;
-    
-    const user = walletService.getUserByPlatform(platform, userId);
+  similes: ['balance', 'check balance', 'my tokens', 'portfolio', 'holdings'],
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
+    const user = await getOrCreateUser(runtime, message);
     if (!user) {
-      const connectUrl = walletService.getConnectUrl(platform, userId, userId);
+      const userId = getUserId(message);
+      const platform = getPlatform(message);
+      const connectUrl = await walletService.generateConnectUrl(platform, userId, userId);
       callback?.({ text: `Connect your wallet first:\n${connectUrl}` });
       return;
     }
+    
+    callback?.({ text: 'Fetching your balances...' });
     
     const balances = await tradingService.getBalances(
       user.smartAccountAddress ?? user.primaryWallet,
@@ -225,15 +289,23 @@ export const balanceAction: Action = {
 export const priceAction: Action = {
   name: 'OTTO_PRICE',
   description: 'Get current token price',
-  similes: ['price', 'price of', 'how much is'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
+  similes: ['price', 'price of', 'how much is', 'token price'],
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    _runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
     const text = String(message.content?.text ?? '');
     const tokenMatch = text.match(/(?:price\s+(?:of\s+)?)?(\w+)(?:\s+price)?/i);
     const token = tokenMatch?.[1]?.toUpperCase();
     
-    if (!token || ['PRICE', 'OF', 'THE', 'GET'].includes(token)) {
-      callback?.({ text: 'Which token? Example: "price of ETH"' });
+    if (!token || ['PRICE', 'OF', 'THE', 'GET', 'CHECK'].includes(token)) {
+      callback?.({ text: 'Which token? Example: "price of ETH" or "USDC price"' });
       return;
     }
     
@@ -257,11 +329,19 @@ export const connectAction: Action = {
   name: 'OTTO_CONNECT',
   description: 'Connect wallet to start trading',
   similes: ['connect', 'connect wallet', 'link wallet', 'login'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
-    const userId = String(message.agentId ?? 'anonymous');
-    const platform = (message.content?.source ?? 'web') as Platform;
-    const connectUrl = walletService.getConnectUrl(platform, userId, userId);
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    _runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
+    const userId = getUserId(message);
+    const platform = getPlatform(message);
+    const connectUrl = await walletService.generateConnectUrl(platform, userId, userId);
     callback?.({ text: `Connect your wallet:\n${connectUrl}` });
   },
   examples: [
@@ -272,39 +352,77 @@ export const connectAction: Action = {
 export const confirmAction: Action = {
   name: 'OTTO_CONFIRM',
   description: 'Confirm pending swap or bridge',
-  similes: ['confirm', 'yes', 'execute', 'do it'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
-    const userId = String(message.agentId ?? 'anonymous');
-    const platform = (message.content?.source ?? 'web') as Platform;
-    const channelId = String(message.roomId ?? '');
-    
-    const user = walletService.getUserByPlatform(platform, userId);
+  similes: ['confirm', 'yes', 'execute', 'do it', 'proceed'],
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
+    const user = await getOrCreateUser(runtime, message);
     if (!user) {
       callback?.({ text: 'Connect your wallet first.' });
       return;
     }
     
+    const platform = getPlatform(message);
+    const channelId = getRoomId(message);
     const pending = stateManager.getPendingAction(platform, channelId);
+    
     if (!pending) {
-      callback?.({ text: 'No pending action to confirm.' });
+      callback?.({ text: 'No pending action to confirm. Start a new swap or bridge.' });
       return;
     }
     
     if (Date.now() > pending.expiresAt) {
       stateManager.clearPendingAction(platform, channelId);
-      callback?.({ text: 'Quote expired. Request a new quote.' });
+      callback?.({ text: 'Quote expired. Please request a new quote.' });
       return;
     }
     
     if (pending.type === 'swap' && pending.quote) {
-      const result = await tradingService.executeSwap(user.id, pending.quote);
+      const swapParams = pending.params;
+      callback?.({ text: `Executing swap: ${swapParams.amount} ${swapParams.from} → ${swapParams.to}...` });
+      
+      const result = await tradingService.executeSwap(user, {
+        userId: user.id,
+        fromToken: pending.quote.fromToken.address,
+        toToken: pending.quote.toToken.address,
+        amount: pending.quote.fromAmount,
+        chainId: swapParams.chainId,
+      });
       stateManager.clearPendingAction(platform, channelId);
-      callback?.({ text: result.success ? `Swap complete.\nTx: ${result.txHash}` : `Swap failed: ${result.error}` });
+      
+      if (result.success) {
+        callback?.({ text: `Swap complete.\nTx: ${result.txHash}` });
+      } else {
+        callback?.({ text: `Swap failed: ${result.error}` });
+      }
     } else if (pending.type === 'bridge' && pending.quote) {
-      const result = await tradingService.executeBridge(user.id, pending.quote);
+      const bridgeParams = pending.params;
+      callback?.({
+        text: `Executing bridge: ${bridgeParams.amount} ${bridgeParams.token} from ${bridgeParams.fromChain} to ${bridgeParams.toChain}...`,
+      });
+      
+      const result = await tradingService.executeBridge(user, {
+        userId: user.id,
+        sourceChainId: bridgeParams.sourceChainId,
+        destChainId: bridgeParams.destChainId,
+        sourceToken: pending.quote.sourceToken.address,
+        destToken: pending.quote.destToken.address,
+        amount: pending.quote.inputAmount,
+      });
       stateManager.clearPendingAction(platform, channelId);
-      callback?.({ text: result.success ? `Bridge initiated.\nTx: ${result.sourceTxHash}` : `Bridge failed: ${result.error}` });
+      
+      if (result.success) {
+        callback?.({ text: `Bridge initiated.\nIntent ID: ${result.intentId}\nSource Tx: ${result.sourceTxHash}` });
+      } else {
+        callback?.({ text: `Bridge failed: ${result.error}` });
+      }
     }
   },
   examples: [
@@ -315,11 +433,19 @@ export const confirmAction: Action = {
 export const cancelAction: Action = {
   name: 'OTTO_CANCEL',
   description: 'Cancel pending swap or bridge',
-  similes: ['cancel', 'no', 'abort', 'nevermind'],
-  validate: async () => true,
-  handler: async (_runtime, message, _state, _options, callback) => {
-    const platform = (message.content?.source ?? 'web') as Platform;
-    const channelId = String(message.roomId ?? '');
+  similes: ['cancel', 'no', 'abort', 'nevermind', 'stop'],
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    _runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
+    const platform = getPlatform(message);
+    const channelId = getRoomId(message);
     stateManager.clearPendingAction(platform, channelId);
     callback?.({ text: 'Cancelled.' });
   },
@@ -331,9 +457,17 @@ export const cancelAction: Action = {
 export const helpAction: Action = {
   name: 'OTTO_HELP',
   description: 'Show Otto capabilities and commands',
-  similes: ['help', 'what can you do', 'commands'],
-  validate: async () => true,
-  handler: async (_runtime, _message, _state, _options, callback) => {
+  similes: ['help', 'what can you do', 'commands', 'how to use'],
+  
+  validate: async (_runtime: IAgentRuntime) => true,
+  
+  handler: async (
+    _runtime: IAgentRuntime,
+    _message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
     callback?.({
       text: `**Otto Trading Agent**\n\nI can help you with:\n• **Swap** - "swap 1 ETH to USDC"\n• **Bridge** - "bridge 1 ETH from ethereum to base"\n• **Balance** - "check my balance"\n• **Price** - "price of ETH"\n• **Connect** - "connect wallet"\n\nAfter getting a quote, reply "confirm" or "cancel".`,
     });
@@ -348,19 +482,27 @@ export const helpAction: Action = {
 // ============================================================================
 
 export const ottoWalletProvider: Provider = {
-  get: async (_runtime, message) => {
-    const userId = String(message.agentId ?? 'anonymous');
-    const platform = (message.content?.source ?? 'web') as Platform;
+  name: 'OTTO_WALLET_PROVIDER',
+  description: 'Provides Otto wallet context and user state',
+  
+  get: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
+    const userId = getUserId(message);
+    const platform = getPlatform(message);
     const user = walletService.getUserByPlatform(platform, userId);
     
     if (!user) {
-      return 'User not connected. Use "connect wallet" to link.';
+      return { text: 'User not connected. Use "connect wallet" to link your wallet.' };
     }
     
-    const channelId = String(message.roomId ?? '');
+    const channelId = getRoomId(message);
     const pending = stateManager.getPendingAction(platform, channelId);
     
-    return `Wallet: ${user.primaryWallet}\nChain: ${getChainName(user.settings.defaultChainId)}\nPending: ${pending ? pending.type : 'None'}`;
+    return {
+      text: `User wallet: ${user.primaryWallet}
+Smart account: ${user.smartAccountAddress ?? 'Not deployed'}
+Default chain: ${getChainName(user.settings.defaultChainId)}
+Pending action: ${pending ? pending.type : 'None'}`,
+    };
   },
 };
 

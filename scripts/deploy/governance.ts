@@ -16,7 +16,7 @@
 
 import { createPublicClient, createWalletClient, http, parseEther, formatEther, encodeDeployData, encodeFunctionData, getContractAddress, zeroAddress, zeroHash, getAddress, type Address, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { waitForTransactionReceipt, getBalance, readContract, getLogs, decodeEventLog } from 'viem/actions';
+import { waitForTransactionReceipt, getBalance, getLogs, decodeEventLog } from 'viem/actions';
 import { parseAbi } from 'viem';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -44,7 +44,7 @@ interface DeployedAddresses {
 
 const NETWORKS: Record<string, NetworkConfig> = {
   localnet: {
-    rpcUrl: process.env.LOCALNET_RPC_URL ?? 'http://localhost:8545',
+    rpcUrl: process.env.LOCALNET_RPC_URL ?? 'http://localhost:6546',
     chainId: 31337,
     safeFactory: '0x0000000000000000000000000000000000000000',
     safeSingleton: '0x0000000000000000000000000000000000000000',

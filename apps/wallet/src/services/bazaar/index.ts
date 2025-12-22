@@ -3,7 +3,7 @@
  * List, buy, sell NFTs with multi-currency support
  */
 
-import { type Address, type Hex, type PublicClient, encodeFunctionData, parseUnits, createPublicClient, http } from 'viem';
+import { type Address, type Hex, type PublicClient, encodeFunctionData, createPublicClient, http } from 'viem';
 import { getChainContracts, getNetworkRpcUrl } from '../../sdk/chains';
 import { rpcService, type SupportedChainId, SUPPORTED_CHAINS } from '../rpc';
 
@@ -95,7 +95,7 @@ export class BazaarService {
       return rpcService.getClient(this.chainId as SupportedChainId);
     }
     if (!this.clientCache.has(this.chainId)) {
-      const rpcUrl = getNetworkRpcUrl(this.chainId) || 'http://localhost:8545';
+      const rpcUrl = getNetworkRpcUrl(this.chainId) || 'http://localhost:6546';
       this.clientCache.set(this.chainId, createPublicClient({ transport: http(rpcUrl) }));
     }
     return this.clientCache.get(this.chainId)!;

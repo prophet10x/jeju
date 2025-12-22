@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock, afterEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import {
   verifyAddressCanLink,
   lookupFidByAddress,
@@ -89,19 +89,18 @@ describe('Identity Link', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('returns error on API failure', async () => {
+    it('throws on API failure', async () => {
       const mockClient = createMockClient({
         getProfile: mock(() => Promise.reject(new Error('Network error'))),
       });
-      
-      const result = await verifyAddressCanLink(
-        123,
-        '0xAny0000000000000000000000000000000000001' as Address,
-        mockClient
-      );
 
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('Failed to verify');
+      await expect(
+        verifyAddressCanLink(
+          123,
+          '0xAny0000000000000000000000000000000000001' as Address,
+          mockClient
+        )
+      ).rejects.toThrow('Network error');
     });
   });
 
@@ -152,10 +151,10 @@ describe('Identity Link', () => {
         fid: 123,
         jejuAddress: '0xJeju0000000000000000000000000000000000001' as Address,
         timestamp: 1700000000,
-        domain: 'jeju.network',
+        domain: 'jejunetwork.org',
       });
 
-      expect(message).toContain('jeju.network wants to link your Farcaster account');
+      expect(message).toContain('jejunetwork.org wants to link your Farcaster account');
       expect(message).toContain('Farcaster ID: 123');
       expect(message).toContain('Jeju Address: 0xJeju0000000000000000000000000000000000001');
       expect(message).toContain('Timestamp: 1700000000');
@@ -167,7 +166,7 @@ describe('Identity Link', () => {
         fid: 1,
         jejuAddress: '0x1' as Address,
         timestamp: 0,
-        domain: 'app.jeju.network',
+        domain: 'app.jejunetwork.org',
       });
 
       const message2 = generateLinkProofMessage({
@@ -177,7 +176,7 @@ describe('Identity Link', () => {
         domain: 'localhost:3000',
       });
 
-      expect(message1).toContain('app.jeju.network');
+      expect(message1).toContain('app.jejunetwork.org');
       expect(message2).toContain('localhost:3000');
     });
   });
@@ -188,7 +187,7 @@ describe('Identity Link', () => {
         fid: 123,
         jejuAddress: '0xJeju0000000000000000000000000000000000001' as Address,
         timestamp: 1700000000,
-        domain: 'jeju.network',
+        domain: 'jejunetwork.org',
       });
 
       const parsed = parseLinkProofMessage(originalMessage);
@@ -197,7 +196,7 @@ describe('Identity Link', () => {
       expect(parsed?.fid).toBe(123);
       expect(parsed?.jejuAddress).toBe('0xJeju0000000000000000000000000000000000001');
       expect(parsed?.timestamp).toBe(1700000000);
-      expect(parsed?.domain).toBe('jeju.network');
+      expect(parsed?.domain).toBe('jejunetwork.org');
     });
 
     it('returns null for invalid message format', () => {
@@ -224,7 +223,7 @@ describe('Identity Link', () => {
       const messageWithWhitespace = '  \n' + message + '\n  ';
       
       // Should still fail because the format doesn't match
-      const parsed = parseLinkProofMessage(messageWithWhitespace);
+      const _parsed = parseLinkProofMessage(messageWithWhitespace);
       // The parser should handle leading whitespace gracefully
       // If it doesn't, that's acceptable - the format should be exact
     });

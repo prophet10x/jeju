@@ -1,7 +1,8 @@
 {
-  "name": "@jeju/farcaster",
-  "version": "1.0.0",
+  "name": "@jejunetwork/farcaster",
+  "version": "0.1.0",
   "description": "Permissionless Farcaster integration for Jeju Network - No API keys required",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,22 +20,23 @@
       "import": "./dist/frames/index.js"
     }
   },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsc",
+    "dev": "tsc --watch",
     "test": "bun test",
-    "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run build"
   },
-  "dependencies": {
-    "@farcaster/hub-nodejs": "0.12.0",
-    "viem": "2.41.2"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "5.7.3"
-  },
-  "peerDependencies": {
-    "viem": ">=2.0.0"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elizaos/jeju.git",
+    "directory": "packages/farcaster"
   },
   "keywords": [
     "farcaster",
@@ -42,8 +44,22 @@
     "social",
     "decentralized",
     "jeju",
-    "permissionless"
+    "permissionless",
+    "frames"
   ],
-  "author": "Jeju Network",
-  "license": "MIT"
+  "dependencies": {
+    "@farcaster/hub-nodejs": "0.12.0",
+    "viem": "2.43.2",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "viem": ">=2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

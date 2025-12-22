@@ -63,19 +63,18 @@ interface WebTorrentInstance {
   add: (magnetUri: string, opts: { announce: string[] }) => WebTorrentTorrent;
   seed: (data: Buffer, opts: Record<string, unknown>) => WebTorrentTorrent;
   get: (infohash: string) => WebTorrentTorrent | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on: (event: string, handler: (...args: any[]) => void) => void;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
   destroy: (cb?: () => void) => void;
 }
 
-import { Contract, JsonRpcProvider, Wallet } from 'ethers';
+import { createPublicClient, createWalletClient, http as viemHttp } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { createHash, randomBytes } from 'crypto';
 import type { Address } from 'viem';
-import { CONTENT_REGISTRY_ABI } from '../abis';
 import { z } from 'zod';
 import { Registry, Counter, Gauge } from 'prom-client';
 import { LRUCache } from 'lru-cache';
-import * as http from 'http';
+import * as nodeHttp from 'http';
 
 // ============================================================================
 // Configuration Schema
@@ -90,6 +89,7 @@ const TorrentConfigSchema = z.object({
   maxCacheBytes: z.number().default(10 * 1024 * 1024 * 1024), // 10 GB
   maxCacheEntries: z.number().default(10000),
   rpcUrl: z.string().url().optional(),
+  chainId: z.number().optional(),
   privateKey: z.string().optional(),
   contentRegistryAddress: z.string().optional(),
   seedingOracleUrl: z.string().url().optional(), // Optional in dev, required in prod
@@ -272,12 +272,12 @@ export class HybridTorrentService {
   private startTime = 0;
 
   // On-chain integration
-  private provider: JsonRpcProvider | null = null;
-  private wallet: Wallet | null = null;
-  private contentRegistry: Contract | null = null;
+  private publicClient: ReturnType<typeof createPublicClient> | null = null;
+  private walletClient: ReturnType<typeof createWalletClient> | null = null;
+  private contentRegistryAddress: string | null = null;
   private reportInterval: ReturnType<typeof setInterval> | null = null;
   private blocklistSyncInterval: ReturnType<typeof setInterval> | null = null;
-  private metricsServer: http.Server | null = null;
+  private metricsServer: nodeHttp.Server | null = null;
 
   constructor(config: Partial<HybridTorrentConfig>) {
     // Validate config - seedingOracleUrl is required
@@ -298,14 +298,14 @@ export class HybridTorrentService {
 
     // Setup on-chain integration
     if (this.config.rpcUrl && this.config.contentRegistryAddress) {
-      this.provider = new JsonRpcProvider(this.config.rpcUrl);
+      this.publicClient = createPublicClient({ transport: viemHttp(this.config.rpcUrl) });
       if (this.config.privateKey) {
-        this.wallet = new Wallet(this.config.privateKey, this.provider);
-        this.contentRegistry = new Contract(
-          this.config.contentRegistryAddress,
-          CONTENT_REGISTRY_ABI,
-          this.wallet
-        );
+        const account = privateKeyToAccount(this.config.privateKey as `0x${string}`);
+        this.walletClient = createWalletClient({
+          account,
+          transport: viemHttp(this.config.rpcUrl),
+        });
+        this.contentRegistryAddress = this.config.contentRegistryAddress;
       }
     }
   }
@@ -320,8 +320,8 @@ export class HybridTorrentService {
       webSeeds: true,
     });
 
-    this.client.on('error', (err: Error | string) => {
-      const message = typeof err === 'string' ? err : err.message;
+    this.client.on('error', (err) => {
+      const message = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
       console.error('[HybridTorrent] Client error:', message);
     });
   }
@@ -344,7 +344,7 @@ export class HybridTorrentService {
     }
 
     // Sync blocklist
-    if (this.contentRegistry) {
+    if (this.contentRegistryAddress) {
       await this.syncBlocklist();
 
       this.reportInterval = setInterval(
@@ -370,7 +370,7 @@ export class HybridTorrentService {
     if (this.metricsServer) this.metricsServer.close();
 
     // Final bandwidth report
-    if (this.contentRegistry) {
+    if (this.contentRegistryAddress) {
       await this.reportAllSeeding();
     }
 
@@ -385,7 +385,7 @@ export class HybridTorrentService {
   }
 
   private async startMetricsServer(): Promise<void> {
-    this.metricsServer = http.createServer(async (req, res) => {
+    this.metricsServer = nodeHttp.createServer(async (req: nodeHttp.IncomingMessage, res: nodeHttp.ServerResponse) => {
       if (req.url === '/metrics') {
         res.setHeader('Content-Type', metricsRegistry.contentType);
         res.end(await metricsRegistry.metrics());
@@ -494,7 +494,7 @@ export class HybridTorrentService {
         });
 
         // Register on-chain
-        if (this.contentRegistry) {
+        if (this.contentRegistryAddress) {
           await this.registerSeeding(infohash).catch(console.error);
         }
 
@@ -575,7 +575,7 @@ export class HybridTorrentService {
     this.records.delete(infohash);
     torrentActiveCount.set(this.client.torrents.length);
 
-    if (this.contentRegistry) {
+    if (this.contentRegistryAddress) {
       this.unregisterSeeding(infohash).catch(console.error);
     }
   }
@@ -689,7 +689,7 @@ export class HybridTorrentService {
     infohash: string,
     bytesUploaded: number
   ): Promise<OracleAttestation> {
-    if (!this.wallet) {
+    if (!this.walletClient || !this.walletClient.account) {
       throw new Error('Wallet required for attestation');
     }
 
@@ -705,7 +705,7 @@ export class HybridTorrentService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        seeder: this.wallet.address,
+        seeder: this.walletClient.account.address,
         infohash,
         bytesUploaded,
         timestamp,
@@ -731,7 +731,7 @@ export class HybridTorrentService {
   }
 
   private async reportAllSeeding(): Promise<void> {
-    if (!this.contentRegistry || !this.wallet) return;
+    if (!this.contentRegistryAddress || !this.walletClient || !this.publicClient) return;
 
     for (const [infohash, record] of Array.from(this.records.entries())) {
       if (record.bytesUploaded === 0) continue;
@@ -741,14 +741,21 @@ export class HybridTorrentService {
         const attestation = await this.getOracleAttestation(infohash, record.bytesUploaded);
 
         // Submit to contract with oracle signature
-        const tx = await this.contentRegistry.reportSeeding(
-          `0x${infohash}`,
-          attestation.bytesUploaded,
-          attestation.timestamp,
-          attestation.nonce,
-          attestation.signature
-        );
-        await tx.wait();
+        const hash = await this.walletClient.writeContract({
+          account: null,
+          chain: null,
+          address: this.contentRegistryAddress as `0x${string}`,
+          abi: [{ name: 'reportSeeding', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'infohash', type: 'bytes32' }, { name: 'bytesUploaded', type: 'uint256' }, { name: 'timestamp', type: 'uint256' }, { name: 'nonce', type: 'string' }, { name: 'signature', type: 'bytes' }], outputs: [] }] as const,
+          functionName: 'reportSeeding',
+          args: [
+            `0x${infohash}` as `0x${string}`,
+            BigInt(attestation.bytesUploaded),
+            BigInt(attestation.timestamp),
+            attestation.nonce,
+            attestation.signature as `0x${string}`,
+          ],
+        });
+        await this.publicClient.waitForTransactionReceipt({ hash });
 
         // Reset stats after successful report
         record.bytesUploaded = 0;
@@ -766,28 +773,52 @@ export class HybridTorrentService {
   // ============================================================================
 
   private async registerSeeding(infohash: string): Promise<void> {
-    if (!this.contentRegistry) return;
-    const tx = await this.contentRegistry.startSeeding(`0x${infohash}`);
-    await tx.wait();
+    if (!this.contentRegistryAddress || !this.walletClient || !this.publicClient) return;
+    const hash = await this.walletClient.writeContract({
+      account: null,
+      chain: null,
+      address: this.contentRegistryAddress as `0x${string}`,
+      abi: [{ name: 'startSeeding', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'infohash', type: 'bytes32' }], outputs: [] }] as const,
+      functionName: 'startSeeding',
+      args: [`0x${infohash}` as `0x${string}`],
+    });
+    await this.publicClient.waitForTransactionReceipt({ hash });
     console.log(`[HybridTorrent] Registered seeding: ${infohash}`);
   }
 
   private async unregisterSeeding(infohash: string): Promise<void> {
-    if (!this.contentRegistry) return;
-    const tx = await this.contentRegistry.stopSeeding(`0x${infohash}`);
-    await tx.wait();
+    if (!this.contentRegistryAddress || !this.walletClient || !this.publicClient) return;
+    const hash = await this.walletClient.writeContract({
+      account: null,
+      chain: null,
+      address: this.contentRegistryAddress as `0x${string}`,
+      abi: [{ name: 'stopSeeding', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'infohash', type: 'bytes32' }], outputs: [] }] as const,
+      functionName: 'stopSeeding',
+      args: [`0x${infohash}` as `0x${string}`],
+    });
+    await this.publicClient.waitForTransactionReceipt({ hash });
     console.log(`[HybridTorrent] Unregistered seeding: ${infohash}`);
   }
 
   async syncBlocklist(): Promise<void> {
-    if (!this.contentRegistry) return;
+    if (!this.contentRegistryAddress || !this.publicClient) return;
 
     try {
-      const length = await this.contentRegistry.getBlocklistLength();
+      const length = await this.publicClient.readContract({
+        address: this.contentRegistryAddress as `0x${string}`,
+        abi: [{ name: 'getBlocklistLength', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] }],
+        functionName: 'getBlocklistLength',
+        args: [],
+      }) as bigint;
       const batchSize = 100;
 
-      for (let offset = 0; offset < length; offset += batchSize) {
-        const batch = await this.contentRegistry.getBlocklistBatch(offset, batchSize);
+      for (let offset = 0; offset < Number(length); offset += batchSize) {
+        const batch = await this.publicClient.readContract({
+          address: this.contentRegistryAddress as `0x${string}`,
+          abi: [{ name: 'getBlocklistBatch', type: 'function', stateMutability: 'view', inputs: [{ name: 'offset', type: 'uint256' }, { name: 'limit', type: 'uint256' }], outputs: [{ type: 'bytes32[]' }] }],
+          functionName: 'getBlocklistBatch',
+          args: [BigInt(offset), BigInt(batchSize)],
+        }) as readonly `0x${string}`[];
         for (const hash of batch) {
           this.blocklist.add(hash);
 

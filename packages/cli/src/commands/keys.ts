@@ -971,10 +971,26 @@ async function runGenesis(network: NetworkType) {
   logger.info('  ' + addressesPath + ' (public)');
   logger.info('  ' + genesisPath + ' (genesis config)\n');
 
-  logger.subheader('Funding Requirements');
-  // Type assertion for funding requirements display
-  const opKeys = operatorKeys as unknown as OperatorKeySet;
-  if (opKeys.admin && opKeys.batcher && opKeys.proposer) {
+    logger.subheader('Funding Requirements');
+  // Validate operator keys have required fields before printing funding requirements
+  const admin = operatorKeys['admin'];
+  const batcher = operatorKeys['batcher'];
+  const proposer = operatorKeys['proposer'];
+  const sequencer = operatorKeys['sequencer'];
+  const challenger = operatorKeys['challenger'];
+  const feeRecipient = operatorKeys['feeRecipient'];
+  const guardian = operatorKeys['guardian'];
+  
+  if (admin && batcher && proposer && sequencer && challenger && feeRecipient && guardian) {
+    const opKeys: OperatorKeySet = {
+      admin,
+      batcher,
+      proposer,
+      sequencer,
+      challenger,
+      feeRecipient,
+      guardian,
+    };
     printFundingRequirements(opKeys, network);
   }
 
@@ -1225,7 +1241,7 @@ async function showKeys(network: NetworkType, showPrivate: boolean) {
     logger.subheader('MetaMask Configuration');
     logger.newline();
     logger.info('Network Name:   Network Localnet');
-    logger.info('RPC URL:        http://127.0.0.1:9545');
+    logger.info('RPC URL:        http://127.0.0.1:6546');
     logger.info('Chain ID:       1337');
     logger.info('Currency:       ETH');
     logger.newline();

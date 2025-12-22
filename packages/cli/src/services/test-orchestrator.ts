@@ -43,7 +43,7 @@ const MODE_NEEDS_LOCALNET: Record<TestMode, boolean> = {
   e2e: true,
   full: true,
   infra: false,
-  smoke: true,
+  smoke: false,
 };
 
 const MODE_NEEDS_DOCKER: Record<TestMode, boolean> = {
@@ -154,10 +154,18 @@ export class TestOrchestrator {
       try {
         logger.step('Running preflight checks...');
         const envVars = this.getEnvVars();
+        const rpcUrl = envVars.L2_RPC_URL ?? envVars.JEJU_RPC_URL;
+        if (!rpcUrl) {
+          throw new Error('No RPC URL available for preflight checks. Localnet may not have started properly.');
+        }
+        const chainId = envVars.CHAIN_ID;
+        if (!chainId) {
+          throw new Error('No CHAIN_ID available for preflight checks.');
+        }
         const { runPreflightChecks } = await import('@jejunetwork/tests/preflight');
         const preflightResult = await runPreflightChecks({
-          rpcUrl: envVars.L2_RPC_URL || envVars.JEJU_RPC_URL || 'http://localhost:9545',
-          chainId: parseInt(envVars.CHAIN_ID || '1337'),
+          rpcUrl,
+          chainId: parseInt(chainId),
         });
 
         if (!preflightResult.success) {

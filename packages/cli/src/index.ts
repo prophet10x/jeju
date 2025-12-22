@@ -50,21 +50,17 @@ const networkName = getNetworkName();
 const cliName = cli.name;
 
 function getVersion(): string {
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const pkgPath = join(__dirname, '..', 'package.json');
-    if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      return pkg.version;
-    }
-  } catch {
-    // Fallback
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const pkgPath = join(__dirname, '..', 'package.json');
+  if (existsSync(pkgPath)) {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
+    return pkg.version;
   }
   return '0.1.0';
 }
 
-function printBanner() {
+function printBanner(): void {
   const banner = cli.banner.join('\n');
   console.log(chalk.cyan('\n' + banner));
   console.log(chalk.dim(`  ${getNetworkTagline()}\n`));
@@ -180,9 +176,13 @@ program.action(() => {
   console.log('  ' + chalk.cyan(`${cliName} token status <token>`) + ' Check deployment status\n');
   
   console.log(chalk.bold('Infrastructure:\n'));
+  console.log('  ' + chalk.cyan(`${cliName} infra start`) + '          Start Docker + services + localnet');
+  console.log('  ' + chalk.cyan(`${cliName} infra stop`) + '           Stop all infrastructure');
+  console.log('  ' + chalk.cyan(`${cliName} infra status`) + '         Check infrastructure status');
+  console.log('  ' + chalk.cyan(`${cliName} infra restart`) + '        Restart all infrastructure');
+  console.log('  ' + chalk.cyan(`${cliName} infra logs`) + '           View Docker service logs');
   console.log('  ' + chalk.cyan(`${cliName} infra validate`) + '       Validate configurations');
   console.log('  ' + chalk.cyan(`${cliName} infra terraform`) + '      Terraform operations');
-  console.log('  ' + chalk.cyan(`${cliName} infra helmfile`) + '       Kubernetes deployments');
   console.log('  ' + chalk.cyan(`${cliName} infra deploy-full`) + '    Full deployment pipeline\n');
   
   console.log(chalk.bold('Federation:\n'));
@@ -198,9 +198,11 @@ program.action(() => {
   console.log('  ' + chalk.cyan(`${cliName} superchain register`) + ' Prepare registry submission\n');
   
   console.log(chalk.bold('DWS (Decentralized Web Services):\n'));
+  console.log('  ' + chalk.cyan(`${cliName} dws dev`) + '           Start DWS in dev mode (auto-infra)');
   console.log('  ' + chalk.cyan(`${cliName} dws status`) + '        Check all DWS services');
   console.log('  ' + chalk.cyan(`${cliName} dws start`) + '         Start DWS server');
   console.log('  ' + chalk.cyan(`${cliName} dws upload <file>`) + ' Upload to storage');
+  console.log('  ' + chalk.cyan(`${cliName} dws seed`) + '          Seed dev environment');
   console.log('  ' + chalk.cyan(`${cliName} dws repos`) + '         List Git repositories');
   console.log('  ' + chalk.cyan(`${cliName} dws pkg-search`) + '    Search packages\n');
   

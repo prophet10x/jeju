@@ -11,23 +11,17 @@ import { AgentRuntime, type Character, type Plugin, type UUID } from '@elizaos/c
 import { ceoAgent } from './agents/templates';
 import { ceoPlugin } from './agents/ceo-plugin';
 import { makeTEEDecision, getTEEMode } from './tee';
+import { A2AMessageSchema, ProposalIdSchema } from './schemas';
+import { validateOrThrow, expect, expectDefined } from './schemas';
+import { z } from 'zod';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 const CEO_PORT = parseInt(process.env.CEO_PORT ?? '8004', 10);
-// Note: These URLs are loaded from env first, then fall back to network config
-// In a fully decentralized setup, autocrat runs on the same network-aware endpoints
-import { getAutocratA2AUrl, getAutocratUrl } from '@jejunetwork/config';
-
-function getAutocratA2A(): string {
-  return process.env.getAutocratA2A() ?? getAutocratA2AUrl();
-}
-
-function getAutocratMCP(): string {
-  return process.env.getAutocratMCP() ?? `${getAutocratUrl()}/mcp`;
-}
+const AUTOCRAT_A2A_URL = process.env.AUTOCRAT_A2A_URL ?? 'http://localhost:8010/a2a';
+const AUTOCRAT_MCP_URL = process.env.AUTOCRAT_MCP_URL ?? 'http://localhost:8010/mcp';
 
 // Model settings - uses DWS for decentralized inference (not direct provider keys)
 function getModelSettings(): Record<string, string> {
@@ -129,25 +123,13 @@ app.get('/.well-known/agent-card.json', (c) => c.json({
 
 // A2A Message Handler
 app.post('/a2a', async (c) => {
-  const body = await c.req.json() as {
-    jsonrpc: string;
-    id: number;
-    method: string;
-    params?: {
-      message?: {
-        messageId: string;
-        parts?: Array<{ kind: string; text?: string; data?: { skillId?: string; params?: Record<string, unknown> } }>;
-      };
-    };
-  };
+  const body = validateOrThrow(A2AMessageSchema, await c.req.json(), 'A2A message');
+  
+  expect(body.method === 'message/send', 'Method must be message/send');
 
-  if (body.method !== 'message/send') {
-    return c.json({ jsonrpc: '2.0', id: body.id, error: { code: -32601, message: 'Method not found' } });
-  }
-
-  const message = body.params?.message;
-  const textPart = message?.parts?.find(p => p.kind === 'text');
-  const dataPart = message?.parts?.find(p => p.kind === 'data');
+  const message = body.params.message;
+  const textPart = message.parts.find(p => p.kind === 'text');
+  const dataPart = message.parts.find(p => p.kind === 'data');
 
   const runtime = await initializeCEORuntime();
 
@@ -160,7 +142,7 @@ app.post('/a2a', async (c) => {
       result: {
         role: 'agent',
         parts: [{ kind: 'text', text: result.text }, { kind: 'data', data: result.data }],
-        messageId: message?.messageId ?? `ceo-${Date.now()}`,
+        messageId: message.messageId,
         kind: 'message',
       },
     });
@@ -175,7 +157,7 @@ app.post('/a2a', async (c) => {
       result: {
         role: 'agent',
         parts: [{ kind: 'text', text: response }],
-        messageId: message?.messageId ?? `ceo-${Date.now()}`,
+        messageId: message.messageId,
         kind: 'message',
       },
     });
@@ -259,9 +241,13 @@ app.get('/mcp/tools', (c) => c.json({
 
 // MCP Tool Execution
 app.post('/mcp/tools/call', async (c) => {
-  const body = await c.req.json() as {
-    params: { name: string; arguments?: Record<string, unknown> };
-  };
+  const body = validateOrThrow(z.object({
+    params: z.object({
+      name: z.string().min(1),
+      arguments: z.record(z.string(), z.unknown()).optional(),
+    }),
+  }), await c.req.json(), 'MCP tool call');
+  
   const runtime = await initializeCEORuntime();
 
   const toolName = body.params.name;
@@ -284,7 +270,11 @@ app.get('/mcp/resources', (c) => c.json({
 }));
 
 app.post('/mcp/resources/read', async (c) => {
-  const body = await c.req.json() as { params: { uri: string } };
+  const body = validateOrThrow(z.object({
+    params: z.object({
+      uri: z.string().min(1),
+    }),
+  }), await c.req.json(), 'MCP resource read');
   const uri = body.params.uri;
 
   let content = '';
@@ -298,7 +288,7 @@ app.post('/mcp/resources/read', async (c) => {
 - Legal Agent: Compliance review`;
   } else if (uri === 'autocrat://stats') {
     // Fetch from autocrat A2A
-    const response = await fetch(getAutocratA2A(), {
+    const response = await fetch(AUTOCRAT_A2A_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -308,8 +298,22 @@ app.post('/mcp/resources/read', async (c) => {
         params: { message: { messageId: 'mcp', parts: [{ kind: 'data', data: { skillId: 'get-governance-stats' } }] } },
       }),
     });
-    const data = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> } };
-    content = JSON.stringify(data.result?.parts?.find(p => p.kind === 'data')?.data ?? {}, null, 2);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch stats: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> }; error?: { message: string } };
+    if (data.error) {
+      throw new Error(`Stats fetch failed: ${data.error.message}`);
+    }
+    const parts = data.result?.parts;
+    if (!parts || parts.length === 0) {
+      throw new Error('Stats response contains no parts');
+    }
+    const dataPart = parts.find(p => p.kind === 'data');
+    if (!dataPart || !dataPart.data) {
+      throw new Error('Stats response contains no data part');
+    }
+    content = JSON.stringify(dataPart.data, null, 2);
   } else if (uri === 'autocrat://treasury') {
     content = 'Treasury data available via get_governance_dashboard tool.';
   }
@@ -329,8 +333,11 @@ async function executeSkill(
   params: Record<string, unknown>
 ): Promise<{ text: string; data: Record<string, unknown> }> {
   switch (skillId) {
-    case 'make-decision':
-      return await makeDecision(runtime, params.proposalId as string, params.autocratVotes as Array<{ role: string; vote: string; reasoning: string }> ?? []);
+    case 'make-decision': {
+      const proposalId = validateOrThrow(ProposalIdSchema, params.proposalId, 'Proposal ID');
+      const autocratVotes = (params.autocratVotes as Array<{ role: string; vote: string; reasoning: string }>) ?? [];
+      return await makeDecision(runtime, proposalId, autocratVotes);
+    }
     
     case 'get-dashboard':
       return await getDashboard();
@@ -338,18 +345,24 @@ async function executeSkill(
     case 'get-active-proposals':
       return await getActiveProposals();
     
-    case 'get-autocrat-votes':
-      return await getAutocratVotes(params.proposalId as string);
+    case 'get-autocrat-votes': {
+      const proposalId = validateOrThrow(ProposalIdSchema, params.proposalId, 'Proposal ID');
+      return await getAutocratVotes(proposalId);
+    }
     
-    case 'request-research':
+    case 'request-research': {
+      const proposalId = validateOrThrow(ProposalIdSchema, params.proposalId, 'Proposal ID');
       return {
-        text: `Research requested for proposal ${params.proposalId}`,
-        data: { proposalId: params.proposalId, status: 'requested' },
+        text: `Research requested for proposal ${proposalId}`,
+        data: { proposalId, status: 'requested' },
       };
+    }
     
-    case 'chat':
-      const response = await processCEOMessage(runtime, params.message as string ?? '');
+    case 'chat': {
+      const message = validateOrThrow(z.string().min(1), params.message, 'Chat message');
+      const response = await processCEOMessage(runtime, message);
       return { text: response, data: {} };
+    }
     
     default:
       return { text: `Unknown skill: ${skillId}`, data: { error: 'unknown_skill' } };
@@ -361,15 +374,16 @@ async function makeDecision(
   proposalId: string,
   autocratVotes: Array<{ role: string; vote: string; reasoning: string }>
 ): Promise<{ text: string; data: Record<string, unknown> }> {
+  const validatedProposalId = validateOrThrow(ProposalIdSchema, proposalId, 'Proposal ID');
   const decision = await makeTEEDecision({
-    proposalId,
+    proposalId: validatedProposalId,
     autocratVotes,
   });
 
   return {
     text: `CEO Decision: ${decision.approved ? 'APPROVED' : 'REJECTED'}\n${decision.publicReasoning}`,
     data: {
-      proposalId,
+      proposalId: validatedProposalId,
       approved: decision.approved,
       reasoning: decision.publicReasoning,
       confidence: decision.confidenceScore,
@@ -384,7 +398,7 @@ async function makeDecision(
 }
 
 async function getDashboard(): Promise<{ text: string; data: Record<string, unknown> }> {
-  const response = await fetch(getAutocratA2A(), {
+  const response = await fetch(AUTOCRAT_A2A_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -394,17 +408,30 @@ async function getDashboard(): Promise<{ text: string; data: Record<string, unkn
       params: { message: { messageId: 'ceo', parts: [{ kind: 'data', data: { skillId: 'get-governance-stats' } }] } },
     }),
   });
-  const result = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> } };
-  const data = result.result?.parts?.find(p => p.kind === 'data')?.data ?? {};
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dashboard: ${response.status} ${response.statusText}`);
+  }
+  const result = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> }; error?: { message: string } };
+  if (result.error) {
+    throw new Error(`Dashboard fetch failed: ${result.error.message}`);
+  }
+  const parts = result.result?.parts;
+  if (!parts || parts.length === 0) {
+    throw new Error('Dashboard response contains no parts');
+  }
+  const dataPart = parts.find(p => p.kind === 'data');
+  if (!dataPart || !dataPart.data) {
+    throw new Error('Dashboard response contains no data part');
+  }
 
   return {
     text: 'CEO Governance Dashboard',
-    data,
+    data: dataPart.data,
   };
 }
 
 async function getActiveProposals(): Promise<{ text: string; data: Record<string, unknown> }> {
-  const response = await fetch(getAutocratA2A(), {
+  const response = await fetch(AUTOCRAT_A2A_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -414,32 +441,60 @@ async function getActiveProposals(): Promise<{ text: string; data: Record<string
       params: { message: { messageId: 'ceo', parts: [{ kind: 'data', data: { skillId: 'list-proposals', params: { activeOnly: true } } }] } },
     }),
   });
-  const result = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> } };
-  const data = result.result?.parts?.find(p => p.kind === 'data')?.data ?? {};
+  if (!response.ok) {
+    throw new Error(`Failed to fetch active proposals: ${response.status} ${response.statusText}`);
+  }
+  const result = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> }; error?: { message: string } };
+  if (result.error) {
+    throw new Error(`Active proposals fetch failed: ${result.error.message}`);
+  }
+  const parts = result.result?.parts;
+  if (!parts || parts.length === 0) {
+    throw new Error('Active proposals response contains no parts');
+  }
+  const dataPart = parts.find(p => p.kind === 'data');
+  if (!dataPart || !dataPart.data) {
+    throw new Error('Active proposals response contains no data part');
+  }
 
+  const data = dataPart.data as { total?: number };
   return {
-    text: `Active proposals: ${(data as { total?: number }).total ?? 0}`,
-    data,
+    text: `Active proposals: ${data.total ?? 0}`,
+    data: dataPart.data,
   };
 }
 
 async function getAutocratVotes(proposalId: string): Promise<{ text: string; data: Record<string, unknown> }> {
-  const response = await fetch(getAutocratA2A(), {
+  const validatedProposalId = validateOrThrow(ProposalIdSchema, proposalId, 'Proposal ID');
+  const response = await fetch(AUTOCRAT_A2A_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
       method: 'message/send',
-      params: { message: { messageId: 'ceo', parts: [{ kind: 'data', data: { skillId: 'get-autocrat-votes', params: { proposalId } } }] } },
+      params: { message: { messageId: 'ceo', parts: [{ kind: 'data', data: { skillId: 'get-autocrat-votes', params: { proposalId: validatedProposalId } } }] } },
     }),
   });
-  const result = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> } };
-  const data = result.result?.parts?.find(p => p.kind === 'data')?.data ?? {};
+  if (!response.ok) {
+    throw new Error(`Failed to fetch autocrat votes: ${response.status} ${response.statusText}`);
+  }
+  const result = await response.json() as { result?: { parts?: Array<{ kind: string; data?: Record<string, unknown> }> }; error?: { message: string } };
+  if (result.error) {
+    throw new Error(`Autocrat votes fetch failed: ${result.error.message}`);
+  }
+  const parts = result.result?.parts;
+  if (!parts || parts.length === 0) {
+    throw new Error('Autocrat votes response contains no parts');
+  }
+  const dataPart = parts.find(p => p.kind === 'data');
+  if (!dataPart || !dataPart.data) {
+    throw new Error('Autocrat votes response contains no data part');
+  }
 
   return {
-    text: `Autocrat votes for ${proposalId.slice(0, 10)}...`,
-    data,
+    text: `Autocrat votes for ${validatedProposalId.slice(0, 10)}...`,
+    data: dataPart.data,
   };
 }
 
@@ -454,11 +509,9 @@ async function executeMCPTool(
 ): Promise<string> {
   switch (toolName) {
     case 'make_ceo_decision': {
-      const result = await makeDecision(
-        runtime,
-        args.proposalId as string,
-        args.autocratVotes as Array<{ role: string; vote: string; reasoning: string }> ?? []
-      );
+      const proposalId = validateOrThrow(ProposalIdSchema, args.proposalId, 'Proposal ID');
+      const autocratVotes = (args.autocratVotes as Array<{ role: string; vote: string; reasoning: string }>) ?? [];
+      const result = await makeDecision(runtime, proposalId, autocratVotes);
       return result.text;
     }
     case 'get_governance_dashboard': {
@@ -470,11 +523,13 @@ async function executeMCPTool(
       return JSON.stringify(result.data, null, 2);
     }
     case 'get_autocrat_deliberation': {
-      const result = await getAutocratVotes(args.proposalId as string);
+      const proposalId = validateOrThrow(ProposalIdSchema, args.proposalId, 'Proposal ID');
+      const result = await getAutocratVotes(proposalId);
       return JSON.stringify(result.data, null, 2);
     }
     case 'request_deep_research': {
-      return `Research requested for proposal ${args.proposalId}. Check back later for results.`;
+      const proposalId = validateOrThrow(ProposalIdSchema, args.proposalId, 'Proposal ID');
+      return `Research requested for proposal ${proposalId}. Check back later for results.`;
     }
     default:
       return `Unknown tool: ${toolName}`;
@@ -486,13 +541,17 @@ async function executeMCPTool(
 // ============================================================================
 
 async function processCEOMessage(runtime: AgentRuntime, text: string): Promise<string> {
+  expectDefined(text, 'Message text is required');
+  expect(text.length > 0, 'Message text cannot be empty');
+  
   // Check for proposal ID in message
   const proposalMatch = text.match(/0x[a-fA-F0-9]{64}/);
   
   // Check for decision keywords
   if (text.toLowerCase().includes('decide') || text.toLowerCase().includes('approve') || text.toLowerCase().includes('reject')) {
     if (proposalMatch) {
-      const result = await makeDecision(runtime, proposalMatch[0], []);
+      const proposalId = validateOrThrow(ProposalIdSchema, proposalMatch[0], 'Proposal ID from message');
+      const result = await makeDecision(runtime, proposalId, []);
       return result.text;
     }
     return 'Please provide a proposal ID (0x...) for me to make a decision.';
@@ -512,8 +571,9 @@ async function processCEOMessage(runtime: AgentRuntime, text: string): Promise<s
 
   // Check for autocrat votes request
   if (proposalMatch && (text.toLowerCase().includes('autocrat') || text.toLowerCase().includes('vote'))) {
-    const result = await getAutocratVotes(proposalMatch[0]);
-    return `Autocrat votes for ${proposalMatch[0].slice(0, 12)}...:\n\n${JSON.stringify(result.data, null, 2)}`;
+    const proposalId = validateOrThrow(ProposalIdSchema, proposalMatch[0], 'Proposal ID from message');
+    const result = await getAutocratVotes(proposalId);
+    return `Autocrat votes for ${proposalId.slice(0, 12)}...:\n\n${JSON.stringify(result.data, null, 2)}`;
   }
 
   // Default response
@@ -546,8 +606,8 @@ app.get('/health', async (c) => {
       agentCard: '/.well-known/agent-card.json',
     },
     upstream: {
-      autocrat: getAutocratA2A(),
-      autocratMcp: getAutocratMCP(),
+      autocrat: AUTOCRAT_A2A_URL,
+      autocratMcp: AUTOCRAT_MCP_URL,
     },
   });
 });
@@ -589,7 +649,7 @@ async function start() {
 ║  • MCP:  http://localhost:${CEO_PORT}/mcp                              ║
 ║                                                                 ║
 ║  Upstream:                                                      ║
-║  • Autocrat: ${getAutocratA2A().padEnd(42)}║
+║  • Autocrat: ${AUTOCRAT_A2A_URL.padEnd(42)}║
 ║                                                                 ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);

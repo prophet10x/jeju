@@ -1,28 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import {
   Package,
-  Download,
   Copy,
   Check,
-  Clock,
   Shield,
-  Star,
   GitFork,
   FileText,
   Code,
-  Terminal,
-  Settings,
   Users,
-  ChevronRight,
   ExternalLink,
   AlertTriangle,
   Tag,
+  Terminal,
 } from 'lucide-react';
-import Link from 'next/link';
 import { clsx } from 'clsx';
 
 type PackageTab = 'readme' | 'versions' | 'dependencies' | 'files';
@@ -65,8 +59,8 @@ const mockPackage: PackageInfo = {
   description: 'Official Jeju Network SDK - interact with contracts, bounties, guardians, and models.',
   author: 'jeju',
   license: 'MIT',
-  homepage: 'https://jeju.network',
-  repository: 'https://git.jeju.network/jeju/sdk',
+  homepage: 'https://jejunetwork.org',
+  repository: 'https://git.jejunetwork.org/jeju/sdk',
   downloads: 45230,
   weeklyDownloads: 3240,
   publishedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
@@ -107,7 +101,7 @@ npm install @jeju/sdk
 import { JejuSDK } from '@jeju/sdk';
 
 const sdk = new JejuSDK({
-  rpcUrl: 'https://rpc.jeju.network',
+  rpcUrl: 'https://rpc.jejunetwork.org',
   chainId: 8453,
 });
 
@@ -128,7 +122,7 @@ const bountyId = await sdk.bounties.create({
 
 ## Documentation
 
-Full documentation at [docs.jeju.network](https://docs.jeju.network)
+Full documentation at [docs.jejunetwork.org](https://docs.jejunetwork.org)
 `,
 };
 
@@ -136,15 +130,16 @@ export default function PackageDetailPage() {
   const params = useParams();
   const rawScope = params.scope as string;
   const name = params.name as string;
-  const { isConnected } = useAccount();
+  const { isConnected: _isConnected } = useAccount();
   
   // Decode URL-encoded scope (e.g., %40jejunetwork -> @jejunetwork)
   const scope = decodeURIComponent(rawScope);
   
   const [tab, setTab] = useState<PackageTab>('readme');
-  const [selectedVersion, setSelectedVersion] = useState(mockPackage.version);
+  // const [selectedVersion, setSelectedVersion] = useState(mockPackage.version);
   const [copied, setCopied] = useState<string | null>(null);
-  const [pkg, setPkg] = useState<PackageInfo>(mockPackage);
+  const [pkg] = useState<PackageInfo>(mockPackage);
+  // const [setPkg] = useState<PackageInfo>(mockPackage);
 
   const fullName = scope.startsWith('@') ? `${scope}/${name}` : name;
 
@@ -404,10 +399,10 @@ export default function PackageDetailPage() {
               </p>
               <div className="bg-factory-900 rounded-lg p-3 font-mono text-xs mb-4">
                 <pre className="text-factory-400"># .npmrc or .bunfig.toml
-@jeju:registry=https://pkg.jeju.network</pre>
+@jeju:registry=https://pkg.jejunetwork.org</pre>
               </div>
               <button
-                onClick={() => copyToClipboard('@jeju:registry=https://pkg.jeju.network', 'registry')}
+                onClick={() => copyToClipboard('@jeju:registry=https://pkg.jejunetwork.org', 'registry')}
                 className="btn btn-secondary text-sm w-full"
               >
                 {copied === 'registry' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}

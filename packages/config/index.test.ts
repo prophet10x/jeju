@@ -13,7 +13,6 @@ import {
   getL1RpcUrl,
   getRpcUrl,
   getChainId,
-  getContractAddress,
   loadDeployedContracts,
   TEST_ACCOUNTS,
   L2_PREDEPLOYS,
@@ -222,9 +221,9 @@ describe('Configuration Loaders', () => {
       });
 
       it('should override with environment variable', () => {
-        process.env.JEJU_L1_RPC_URL = 'http://localhost:8545';
+        process.env.JEJU_L1_RPC_URL = 'http://localhost:6545';
         const l1Rpc = getL1RpcUrl('mainnet');
-        expect(l1Rpc).toBe('http://localhost:8545');
+        expect(l1Rpc).toBe('http://localhost:6545');
       });
     });
 

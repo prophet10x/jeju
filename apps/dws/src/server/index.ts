@@ -14,8 +14,8 @@ import { cors } from 'hono/cors';
 import type { Address, Hex } from 'viem';
 import type { Context, Next } from 'hono';
 import type { ServiceHealth } from '../types';
+// Error handler is now using Hono's app.onError
 import { createStorageRouter } from './routes/storage';
-import { createStorageRouterV2 } from './routes/storage-v2';
 import { createComputeRouter } from './routes/compute';
 import { createCDNRouter } from './routes/cdn';
 import { createA2ARouter } from './routes/a2a';
@@ -28,14 +28,12 @@ import { createAPIMarketplaceRouter } from './routes/api-marketplace';
 import { createContainerRouter } from './routes/containers';
 import { createS3Router } from './routes/s3';
 import { createWorkersRouter } from './routes/workers';
+import { createDefaultWorkerdRouter } from './routes/workerd';
 import { createKMSRouter } from './routes/kms';
 import { createVPNRouter } from './routes/vpn';
 import { createScrapingRouter } from './routes/scraping';
 import { createRPCRouter } from './routes/rpc';
 import { createEdgeRouter, handleEdgeWebSocket } from './routes/edge';
-import rlaifRoutes from './routes/rlaif';
-import { createModelsRouter } from './routes/models';
-import { createDatasetsRouter } from './routes/datasets';
 import { createBackendManager } from '../storage/backends';
 import { initializeMarketplace } from '../api-marketplace';
 import { initializeContainerSystem } from '../containers';
@@ -113,6 +111,46 @@ const rateLimitCleanupInterval = setInterval(() => {
 }, RATE_LIMIT_WINDOW_MS);
 
 const app = new Hono();
+
+// Global error handler - converts validation errors to proper HTTP status codes
+app.onError((error, c) => {
+  const message = error.message;
+  const lowerMessage = message.toLowerCase();
+  
+  // Check for auth-related errors (401) - check header validation failures
+  const isAuthError = lowerMessage.includes('x-jeju-address') 
+    || lowerMessage.includes('authentication')
+    || lowerMessage.includes('x-jeju-signature')
+    || lowerMessage.includes('x-jeju-nonce');
+  
+  // Check for not found errors (404)
+  const isNotFound = lowerMessage.includes('not found');
+  
+  // Check for permission errors (403)
+  const isForbidden = lowerMessage.includes('access denied') 
+    || lowerMessage.includes('permission')
+    || lowerMessage.includes('not authorized');
+  
+  // Check for validation/bad request errors (400)
+  const isBadRequest = lowerMessage.includes('invalid')
+    || lowerMessage.includes('required')
+    || lowerMessage.includes('validation failed')
+    || lowerMessage.includes('expected')
+    || lowerMessage.includes('no version data')
+    || lowerMessage.includes('no attachment')
+    || lowerMessage.includes('unknown tool')
+    || lowerMessage.includes('unknown resource')
+    || lowerMessage.includes('unsupported');
+  
+  const statusCode = isAuthError ? 401
+    : isNotFound ? 404
+    : isForbidden ? 403
+    : isBadRequest ? 400
+    : 500;
+  
+  return c.json({ error: message }, statusCode);
+});
+
 app.use('/*', cors({ origin: '*' }));
 app.use('/*', rateLimiter());
 
@@ -121,7 +159,7 @@ const backendManager = createBackendManager();
 // Environment validation - require addresses in production
 const isProduction = process.env.NODE_ENV === 'production';
 const LOCALNET_DEFAULTS = {
-  rpcUrl: 'http://localhost:8545',
+  rpcUrl: 'http://localhost:6546',
   repoRegistry: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
   packageRegistry: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
   triggerRegistry: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
@@ -205,11 +243,10 @@ app.get('/health', async (c) => {
       git: { status: 'healthy' },
       pkg: { status: 'healthy' },
       ci: { status: 'healthy' },
-      models: { status: 'healthy' },
-      datasets: { status: 'healthy' },
       oauth3: { status: process.env.OAUTH3_AGENT_URL ? 'available' : 'not-configured' },
       s3: { status: 'healthy' },
       workers: { status: 'healthy' },
+      workerd: { status: 'healthy', runtime: 'V8 isolates' },
       kms: { status: 'healthy' },
       vpn: { status: 'healthy' },
       scraping: { status: 'healthy' },
@@ -225,9 +262,9 @@ app.get('/', (c) => {
     description: 'Decentralized Web Services',
     version: '1.0.0',
     services: [
-      'storage', 'compute', 'cdn', 'git', 'pkg', 'ci', 'models', 'datasets',
-      'oauth3', 'api-marketplace', 'containers', 's3', 'workers', 'kms', 
-      'vpn', 'scraping', 'rpc', 'edge', 'rlaif'
+      'storage', 'compute', 'cdn', 'git', 'pkg', 'ci', 'oauth3', 
+      'api-marketplace', 'containers', 's3', 'workers', 'workerd', 
+      'kms', 'vpn', 'scraping', 'rpc', 'edge'
     ],
     endpoints: {
       storage: '/storage/*',
@@ -236,8 +273,6 @@ app.get('/', (c) => {
       git: '/git/*',
       pkg: '/pkg/*',
       ci: '/ci/*',
-      models: '/models/*',
-      datasets: '/datasets/*',
       oauth3: '/oauth3/*',
       api: '/api/*',
       containers: '/containers/*',
@@ -245,18 +280,17 @@ app.get('/', (c) => {
       mcp: '/mcp/*',
       s3: '/s3/*',
       workers: '/workers/*',
+      workerd: '/workerd/*',
       kms: '/kms/*',
       vpn: '/vpn/*',
       scraping: '/scraping/*',
       rpc: '/rpc/*',
       edge: '/edge/*',
-      rlaif: '/rlaif/*',
     },
   });
 });
 
 app.route('/storage', createStorageRouter(backendManager));
-app.route('/storage/v2', createStorageRouterV2());
 app.route('/compute', createComputeRouter());
 app.route('/cdn', createCDNRouter());
 app.route('/git', createGitRouter({ repoManager, backend: backendManager }));
@@ -271,24 +305,12 @@ app.route('/mcp', createMCPRouter());
 // New DWS services
 app.route('/s3', createS3Router(backendManager));
 app.route('/workers', createWorkersRouter(backendManager));
+app.route('/workerd', createDefaultWorkerdRouter(backendManager)); // V8 isolate runtime
 app.route('/kms', createKMSRouter());
 app.route('/vpn', createVPNRouter());
 app.route('/scraping', createScrapingRouter());
 app.route('/rpc', createRPCRouter());
 app.route('/edge', createEdgeRouter());
-app.route('/rlaif', rlaifRoutes);
-
-// Model Hub (HuggingFace-compatible)
-const modelsConfig = {
-  backend: backendManager,
-  rpcUrl: getEnvOrDefault('RPC_URL', LOCALNET_DEFAULTS.rpcUrl),
-  modelRegistryAddress: getEnvOrDefault('MODEL_REGISTRY_ADDRESS', '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707') as Address,
-  privateKey: process.env.DWS_PRIVATE_KEY as Hex | undefined,
-};
-app.route('/models', createModelsRouter(modelsConfig));
-
-// Datasets Registry (HuggingFace-compatible)
-app.route('/datasets', createDatasetsRouter({ backend: backendManager }));
 
 // Initialize services
 initializeMarketplace();
@@ -388,13 +410,12 @@ app.get('/.well-known/agent-card.json', (c) => {
       { name: 'compute', endpoint: `${baseUrl}/compute` },
       { name: 'cdn', endpoint: `${baseUrl}/cdn` },
       { name: 'git', endpoint: `${baseUrl}/git` },
-      { name: 'pkg', endpoint: `${baseUrl}/pkg`, description: 'npm-compatible package registry' },
+      { name: 'pkg', endpoint: `${baseUrl}/pkg` },
       { name: 'ci', endpoint: `${baseUrl}/ci` },
-      { name: 'models', endpoint: `${baseUrl}/models`, description: 'HuggingFace-compatible model registry' },
-      { name: 'datasets', endpoint: `${baseUrl}/datasets`, description: 'HuggingFace-compatible dataset registry' },
       { name: 'oauth3', endpoint: `${baseUrl}/oauth3` },
       { name: 's3', endpoint: `${baseUrl}/s3`, description: 'S3-compatible object storage' },
-      { name: 'workers', endpoint: `${baseUrl}/workers`, description: 'Serverless functions' },
+      { name: 'workers', endpoint: `${baseUrl}/workers`, description: 'Serverless functions (Bun)' },
+      { name: 'workerd', endpoint: `${baseUrl}/workerd`, description: 'V8 isolate workers (Cloudflare compatible)' },
       { name: 'kms', endpoint: `${baseUrl}/kms`, description: 'Key management service' },
       { name: 'vpn', endpoint: `${baseUrl}/vpn`, description: 'VPN/Proxy service' },
       { name: 'scraping', endpoint: `${baseUrl}/scraping`, description: 'Web scraping service' },

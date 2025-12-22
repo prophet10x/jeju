@@ -21,7 +21,7 @@ import {
 import { useGameItems, useMintItem, useBurnItem } from '@/hooks/nft/useGameItems'
 import { getGameContracts } from '@/config/contracts'
 
-const LOCALNET_RPC = process.env.LOCALNET_RPC || 'http://localhost:8545'
+const LOCALNET_RPC = process.env.LOCALNET_RPC || 'http://localhost:6546'
 const CHAIN_ID = 1337
 
 // Skip if no localnet
@@ -294,10 +294,8 @@ describe('Web2 Fallback Validation', () => {
     expect(typeof useBurnItem).toBe('function')
   })
 
-  test('config should handle missing contracts gracefully', () => {
-    // Should not throw for unknown chain
-    const contracts = getGameContracts(999999)
-    expect(contracts).toBeDefined()
-    expect(typeof contracts).toBe('object')
+  test('config should throw for missing contracts', () => {
+    // Should throw for unknown chain (fail-fast pattern)
+    expect(() => getGameContracts(999999)).toThrow('Game contracts not configured for chain 999999')
   })
 })

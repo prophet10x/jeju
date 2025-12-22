@@ -16,11 +16,11 @@ import { randomBytes } from 'crypto';
 import { type Address, recoverMessageAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { WebSocket, WebSocketServer } from 'ws';
-import * as http from 'http';
+import * as nodeHttp from 'http';
 import { z } from 'zod';
 import { Registry, Counter, Gauge, Histogram } from 'prom-client';
 import { LRUCache } from 'lru-cache';
-import { Contract, JsonRpcProvider } from 'ethers';
+import { createPublicClient, http as viemHttp } from 'viem';
 
 // ============================================================================
 // Configuration Schema
@@ -44,6 +44,17 @@ const EdgeCoordinatorConfigSchema = z.object({
 });
 
 export type EdgeCoordinatorConfig = z.infer<typeof EdgeCoordinatorConfigSchema>;
+
+// Schema for gossip messages
+const GossipMessageSchema = z.object({
+  type: z.enum(['announce', 'query', 'response', 'ping', 'pong', 'cache_update', 'peer_list']),
+  id: z.string().min(1),
+  sender: z.string().min(1),
+  timestamp: z.number().int().positive(),
+  ttl: z.number().int().min(0),
+  signature: z.string(),
+  payload: z.record(z.string(), z.unknown()),
+});
 
 // ============================================================================
 // Types
@@ -94,16 +105,6 @@ export interface GossipMessage {
   signature: string;
   payload: Record<string, unknown>;
 }
-
-// ============================================================================
-// Node Registry ABI
-// ============================================================================
-
-const NODE_REGISTRY_ABI = [
-  'function isRegistered(address operator) view returns (bool)',
-  'function getNodeInfo(address operator) view returns (tuple(string nodeId, string endpoint, uint256 stake, bool active))',
-  'function getMinStake() view returns (uint256)',
-];
 
 // ============================================================================
 // Prometheus Metrics
@@ -170,14 +171,14 @@ export class EdgeCoordinator {
   });
   private messageHandlers = new Map<string, (msg: GossipMessage) => void>();
   private wss: WebSocketServer | null = null;
-  private httpServer: http.Server | null = null;
+  private httpServer: nodeHttp.Server | null = null;
   private gossipInterval: ReturnType<typeof setInterval> | null = null;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
   // On-chain integration
-  private provider: JsonRpcProvider | null = null;
-  private nodeRegistry: Contract | null = null;
+  private publicClient: ReturnType<typeof createPublicClient> | null = null;
+  private nodeRegistryAddress: string | null = null;
   private registeredOperators = new LRUCache<string, boolean>({
     max: 10000,
     ttl: 5 * 60 * 1000, // Cache registration status for 5 min
@@ -191,12 +192,8 @@ export class EdgeCoordinator {
 
     // Setup on-chain integration
     if (this.config.rpcUrl && this.config.nodeRegistryAddress) {
-      this.provider = new JsonRpcProvider(this.config.rpcUrl);
-      this.nodeRegistry = new Contract(
-        this.config.nodeRegistryAddress,
-        NODE_REGISTRY_ABI,
-        this.provider
-      );
+      this.publicClient = createPublicClient({ transport: viemHttp(this.config.rpcUrl) });
+      this.nodeRegistryAddress = this.config.nodeRegistryAddress;
     }
   }
 
@@ -257,7 +254,7 @@ export class EdgeCoordinator {
   }
 
   private async startServer(): Promise<void> {
-    this.httpServer = http.createServer(async (req, res) => {
+    this.httpServer = nodeHttp.createServer(async (req: nodeHttp.IncomingMessage, res: nodeHttp.ServerResponse) => {
       if (req.url === '/health') {
         res.setHeader('Content-Type', 'application/json');
         res.end(
@@ -279,17 +276,17 @@ export class EdgeCoordinator {
       if (req.url === '/gossip' && req.method === 'POST') {
         // Handle HTTP gossip fallback
         let body = '';
-        req.on('data', (chunk) => (body += chunk));
+        req.on('data', (chunk: string) => (body += chunk));
         req.on('end', async () => {
-          try {
-            const msg = JSON.parse(body) as GossipMessage;
-            await this.handleMessage(msg, null);
-            res.writeHead(200);
-            res.end('OK');
-          } catch (error) {
+          const parseResult = GossipMessageSchema.safeParse(JSON.parse(body));
+          if (!parseResult.success) {
             res.writeHead(400);
             res.end('Invalid message');
+            return;
           }
+          await this.handleMessage(parseResult.data, null);
+          res.writeHead(200);
+          res.end('OK');
         });
         return;
       }
@@ -298,19 +295,19 @@ export class EdgeCoordinator {
       res.end('Not found');
     });
 
-    this.wss = new WebSocketServer({ server: this.httpServer });
+    this.wss = new WebSocketServer({ server: this.httpServer! });
 
     this.wss.on('connection', (ws, req) => {
       const ip = req.socket.remoteAddress ?? 'unknown';
       console.log(`[EdgeCoordinator] New connection from ${ip}`);
 
       ws.on('message', async (data) => {
-        try {
-          const msg = JSON.parse(data.toString()) as GossipMessage;
-          await this.handleMessage(msg, ws);
-        } catch (error) {
-          console.error('[EdgeCoordinator] Invalid message:', error);
+        const parseResult = GossipMessageSchema.safeParse(JSON.parse(data.toString()));
+        if (!parseResult.success) {
+          console.error('[EdgeCoordinator] Invalid message:', parseResult.error.message);
+          return;
         }
+        await this.handleMessage(parseResult.data, ws);
       });
 
       ws.on('close', () => {
@@ -357,7 +354,7 @@ export class EdgeCoordinator {
       });
 
       // Check if signer is registered on-chain (if required)
-      if (this.config.requireOnChainRegistration && this.nodeRegistry) {
+      if (this.config.requireOnChainRegistration && this.publicClient) {
         const isRegistered = await this.checkRegistration(signer);
         if (!isRegistered) {
           coordinatorAuthFailures.inc({ reason: 'not_registered' });
@@ -385,10 +382,15 @@ export class EdgeCoordinator {
     const cached = this.registeredOperators.get(operator);
     if (cached !== undefined) return cached;
 
-    if (!this.nodeRegistry) return true; // Skip if no registry configured
+    if (!this.publicClient || !this.nodeRegistryAddress) return true; // Skip if no registry configured
 
     try {
-      const isRegistered = await this.nodeRegistry.isRegistered(operator);
+      const isRegistered = await this.publicClient.readContract({
+        address: this.nodeRegistryAddress as `0x${string}`,
+        abi: [{ name: 'isRegistered', type: 'function', stateMutability: 'view', inputs: [{ name: 'operator', type: 'address' }], outputs: [{ type: 'bool' }] }],
+        functionName: 'isRegistered',
+        args: [operator as `0x${string}`],
+      }) as boolean;
       this.registeredOperators.set(operator, isRegistered);
       return isRegistered;
     } catch (error) {
@@ -686,8 +688,12 @@ export class EdgeCoordinator {
       });
 
       ws.on('message', async (data) => {
-        const msg = JSON.parse(data.toString()) as GossipMessage;
-        await this.handleMessage(msg, ws);
+        const parseResult = GossipMessageSchema.safeParse(JSON.parse(data.toString()));
+        if (!parseResult.success) {
+          console.error('[EdgeCoordinator] Invalid peer message:', parseResult.error.message);
+          return;
+        }
+        await this.handleMessage(parseResult.data, ws);
       });
 
       ws.on('error', (error) => {

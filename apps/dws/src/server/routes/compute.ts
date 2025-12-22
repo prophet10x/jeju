@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import type { InferenceRequest } from '../../types';
 import type { Address } from 'viem';
-import { computeJobState, initializeDWSState } from '../../state.js';
+import { computeJobState } from '../../state.js';
+import type { JobStatus } from '@jejunetwork/types';
 import { 
   registerNode, 
   unregisterNode, 
@@ -10,8 +11,7 @@ import {
   updateNodeHeartbeat,
   type InferenceNode 
 } from '../../compute/inference-node';
-
-type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+import { validateBody, validateParams, validateQuery, validateHeaders, expectValid, jejuAddressHeaderSchema, createJobRequestSchema, jobParamsSchema, jobListQuerySchema, inferenceRequestSchema, embeddingsRequestSchema, trainingNodeRegistrationSchema, trainingRunsQuerySchema, trainingRunParamsSchema, nodeParamsSchema, trainingRunSchema, z } from '../../shared';
 
 interface ComputeJob {
   jobId: string;
@@ -33,10 +33,7 @@ const activeJobs = new Set<string>();
 const MAX_CONCURRENT = 5;
 const DEFAULT_TIMEOUT = 300000;
 
-// Initialize CQL state (skip in test environment to avoid connection errors)
-if (process.env.NODE_ENV !== 'test') {
-  initializeDWSState().catch(console.error);
-}
+// State initialization is handled by main server startup
 
 const SHELL_CONFIG: Record<string, { path: string; args: (cmd: string) => string[] }> = {
   bash: { path: '/bin/bash', args: (cmd) => ['-c', cmd] },
@@ -72,7 +69,7 @@ export function createComputeRouter(): Hono {
   });
 
   app.post('/chat/completions', async (c) => {
-    const body = await c.req.json<InferenceRequest>();
+    const body = await validateBody(inferenceRequestSchema, c);
     
     // Get active inference nodes
     const activeNodes = getActiveNodes();
@@ -95,7 +92,7 @@ export function createComputeRouter(): Hono {
     
     // Fallback to any available node
     if (!selectedNode) {
-      selectedNode = activeNodes.find(n => n.currentLoad < n.maxConcurrent) || null;
+      selectedNode = activeNodes.find(n => n.currentLoad < n.maxConcurrent) ?? null;
     }
     
     // If no nodes available, return error (no fallback to direct providers)
@@ -109,38 +106,31 @@ export function createComputeRouter(): Hono {
     }
     
     // Route request to the node
-    try {
-      const response = await fetch(`${selectedNode.endpoint}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(60000),
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        return c.json({ 
-          error: `Node ${selectedNode.address} error: ${errorText}`,
-          node: selectedNode.address,
-        }, response.status as 400 | 500);
-      }
-      
-      const result = await response.json() as Record<string, unknown>;
-      return c.json({
-        ...result,
+    const response = await fetch(`${selectedNode.endpoint}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60000),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      return c.json({ 
+        error: `Node ${selectedNode.address} error: ${errorText}`,
         node: selectedNode.address,
-        provider: selectedNode.provider,
-      });
-    } catch (error) {
-      return c.json({
-        error: `Failed to reach node ${selectedNode.address}: ${(error as Error).message}`,
-        node: selectedNode.address,
-      }, 502);
+      }, response.status as 400 | 500);
     }
+    
+    const result = await response.json() as Record<string, unknown>;
+    return c.json({
+      ...result,
+      node: selectedNode.address,
+      provider: selectedNode.provider,
+    });
   });
 
   app.post('/embeddings', async (c) => {
-    const body = await c.req.json<{ input: string | string[]; model?: string }>();
+    const body = await validateBody(embeddingsRequestSchema, c);
     
     // Check if AWS Bedrock is available
     const bedrockEnabled = process.env.AWS_BEDROCK_ENABLED === 'true' || 
@@ -257,27 +247,17 @@ export function createComputeRouter(): Hono {
   });
 
   app.post('/jobs', async (c) => {
-    const submitter = c.req.header('x-jeju-address') as Address;
-    if (!submitter) return c.json({ error: 'Missing x-jeju-address header' }, 401);
-
-    const { command, shell = 'bash', env = {}, workingDir, timeout = DEFAULT_TIMEOUT } = await c.req.json<{
-      command: string;
-      shell?: string;
-      env?: Record<string, string>;
-      workingDir?: string;
-      timeout?: number;
-    }>();
-
-    if (!command) return c.json({ error: 'Command is required' }, 400);
+    const { 'x-jeju-address': submitter } = validateHeaders(jejuAddressHeaderSchema, c);
+    const body = await validateBody(createJobRequestSchema, c);
 
     const jobId = crypto.randomUUID();
     const job: ComputeJob = {
       jobId,
-      command,
-      shell,
-      env,
-      workingDir,
-      timeout,
+      command: body.command,
+      shell: body.shell,
+      env: body.env,
+      workingDir: body.workingDir,
+      timeout: body.timeout,
       status: 'queued',
       output: '',
       exitCode: null,
@@ -293,8 +273,11 @@ export function createComputeRouter(): Hono {
   });
 
   app.get('/jobs/:jobId', async (c) => {
-    const row = await computeJobState.get(c.req.param('jobId'));
-    if (!row) return c.json({ error: 'Job not found' }, 404);
+    const { jobId } = validateParams(jobParamsSchema, c);
+    const row = await computeJobState.get(jobId);
+    if (!row) {
+      throw new Error('Job not found');
+    }
 
     return c.json({
       jobId: row.job_id,
@@ -308,10 +291,13 @@ export function createComputeRouter(): Hono {
   });
 
   app.post('/jobs/:jobId/cancel', async (c) => {
-    const row = await computeJobState.get(c.req.param('jobId'));
-    if (!row) return c.json({ error: 'Job not found' }, 404);
+    const { jobId } = validateParams(jobParamsSchema, c);
+    const row = await computeJobState.get(jobId);
+    if (!row) {
+      throw new Error('Job not found');
+    }
     if (row.status === 'completed' || row.status === 'failed') {
-      return c.json({ error: 'Job already finished' }, 400);
+      throw new Error('Job already finished');
     }
 
     const job: ComputeJob = {
@@ -336,9 +322,8 @@ export function createComputeRouter(): Hono {
   });
 
   app.get('/jobs', async (c) => {
-    const submitter = c.req.header('x-jeju-address')?.toLowerCase();
-    const statusFilter = c.req.query('status');
-    const limit = parseInt(c.req.query('limit') || '20');
+    const { 'x-jeju-address': submitter } = validateHeaders(z.object({ 'x-jeju-address': z.string().optional() }), c);
+    const { status: statusFilter, limit } = validateQuery(jobListQuerySchema, c);
 
     const rows = await computeJobState.list({
       submittedBy: submitter,
@@ -460,7 +445,7 @@ const trainingNodes: Map<string, TrainingNode> = new Map();
 export function addTrainingRoutes(app: Hono): void {
   // List training runs
   app.get('/training/runs', async (c) => {
-    const status = c.req.query('status');
+    const { status } = validateQuery(trainingRunsQuerySchema, c);
     let runs = Array.from(trainingRuns.values());
     
     if (status === 'active') {
@@ -476,11 +461,11 @@ export function addTrainingRoutes(app: Hono): void {
 
   // Get training run
   app.get('/training/runs/:runId', async (c) => {
-    const runId = c.req.param('runId');
+    const { runId } = validateParams(trainingRunParamsSchema, c);
     const run = trainingRuns.get(runId);
     
     if (!run) {
-      return c.json({ error: 'Run not found' }, 404);
+      throw new Error('Run not found');
     }
     
     return c.json(run);
@@ -494,11 +479,11 @@ export function addTrainingRoutes(app: Hono): void {
 
   // Get node info
   app.get('/nodes/:address', async (c) => {
-    const address = c.req.param('address');
+    const { address } = validateParams(nodeParamsSchema, c);
     const node = trainingNodes.get(address.toLowerCase());
     
     if (!node) {
-      return c.json({ error: 'Node not found' }, 404);
+      throw new Error('Node not found');
     }
     
     return c.json(node);
@@ -506,18 +491,7 @@ export function addTrainingRoutes(app: Hono): void {
 
   // Register as training/inference node (for DWS nodes)
   app.post('/nodes/register', async (c) => {
-    const body = await c.req.json<{
-      address: string;
-      gpuTier: number;
-      capabilities?: string[];
-      endpoint?: string;
-      region?: string;
-      teeProvider?: string;
-      provider?: string;
-      models?: string[];
-      maxConcurrent?: number;
-    }>();
-    
+    const body = await validateBody(trainingNodeRegistrationSchema, c);
     const address = body.address.toLowerCase();
     
     // Register for training jobs
@@ -595,7 +569,7 @@ export function addTrainingRoutes(app: Hono): void {
 
   // Training webhook for state updates
   app.post('/training/webhook', async (c) => {
-    const body = await c.req.json<TrainingRun>();
+    const body = await validateBody(trainingRunSchema, c);
     trainingRuns.set(body.runId, body);
     return c.json({ success: true });
   });

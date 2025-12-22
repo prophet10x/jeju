@@ -19,7 +19,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia, localhost } from 'viem/chains';
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 
 // ============ Types ============
@@ -167,7 +167,7 @@ function getChainConfig(network: string) {
     case 'testnet':
       return { chain: baseSepolia, rpcUrl: process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org' };
     default:
-      return { chain: localhost, rpcUrl: process.env.LOCAL_RPC_URL ?? 'http://localhost:8545' };
+      return { chain: localhost, rpcUrl: process.env.LOCAL_RPC_URL ?? 'http://localhost:6546' };
   }
 }
 

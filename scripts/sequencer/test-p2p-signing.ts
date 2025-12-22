@@ -11,7 +11,7 @@
  */
 
 import { spawn, type Subprocess } from 'bun';
-import { createPublicClient, createWalletClient, http, encodeDeployData, getContractAddress, readContract, waitForTransactionReceipt, getChainId, type Address, type PublicClient, type WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, http, encodeDeployData, getContractAddress, readContract, waitForTransactionReceipt, type Address, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { parseAbi } from 'viem';
 import { inferChainFromRpcUrl } from '../shared/chain-utils';
@@ -31,7 +31,7 @@ const ACCOUNTS = [
   },
 ];
 
-const RPC_URL = process.env.L1_RPC_URL || 'http://localhost:8545';
+const RPC_URL = process.env.L1_RPC_URL || 'http://localhost:6545';
 const THRESHOLD = 2;
 const SIGNER_BASE_PORT = 4200;
 

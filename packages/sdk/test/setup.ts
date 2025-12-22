@@ -10,7 +10,7 @@
  */
 
 import { execa, type ResultPromise } from "execa";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import type { Hex } from "viem";
 
@@ -21,7 +21,7 @@ const DEPLOYER_KEY: Hex = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae7
 
 // Service URLs - L2 defaults to 9545 to match localnet.json config
 export const TEST_RPC_URL = process.env.TEST_RPC_URL || "http://127.0.0.1:9545";
-export const TEST_L1_RPC_URL = process.env.TEST_L1_RPC_URL || "http://127.0.0.1:8545";
+export const TEST_L1_RPC_URL = process.env.TEST_L1_RPC_URL || "http://127.0.0.1:6545";
 export const TEST_STORAGE_URL = process.env.TEST_STORAGE_URL || "http://127.0.0.1:4010";
 export const TEST_COMPUTE_URL = process.env.TEST_COMPUTE_URL || "http://127.0.0.1:4007";
 export const TEST_GATEWAY_URL = process.env.TEST_GATEWAY_URL || "http://127.0.0.1:4003";
@@ -123,7 +123,7 @@ function releaseLock(): void {
     if (existsSync(TEST_LOCK_FILE)) {
       const lockData = JSON.parse(readFileSync(TEST_LOCK_FILE, "utf-8"));
       if (lockData.pid === process.pid) {
-        require("fs").unlinkSync(TEST_LOCK_FILE);
+        unlinkSync(TEST_LOCK_FILE);
       }
     }
   } catch {
@@ -187,7 +187,7 @@ async function deployContracts(): Promise<void> {
       stdio: "pipe",
     });
     console.log("✓ Contracts deployed");
-  } catch (error) {
+  } catch {
     console.log("⚠ Contract deployment failed (may already be deployed)");
   }
 }
@@ -243,7 +243,7 @@ async function startServices(): Promise<void> {
         },
       });
       startedProcesses.push(proc);
-    } catch (e) {
+    } catch {
       console.log(`⚠ Failed to start ${svc.name}`);
     }
   }

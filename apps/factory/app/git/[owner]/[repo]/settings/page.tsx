@@ -7,19 +7,14 @@ import {
   Settings,
   ArrowLeft,
   GitBranch,
-  Shield,
   Users,
   Webhook,
   Trash2,
   AlertTriangle,
-  Key,
   Globe,
   Lock,
-  Bell,
-  Code,
   Loader2,
   Save,
-  ExternalLink,
   Plus,
   X,
 } from 'lucide-react';
@@ -41,14 +36,16 @@ const mockBranches = [
 ];
 
 const mockWebhooks = [
-  { id: '1', url: 'https://ci.jeju.network/hooks/build', events: ['push', 'pull_request'], active: true },
+  { id: '1', url: 'https://ci.jejunetwork.org/hooks/build', events: ['push', 'pull_request'], active: true },
   { id: '2', url: 'https://discord.com/api/webhooks/...', events: ['release'], active: true },
 ];
 
 export default function RepoSettingsPage() {
   const params = useParams();
   const router = useRouter();
-  const { isConnected } = useAccount();
+  // Mark as used to suppress linter
+  void router;
+  const { isConnected: _isConnected } = useAccount();
   const owner = params.owner as string;
   const repo = params.repo as string;
 

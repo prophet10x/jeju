@@ -5,7 +5,7 @@
 
 import type { Address } from 'viem';
 import type { ChainConfig, SolanaConfig } from './types';
-import { getLocalnetChain, getTestnetChain, getNetworkName, getBrandingRpcUrl } from '../config/branding';
+import { getNetworkName, getBrandingRpcUrl } from '../config/branding';
 
 const networkName = getNetworkName();
 
@@ -158,11 +158,11 @@ export const chains: Record<number, ChainConfig> = {
     network: 'localnet',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
-      default: { http: ['http://localhost:8545'] },
-      jeju: { http: ['http://localhost:8545'] },
+      default: { http: ['http://localhost:6546'] },
+      jeju: { http: ['http://localhost:6546'] },
     },
     blockExplorers: {
-      default: { name: 'Local', url: 'http://localhost:8545' },
+      default: { name: 'Local', url: 'http://localhost:6546' },
     },
     testnet: true,
     eilSupported: true,
@@ -221,11 +221,19 @@ export function getChain(chainId: number): ChainConfig | undefined {
 }
 
 export function isEILSupported(chainId: number): boolean {
-  return chains[chainId]?.eilSupported ?? false;
+  const chain = chains[chainId];
+  if (!chain) {
+    throw new Error(`Chain ${chainId} not supported`);
+  }
+  return chain.eilSupported;
 }
 
 export function isOIFSupported(chainId: number): boolean {
-  return chains[chainId]?.oifSupported ?? false;
+  const chain = chains[chainId];
+  if (!chain) {
+    throw new Error(`Chain ${chainId} not supported`);
+  }
+  return chain.oifSupported;
 }
 
 export function getMainnetChains(): ChainConfig[] {
@@ -344,7 +352,11 @@ export const chainContracts: Record<number, ChainContracts> = {
 };
 
 export function getChainContracts(chainId: number): ChainContracts {
-  return chainContracts[chainId] ?? {};
+  const contracts = chainContracts[chainId];
+  if (!contracts) {
+    return {}; // Empty contracts is valid - not all chains have deployed contracts
+  }
+  return contracts;
 }
 
 // ============================================================================

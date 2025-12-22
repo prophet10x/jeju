@@ -467,7 +467,7 @@ async function handleP2PMessage(peer: P2PPeer, data: ArrayBuffer | string): Prom
         await handleContentRequest(peer, message.contentHash);
         break;
 
-      case 'response-header':
+      case 'response-header': {
         const pending = pendingRequests.get(message.contentHash);
         if (pending) {
           pending.expectedSize = message.size;
@@ -475,6 +475,7 @@ async function handleP2PMessage(peer: P2PPeer, data: ArrayBuffer | string): Prom
           pending.chunks = [];
         }
         break;
+      }
 
       case 'response-complete':
         await handleResponseComplete(message.contentHash);
@@ -513,9 +514,9 @@ async function handleContentRequest(peer: P2PPeer, contentHash: string): Promise
   }
 }
 
-function handleContentChunk(peerId: string, data: ArrayBuffer): void {
+function handleContentChunk(_peerId: string, data: ArrayBuffer): void {
   // Find active request for this peer
-  for (const [contentHash, pending] of pendingRequests) {
+  for (const [_hash, pending] of pendingRequests) {
     if (pending.chunks.length * P2P_CONFIG.chunkSize < pending.expectedSize) {
       pending.chunks.push(data);
       break;
@@ -653,10 +654,11 @@ self.addEventListener('message', async (event) => {
       port?.postMessage({ success: true });
       break;
 
-    case 'GET_CACHE_STATS':
+    case 'GET_CACHE_STATS': {
       const stats = await getCacheStats();
       port?.postMessage(stats);
       break;
+    }
 
     case 'ANNOUNCE_CONTENT':
       announceContent(payload.cid);
@@ -696,7 +698,7 @@ async function getCacheStats(): Promise<{
       stats[name] = { size, entries: keys.length };
       totalSize += size;
       totalEntries += keys.length;
-    } catch (error) {
+    } catch (_error) {
       stats[name] = { size: 0, entries: 0 };
     }
   }
