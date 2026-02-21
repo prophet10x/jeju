@@ -1,6 +1,6 @@
 {
   "network": "jeju-testnet",
-  "chainId": 2151908,
+  "chainId": 420690,
   "deployedAt": "2025-12-30T17:15:56.512Z",
   "deployer": "0x1c8D40d6E81289B5a1B6e4E3a2E34eA23d1c2A0E",
   "contracts": {

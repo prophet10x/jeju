@@ -146,7 +146,7 @@ const XLP_STAKE_MANAGER_ABI = [
 ] as const
 
 const CHAIN_IDS: Record<SupportedChain, number> = {
-  jeju: 2151908,
+  jeju: 420690,
   base: 8453,
   optimism: 10,
   arbitrum: 42161,

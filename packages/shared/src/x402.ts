@@ -147,7 +147,7 @@ export const CHAIN_IDS: Record<X402Network, number> = {
   ethereum: 1,
   base: 8453,
   jeju: 420691,
-  'jeju-testnet': 2151908,
+  'jeju-testnet': 420690,
 }
 
 export const RPC_URLS: Record<X402Network, string> = {

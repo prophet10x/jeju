@@ -377,7 +377,7 @@ const ERC721_ABI = [
 ] as const
 
 const CHAIN_DOMAINS: Record<SupportedChain, number> = {
-  jeju: 2151908,
+  jeju: 420690,
   base: 8453,
   optimism: 10,
   arbitrum: 42161,

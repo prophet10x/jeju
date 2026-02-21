@@ -103,7 +103,7 @@ const LOCAL_API_PORTS: Record<AppName, number> = {
 /** Chain IDs for each network */
 const CHAIN_IDS: Record<NetworkType, number> = {
   localnet: 31337,
-  testnet: 2151908,
+  testnet: 420690,
   mainnet: 420691,
 }
 

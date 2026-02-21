@@ -48,7 +48,7 @@ export const EvmChainIdSchema = z.union([
   z.literal(11155111),
   z.literal(11155420),
   z.literal(421614),
-  z.literal(2151908),
+  z.literal(420690),
   z.literal(420691),
   z.literal(31337),
   z.literal(31337),

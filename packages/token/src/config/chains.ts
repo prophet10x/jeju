@@ -259,7 +259,7 @@ export const MAINNET_CHAINS: ChainConfig[] = [
 // Jeju Testnet (L2 on Sepolia) - For integration with Jeju Network
 // Run `jeju token deploy:hyperlane --network testnet` to deploy Hyperlane
 export const jejuTestnet: ChainConfig = {
-  chainId: 2151908,
+  chainId: 420690,
   chainType: 'evm',
   name: 'Jeju Testnet',
   rpcUrl: getJejuRpcUrl('testnet'),
