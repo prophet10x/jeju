@@ -28,7 +28,7 @@ export type EVMChainId =
   | 11155111 // Sepolia (testnet)
   | 11155420 // Optimism Sepolia (testnet)
   | 421614 // Arbitrum Sepolia (testnet)
-  | 420690 // Jeju Testnet (L2 on Sepolia)
+  | 2151908 // Jeju Testnet (L2 on Sepolia)
   | 420691 // Jeju Mainnet (L2 on Ethereum)
   | 31337
   | 31337

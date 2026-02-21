@@ -18,7 +18,7 @@ export const CHAIN_TO_DOMAIN: Partial<Record<ChainId, number>> = {
   11155420: 11155420, // Optimism Sepolia
   84532: 84532, // Base Sepolia
   421614: 421614, // Arbitrum Sepolia
-  420690: 420690, // Jeju Testnet
+  2151908: 2151908, // Jeju Testnet
   420691: 420691, // Jeju Mainnet
   // Local development (no Hyperlane, but domain ID = chain ID)
 

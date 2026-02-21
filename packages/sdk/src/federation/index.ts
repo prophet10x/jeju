@@ -21,7 +21,7 @@
  * const networks = await federation.getNetworks();
  *
  * // Check if a network can participate in consensus
- * const canVote = await federation.canParticipateInConsensus(420690);
+ * const canVote = await federation.canParticipateInConsensus(2151908);
  * ```
  */
 

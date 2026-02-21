@@ -19,13 +19,13 @@ export const SupportedChainIdSchema = z.union([
   z.literal(10),
   z.literal(31337),
   z.literal(420691),
-  z.literal(420690),
+  z.literal(2151908),
 ])
 export type SupportedChainId = z.infer<typeof SupportedChainIdSchema>
 
 // Type guard to ensure SupportedChainId is a subset of EVMChainId
 const SUPPORTED_CHAIN_IDS: readonly SupportedChainId[] = [
-  1, 11155111, 42161, 10, 31337, 420691, 420690,
+  1, 11155111, 42161, 10, 31337, 420691, 2151908,
 ]
 
 export function isSupportedChainId(

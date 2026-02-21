@@ -83,7 +83,7 @@ export const SUPPORTED_CHAINS: ChainInfo[] = [
     isDestination: true,
   },
   {
-    id: 420690,
+    id: 2151908,
     name: 'Testnet',
     icon: '🏝️',
     rpcUrl: 'https://testnet-rpc.jejunetwork.org',
@@ -500,7 +500,7 @@ export interface EILConfig {
 export const DEFAULT_EIL_CONFIG: EILConfig = {
   crossChainPaymasters: {
     '420691': '0x0000000000000000000000000000000000000000' as Address,
-    '420690': '0x0000000000000000000000000000000000000000' as Address,
+    '2151908': '0x0000000000000000000000000000000000000000' as Address,
     '42161': '0x0000000000000000000000000000000000000000' as Address,
     '10': '0x0000000000000000000000000000000000000000' as Address,
   },
