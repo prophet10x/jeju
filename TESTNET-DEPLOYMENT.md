@@ -41,7 +41,7 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | Contract | Address |
 |----------|---------|
 | JEJU/ELIZAOS Token | `0x5FbDB2315678afecb367f032d93F642f64180aa3` |
-| IdentityRegistry | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` |
+| IdentityRegistry | `0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8` |
 | ComputeRegistry | `0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9` |
 | FeeConfig | `0x1613beb3b2c4f22ee086b2b38c1476a3ce7f78e8` |
 | DAORegistry | `0x851356ae760d987e095750cceb3bc6014560891c` |
@@ -125,7 +125,7 @@ All contracts from the following deploy scripts have been deployed:
 
 - **Governance**: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (deployer)
 - **Supported Stake Tokens**: ETH (address(0)), ELIZAOS (`0x5FbDB...`)
-- **Stake Tiers**: NONE (free), SMALL (0.001), MEDIUM (0.01), HIGH (0.1)
+- **Stake Tiers**: NONE (free), SMALL (1 ELIZAOS), MEDIUM (10 ELIZAOS), HIGH (100 ELIZAOS)
 
 ### Not Deployed
 

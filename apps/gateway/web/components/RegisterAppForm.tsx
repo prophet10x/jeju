@@ -26,17 +26,17 @@ const TIER_OPTIONS = [
   {
     value: StakeTier.SMALL,
     label: 'Small',
-    description: '0.001 ELIZAOS',
+    description: '1 ELIZAOS',
   },
   {
     value: StakeTier.MEDIUM,
     label: 'Medium',
-    description: '0.01 ELIZAOS',
+    description: '10 ELIZAOS',
   },
   {
     value: StakeTier.HIGH,
     label: 'High',
-    description: '0.1 ELIZAOS',
+    description: '100 ELIZAOS',
   },
 ] as const
 

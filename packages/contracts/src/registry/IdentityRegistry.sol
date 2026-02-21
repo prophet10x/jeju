@@ -35,9 +35,9 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
         bool isSlashed;
     }
 
-    uint256 public constant STAKE_SMALL = 0.001 ether;
-    uint256 public constant STAKE_MEDIUM = 0.01 ether;
-    uint256 public constant STAKE_HIGH = 0.1 ether;
+    uint256 public constant STAKE_SMALL = 1 ether;
+    uint256 public constant STAKE_MEDIUM = 10 ether;
+    uint256 public constant STAKE_HIGH = 100 ether;
     uint256 public constant MAX_METADATA_SIZE = 8192;
     uint256 public constant MAX_KEY_LENGTH = 256;
     uint256 public constant MAX_TAGS = 10;
