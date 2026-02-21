@@ -14,7 +14,7 @@
   "chains": {
     "testnet": {
       "name": "Jeju Testnet",
-      "chainId": 420690,
+      "chainId": 2151908,
       "symbol": "ETH",
       "explorerName": "Jeju Explorer"
     },

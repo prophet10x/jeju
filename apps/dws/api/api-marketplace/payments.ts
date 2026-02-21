@@ -26,7 +26,7 @@ const NATIVE_TOKEN: Address = '0x0000000000000000000000000000000000000000'
 
 const DEFAULT_CONFIG: PaymentConfig = {
   paymentRecipient: SYSTEM_RECIPIENT,
-  networkId: 420690, // Jeju testnet
+  networkId: 2151908, // Jeju testnet
   assetAddress: NATIVE_TOKEN,
 }
 

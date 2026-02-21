@@ -88,7 +88,7 @@ const workerEnv = {
   RPC_URL: process.env.RPC_URL || process.env.L2_RPC_URL || 'https://testnet-rpc.jejunetwork.org',
   L2_RPC_URL: process.env.L2_RPC_URL || process.env.RPC_URL || 'https://testnet-rpc.jejunetwork.org',
   L1_RPC_URL: process.env.L1_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com',
-  CHAIN_ID: process.env.CHAIN_ID || '420690',
+  CHAIN_ID: process.env.CHAIN_ID || '2151908',
   L1_CHAIN_ID: process.env.L1_CHAIN_ID || '11155111',
   // Service URLs - public endpoints
   DWS_URL: process.env.DWS_URL || 'https://dws.testnet.jejunetwork.org',

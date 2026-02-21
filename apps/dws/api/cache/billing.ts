@@ -128,7 +128,7 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
 
 const DEFAULT_PAYMENT_CONFIG: CachePaymentConfig = {
   paymentRecipient: ZERO_ADDRESS,
-  networkId: 420690,
+  networkId: 2151908,
   assetAddress: ZERO_ADDRESS,
   platformFeeBps: 500,
   baseUrl: 'https://cache.dws.jejunetwork.org',

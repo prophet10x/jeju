@@ -17,10 +17,18 @@ import {
 
 // Jeju custom chains
 export const jejuLocalnet: Chain = {
-  id: 420690,
+  id: 31337,
   name: 'Jeju Localnet',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: { default: { http: [getConfigRpcUrl('localnet')] } },
+  testnet: true,
+}
+
+export const jejuTestnet: Chain = {
+  id: 2151908,
+  name: 'Jeju Testnet',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['https://jeju-testnet.fartbag.fun/'] } },
   testnet: true,
 }
 
@@ -44,7 +52,8 @@ export const CHAINS: Record<number, Chain> = {
   84532: baseSepolia,
   421614: arbitrumSepolia,
   11155420: optimismSepolia,
-  420690: jejuLocalnet,
+  31337: jejuLocalnet,
+  2151908: jejuTestnet,
   420691: jeju,
 }
 

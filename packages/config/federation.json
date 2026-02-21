@@ -21,7 +21,7 @@
 
   "networks": {
     "jeju-testnet": {
-      "chainId": 420690,
+      "chainId": 2151908,
       "name": "Jeju Testnet",
       "rpcUrl": "https://testnet-rpc.jejunetwork.org",
       "explorerUrl": "https://testnet-explorer.jejunetwork.org",

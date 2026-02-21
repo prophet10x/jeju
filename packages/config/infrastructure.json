@@ -107,7 +107,7 @@
     },
     
     "jeju-testnet": {
-      "chainId": 420690,
+      "chainId": 2151908,
       "name": "Jeju Testnet",
       "type": "l2",
       "stack": "op-stack",

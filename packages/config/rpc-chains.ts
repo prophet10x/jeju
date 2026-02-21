@@ -44,8 +44,8 @@ export const RPC_CHAINS: Record<number, RpcChainConfig> = {
     isTestnet: false,
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   },
-  420690: {
-    chainId: 420690,
+  2151908: {
+    chainId: 2151908,
     name: 'Testnet',
     shortName: 'JEJU-TEST',
     rpcUrl: getEnv('JEJU_TESTNET_RPC_URL', `${JEJU_RPC_BASE}/jeju-testnet`),
