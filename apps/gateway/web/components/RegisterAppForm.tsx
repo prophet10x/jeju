@@ -14,8 +14,8 @@ const InfoIcon = Info as ComponentType<LucideProps>
 const AlertCircleIcon = AlertCircle as ComponentType<LucideProps>
 const CheckCircleIcon = CheckCircle as ComponentType<LucideProps>
 
-// ELIZAOS token address on testnet
-const ELIZAOS_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const
+// JEJU token address on testnet
+const JEJU_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const
 
 const TIER_OPTIONS = [
   {
@@ -26,17 +26,17 @@ const TIER_OPTIONS = [
   {
     value: StakeTier.SMALL,
     label: 'Small',
-    description: '1 ELIZAOS',
+    description: '1 JEJU',
   },
   {
     value: StakeTier.MEDIUM,
     label: 'Medium',
-    description: '10 ELIZAOS',
+    description: '10 JEJU',
   },
   {
     value: StakeTier.HIGH,
     label: 'High',
-    description: '100 ELIZAOS',
+    description: '100 JEJU',
   },
 ] as const
 
@@ -146,7 +146,7 @@ export default function RegisterAppForm() {
         stakeToken:
           selectedTier === StakeTier.NONE
             ? '0x0000000000000000000000000000000000000000'
-            : ELIZAOS_TOKEN,
+            : JEJU_TOKEN,
         stakeAmount: stakeAmount ?? 0n,
       })
 
@@ -382,7 +382,7 @@ export default function RegisterAppForm() {
               }}
             >
               Higher tiers increase visibility and trust. Stake is paid in
-              ELIZAOS tokens and fully refundable.
+              JEJU tokens and fully refundable.
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               {TIER_OPTIONS.map((tier) => (
@@ -430,7 +430,7 @@ export default function RegisterAppForm() {
                   color: 'var(--text-primary)',
                 }}
               >
-                {formatUnits(stakeAmount, 18)} ELIZAOS
+                {formatUnits(stakeAmount, 18)} JEJU
               </p>
             </div>
           )}
@@ -464,7 +464,7 @@ export default function RegisterAppForm() {
           >
             {selectedTier === StakeTier.NONE
               ? 'Free registration with no stake'
-              : 'Your ELIZAOS stake is fully refundable when you unregister'}
+              : 'Your JEJU stake is fully refundable when you unregister'}
           </p>
         </form>
       </div>

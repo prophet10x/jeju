@@ -405,16 +405,18 @@ export class OAuth3Client {
         session = await this.loginWithOAuth(options)
     }
 
-    // Store session in decentralized storage
+    // Store session in decentralized storage (non-blocking - login succeeds even if storage fails)
     if (this.storage) {
-      // Derive encryption key from session's signing public key
-      // This provides deterministic encryption per session for IPFS storage
-      const encryptionKey = deriveLocalEncryptionKey(
-        session.signingPublicKey,
-        `oauth3-session-${session.sessionId}`,
-      )
-      this.storage.setEncryptionKey(encryptionKey)
-      await this.storage.storeSession(session)
+      try {
+        const encryptionKey = deriveLocalEncryptionKey(
+          session.signingPublicKey,
+          `oauth3-session-${session.sessionId}`,
+        )
+        this.storage.setEncryptionKey(encryptionKey)
+        await this.storage.storeSession(session)
+      } catch (e) {
+        console.warn('[OAuth3] Session storage failed (non-critical):', (e as Error).message)
+      }
     }
 
     return session
@@ -1116,15 +1118,18 @@ export class OAuth3Client {
     )
     this.setSession(newSession)
 
-    // Update in decentralized storage
+    // Update in decentralized storage (non-blocking)
     if (this.storage) {
-      // Derive encryption key from session's signing public key
-      const encryptionKey = deriveLocalEncryptionKey(
-        newSession.signingPublicKey,
-        `oauth3-session-${newSession.sessionId}`,
-      )
-      this.storage.setEncryptionKey(encryptionKey)
-      await this.storage.storeSession(newSession)
+      try {
+        const encryptionKey = deriveLocalEncryptionKey(
+          newSession.signingPublicKey,
+          `oauth3-session-${newSession.sessionId}`,
+        )
+        this.storage.setEncryptionKey(encryptionKey)
+        await this.storage.storeSession(newSession)
+      } catch (e) {
+        console.warn('[OAuth3] Session storage update failed (non-critical):', (e as Error).message)
+      }
     }
 
     this.emit('sessionRefresh', { session: newSession })

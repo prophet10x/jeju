@@ -82,9 +82,9 @@ export const DWS_ENDPOINTS: Record<
     gateway: `${getDWSUrl() ?? `http://${getLocalhostHost()}:4030`}/storage/ipfs`,
   },
   testnet: {
-    base: 'https://dws.testnet.jejunetwork.org',
-    api: 'https://dws.testnet.jejunetwork.org/storage/api/v0',
-    gateway: 'https://dws.testnet.jejunetwork.org/storage/ipfs',
+    base: 'https://jeju-testnet.fartbag.fun/dws',
+    api: 'https://jeju-testnet.fartbag.fun/dws/storage/api/v0',
+    gateway: 'https://jeju-testnet.fartbag.fun/dws/storage/ipfs',
   },
   mainnet: {
     base: 'https://dws.jejunetwork.org',

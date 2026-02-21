@@ -143,12 +143,12 @@
     },
     "explorer": "https://explorer.testnet.jejunetwork.org",
     "indexer": {
-      "api": "https://indexer.testnet.jejunetwork.org",
-      "graphql": "https://indexer.testnet.jejunetwork.org/graphql",
-      "graphqlCors": "https://dws.testnet.jejunetwork.org/indexer/graphql",
-      "websocket": "wss://indexer.testnet.jejunetwork.org/graphql",
-      "rest": "https://dws.testnet.jejunetwork.org/indexer/api",
-      "dws": "https://dws.testnet.jejunetwork.org/indexer/graphql"
+      "api": "https://jeju-testnet.fartbag.fun/indexer",
+      "graphql": "https://jeju-testnet.fartbag.fun/indexer/graphql",
+      "graphqlCors": "https://jeju-testnet.fartbag.fun/indexer/graphql",
+      "websocket": "wss://jeju-testnet.fartbag.fun/indexer/graphql",
+      "rest": "https://jeju-testnet.fartbag.fun/indexer/api",
+      "dws": "https://jeju-testnet.fartbag.fun/indexer/graphql"
     },
     "gateway": {
       "ui": "https://gateway.testnet.jejunetwork.org",
@@ -160,8 +160,8 @@
     "rpcGateway": "https://testnet-rpc.jejunetwork.org",
     "bazaar": "https://bazaar.testnet.jejunetwork.org",
     "storage": {
-      "api": "https://dws.testnet.jejunetwork.org/storage",
-      "ipfsGateway": "https://dws.testnet.jejunetwork.org/storage/ipfs"
+      "api": "https://jeju-testnet.fartbag.fun/dws/storage",
+      "ipfsGateway": "https://jeju-testnet.fartbag.fun/dws/storage/ipfs"
     },
     "compute": {
       "marketplace": "https://compute.testnet.jejunetwork.org",
@@ -189,12 +189,12 @@
       "miner": "https://dws.testnet.jejunetwork.org/sqlit"
     },
     "dws": {
-      "api": "https://dws.testnet.jejunetwork.org",
-      "cache": "https://dws.testnet.jejunetwork.org",
-      "compute": "https://dws.testnet.jejunetwork.org/compute",
-      "inference": "https://dws.testnet.jejunetwork.org/inference",
-      "gateway": "https://dws.testnet.jejunetwork.org/gateway",
-      "triggers": "https://dws.testnet.jejunetwork.org/triggers"
+      "api": "https://jeju-testnet.fartbag.fun/dws",
+      "cache": "https://jeju-testnet.fartbag.fun/dws",
+      "compute": "https://jeju-testnet.fartbag.fun/dws/compute",
+      "inference": "https://jeju-testnet.fartbag.fun/dws/inference",
+      "gateway": "https://jeju-testnet.fartbag.fun/dws/gateway",
+      "triggers": "https://jeju-testnet.fartbag.fun/dws/triggers"
     },
     "autocrat": {
       "api": "https://autocrat.testnet.jejunetwork.org",
