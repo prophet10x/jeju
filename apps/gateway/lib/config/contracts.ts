@@ -154,7 +154,7 @@ const TESTNET_TOKENS: TokenConfig[] = [
     name: 'Network',
     address: TESTNET_CONTRACTS.jejuToken,
     decimals: 18,
-    priceUSD: 0.05,
+    priceUSD: 1.0,
     logoUrl: 'https://assets.jejunetwork.org/jeju-logo.png',
     hasPaymaster: true,
     bridged: false,

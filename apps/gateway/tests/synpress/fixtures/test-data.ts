@@ -36,7 +36,7 @@ export const PROTOCOL_TOKENS = {
     symbol: 'JEJU',
     name: 'Network',
     decimals: 18,
-    priceUSD: 0.05,
+    priceUSD: 1.0,
     bridgeable: false,
   },
 } as const
