@@ -1,10 +1,10 @@
 {
-  "chainId": 2151908,
-  "networkId": 2151908,
+  "chainId": 420690,
+  "networkId": 420690,
   "name": "Jeju Testnet",
-  "rpcUrl": "https://jeju-testnet.fartbag.fun/",
-  "wsUrl": "wss://jeju-testnet.fartbag.fun/ws",
-  "explorerUrl": "https://jeju-testnet.fartbag.fun/explorer",
+  "rpcUrl": "https://testnet-rpc.jejunetwork.org",
+  "wsUrl": "wss://testnet-ws.jejunetwork.org",
+  "explorerUrl": "https://testnet-explorer.jejunetwork.org",
   "l1ChainId": 11155111,
   "l1RpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
   "l1Name": "Sepolia",
@@ -27,11 +27,16 @@
       "WETH": "0x4200000000000000000000000000000000000006"
     },
     "l1": {
-      "OptimismPortal": "0x9d484A3c375E5faAEe6202fc0622342E128b6326",
-      "L1CrossDomainMessenger": "0x0B01d94FcB444660df4699DD7C379a20875E3c36",
-      "L1StandardBridge": "",
-      "SystemConfig": "0xF1D47AF01ea6C17f7E8F3Ad2edee603ab8b189eB",
+      "ProxyAdmin": "0x96b238A30F95e9B0f34Bc82c5B55725531786f60",
+      "AddressManager": "0xE40997A7C5e472E1C90fF960d7aA16C78ab71Ae3",
+      "OptimismPortal": "0x0F80836afff3f0b18D767643c6A5f83d027b00e8",
+      "L1CrossDomainMessenger": "0x563209CfA6a3d7361634e7CC80251e947E699D4c",
+      "L1StandardBridge": "0x12FA61c9d77AEd9BeDA0FF4bF2E900F31bdBdc45",
+      "SystemConfig": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
       "L2OutputOracle": "0x0000000000000000000000000000000000000000"
     }
+  },
+  "l1Contracts": {
+    "L2OutputOracle": "0xde4900A1711445aF92B6fe59b3430485b3794c2d"
   }
 }
