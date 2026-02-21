@@ -46,6 +46,8 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | FeeConfig | `0x1613beb3b2c4f22ee086b2b38c1476a3ce7f78e8` |
 | DAORegistry | `0x851356ae760d987e095750cceb3bc6014560891c` |
 | DAOFunding | `0xf5059a5d33d5853360d16c683c16e67980206f36` |
+| NodeStakingManager | `0x5FeaeBfB4439F3516c74939A9D04e95AFE82C4ae` |
+| PriceOracle | `0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d` |
 
 ### JNS (Jeju Name Service)
 
@@ -127,6 +129,22 @@ All contracts from the following deploy scripts have been deployed:
 - **Supported Stake Tokens**: ETH (address(0)), ELIZAOS (`0x5FbDB...`)
 - **Stake Tiers**: NONE (free), SMALL (1 ELIZAOS), MEDIUM (10 ELIZAOS), HIGH (100 ELIZAOS)
 
+### Node Staking
+
+| Contract | Address |
+|----------|---------|
+| NodeStakingManager | `0x5FeaeBfB4439F3516c74939A9D04e95AFE82C4ae` |
+| PerformanceOracle | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (deployer) |
+
+**Configuration:**
+- Constructor args: TokenRegistry, PaymasterFactory, PriceOracle, PerformanceOracle, Owner (all deployer-controlled)
+- Min stake: $1000 USD equivalent
+- Max nodes per operator: 5
+- Min staking period: 7 days
+- Base reward: $100/month per node
+- Geographic bonus: +50% for underserved regions (Africa, South America)
+- Uptime threshold: 99%+ for full rewards
+
 ### Not Deployed
 
 | Contract | Status |
@@ -147,6 +165,7 @@ All contracts from the following deploy scripts have been deployed:
 | Alto Bundler | 4337 | `https://jeju-testnet.fartbag.fun/bundler` |
 | PoW Faucet | 8088 | `https://jeju-testnet.fartbag.fun/faucet/` |
 | Gateway API | 4013 | `https://jeju-testnet.fartbag.fun/gateway/` |
+| Faucet API | 4014 | `https://jeju-testnet.fartbag.fun/gateway/api/faucet/` |
 | DWS Console | 4030 | `http://52.206.203.24/` (AWS) |
 | OAuth3 | 4200 | `http://52.206.203.24:4200/` (AWS, proxied via DWS) |
 
@@ -165,6 +184,28 @@ node packages/contracts/scripts/e2e-paymaster-elizaos.mjs
 2. Approve JEJU/ELIZAOS tokens to LiquidityPaymaster
 3. Send paymaster-sponsored transaction (gas paid in JEJU/ELIZAOS, no ETH needed)
 
+## Gateway Portal
+
+The gateway web UI is live at `https://jeju-testnet.fartbag.fun/gateway/` with the following features:
+
+- **Browse**: View registered agents from the IdentityRegistry (reads directly from contract)
+- **Registry**: Register new agents with JEJU token staking (ERC-8004)
+- **Faucet**: Claim 100 JEJU tokens per 12h cooldown (requires agent registration). Gas grants available for unregistered users
+- **Nodes**: Register DWS/compute nodes with token staking, view performance metrics
+
+### Faucet API
+
+Standalone faucet server running on port 4014, proxied via nginx at `/gateway/api/faucet/`.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/faucet/info` | GET | Faucet configuration and requirements |
+| `/api/faucet/status/:address` | GET | Eligibility, cooldown, balance for an address |
+| `/api/faucet/claim` | POST | Claim JEJU tokens (body: `{ address }`) |
+| `/api/faucet/gas-grant` | POST | Claim gas ETH for registration (body: `{ address }`) |
+
+**Runtime:** `DEPLOYER_PRIVATE_KEY=0x... USE_MEMORY_STATE=true JEJU_TESTNET_RPC_URL=http://127.0.0.1:9545 bun run api/faucet-server.ts`
+
 ## Infrastructure Notes
 
 ### OP Stack Components
@@ -181,3 +222,13 @@ node packages/contracts/scripts/e2e-paymaster-elizaos.mjs
 - **EntryPoint v0.9 uses EIP-712 typed data hash** — incompatible with Alto bundler's v0.7 hash computation. UserOps must be submitted via direct `handleOps` calls, not through the bundler's `eth_sendUserOperation` RPC. The bundler can still be used for v0.7 EntryPoint operations.
 - SimpleAccount v0.9 `_validateSignature` uses `ECDSA.recover(userOpHash, signature)` without `toEthSignedMessageHash()` — sign with `account.sign({ hash })` not `account.signMessage()`
 - **CrossChainPaymaster** exceeds 24KB max contract code size (26.7KB even with via-ir optimizer). Needs refactoring to deploy.
+
+### Sequencer Architecture
+
+The testnet runs a single sequencer (op-batcher) that submits batches to Sepolia L1. If the sequencer goes down:
+- L2 blocks stop being finalized on L1, but unsafe blocks continue locally via op-geth
+- Users can force-include transactions via the L1 OptimismPortal (ForcedInclusion contract deployed)
+- The sequencer key is required to resume batch submission; no automatic failover exists
+- User funds remain safe on L1 and can be withdrawn via the dispute game mechanism
+
+For production, consider integrating a shared sequencer (Espresso, Astria) for decentralized sequencing and failover.
