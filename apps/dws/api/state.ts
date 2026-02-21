@@ -565,18 +565,26 @@ async function ensureTablesExist(): Promise<void> {
     await sqlitClient.exec(idx, [], SQLIT_DATABASE_ID)
   }
 
-  const deployedAppsInfo = await sqlitClient.query<{ name: string }>(
-    'PRAGMA table_info(deployed_apps)',
-    [],
-    SQLIT_DATABASE_ID,
-  )
-  const hasEnvColumn = deployedAppsInfo.rows.some((row) => row.name === 'env')
-  if (!hasEnvColumn) {
-    await sqlitClient.exec(
-      "ALTER TABLE deployed_apps ADD COLUMN env TEXT NOT NULL DEFAULT '{}'",
+  // Migration: add env column if missing (for tables created before env was in CREATE TABLE)
+  // Wrapped in try-catch because PRAGMA table_info may not work reliably through SQLit adapter
+  try {
+    const deployedAppsInfo = await sqlitClient.query<{ name: string }>(
+      'PRAGMA table_info(deployed_apps)',
       [],
       SQLIT_DATABASE_ID,
     )
+    const hasEnvColumn = deployedAppsInfo.rows.some(
+      (row) => row.name === 'env',
+    )
+    if (!hasEnvColumn) {
+      await sqlitClient.exec(
+        "ALTER TABLE deployed_apps ADD COLUMN env TEXT NOT NULL DEFAULT '{}'",
+        [],
+        SQLIT_DATABASE_ID,
+      )
+    }
+  } catch {
+    // Column likely already exists - safe to ignore
   }
 
   console.log('[DWS State] SQLit tables ensured')
