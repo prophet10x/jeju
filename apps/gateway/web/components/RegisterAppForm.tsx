@@ -1,15 +1,44 @@
-import { formatTokenAmount } from '@jejunetwork/shared'
+import { formatUnits } from 'viem'
 import { AlertCircle, CheckCircle, Info, type LucideProps } from 'lucide-react'
 import { type ComponentType, useState } from 'react'
 import { useAccount } from 'wagmi'
 import { z } from 'zod'
-import { useProtocolTokens } from '../hooks/useProtocolTokens'
-import { useRegistry, useRequiredStake } from '../hooks/useRegistry'
-import TokenSelector, { type TokenOption } from './TokenSelector'
+import {
+  StakeTier,
+  type StakeTierValue,
+  useRegistry,
+  useStakeAmount,
+} from '../hooks/useRegistry'
 
 const InfoIcon = Info as ComponentType<LucideProps>
 const AlertCircleIcon = AlertCircle as ComponentType<LucideProps>
 const CheckCircleIcon = CheckCircle as ComponentType<LucideProps>
+
+// ELIZAOS token address on testnet
+const ELIZAOS_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const
+
+const TIER_OPTIONS = [
+  {
+    value: StakeTier.NONE,
+    label: 'Free',
+    description: 'No stake required',
+  },
+  {
+    value: StakeTier.SMALL,
+    label: 'Small',
+    description: '0.001 ELIZAOS',
+  },
+  {
+    value: StakeTier.MEDIUM,
+    label: 'Medium',
+    description: '0.01 ELIZAOS',
+  },
+  {
+    value: StakeTier.HIGH,
+    label: 'High',
+    description: '0.1 ELIZAOS',
+  },
+] as const
 
 // Zod schema for registration form validation
 const RegistrationFormSchema = z.object({
@@ -33,7 +62,6 @@ const RegistrationFormSchema = z.object({
     .optional()
     .default(''),
   tags: z.array(z.string()).min(1, 'Please select at least one category'),
-  stakeToken: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid token address'),
 })
 
 const AVAILABLE_TAGS = [
@@ -50,21 +78,20 @@ const AVAILABLE_TAGS = [
 
 export default function RegisterAppForm() {
   const { address } = useAccount()
-  const { tokens } = useProtocolTokens()
   const { registerApp } = useRegistry()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [a2aEndpoint, setA2aEndpoint] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [selectedToken, setSelectedToken] = useState<TokenOption | null>(null)
+  const [selectedTier, setSelectedTier] = useState<StakeTierValue>(
+    StakeTier.NONE,
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  const requiredStake = useRequiredStake(
-    selectedToken?.address as `0x${string}` | undefined,
-  )
+  const stakeAmount = useStakeAmount(selectedTier)
 
   const handleTagToggle = (tag: string) => {
     setSelectedTags((prev) =>
@@ -88,7 +115,6 @@ export default function RegisterAppForm() {
       description: description.trim(),
       a2aEndpoint: a2aEndpoint.trim(),
       tags: selectedTags,
-      stakeToken: selectedToken?.address ?? '',
     }
 
     const validation = RegistrationFormSchema.safeParse(formData)
@@ -98,39 +124,49 @@ export default function RegisterAppForm() {
       return
     }
 
-    if (requiredStake === null || requiredStake === undefined) {
-      setError('Unable to calculate required stake')
+    if (selectedTier !== StakeTier.NONE && stakeAmount === undefined) {
+      setError('Unable to determine stake amount')
       return
     }
 
     setIsSubmitting(true)
 
-    const tokenURI = JSON.stringify({
-      name: validation.data.name,
-      description: validation.data.description,
-      owner: address,
-      registeredAt: new Date().toISOString(),
-    })
+    try {
+      const tokenURI = JSON.stringify({
+        name: validation.data.name,
+        description: validation.data.description,
+        owner: address,
+        registeredAt: new Date().toISOString(),
+      })
 
-    const result = await registerApp({
-      tokenURI,
-      tags: validation.data.tags,
-      a2aEndpoint: validation.data.a2aEndpoint,
-      stakeToken: validation.data.stakeToken as `0x${string}`,
-      stakeAmount: requiredStake,
-    })
+      const result = await registerApp({
+        tokenURI,
+        a2aEndpoint: validation.data.a2aEndpoint,
+        tier: selectedTier,
+        stakeToken:
+          selectedTier === StakeTier.NONE
+            ? '0x0000000000000000000000000000000000000000'
+            : ELIZAOS_TOKEN,
+        stakeAmount: stakeAmount ?? 0n,
+      })
 
-    setIsSubmitting(false)
+      setIsSubmitting(false)
 
-    if (result.success) {
-      setSuccess(true)
-      setName('')
-      setDescription('')
-      setA2aEndpoint('')
-      setSelectedTags([])
-      setSelectedToken(null)
-    } else {
-      setError(result.error ?? 'Registration failed')
+      if (result.success) {
+        setSuccess(true)
+        setName('')
+        setDescription('')
+        setA2aEndpoint('')
+        setSelectedTags([])
+        setSelectedTier(StakeTier.NONE)
+      } else {
+        setError(result.error ?? 'Registration failed')
+      }
+    } catch (err) {
+      setIsSubmitting(false)
+      setError(
+        err instanceof Error ? err.message : 'Transaction failed',
+      )
     }
   }
 
@@ -337,26 +373,38 @@ export default function RegisterAppForm() {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <span className="input-label">
-              Stake Token <span style={{ color: 'var(--error)' }}>*</span>
-            </span>
-            <TokenSelector
-              tokens={tokens.map((t) => ({
-                symbol: t.symbol,
-                name: t.name,
-                address: t.address,
-                decimals: t.decimals,
-                priceUSD: t.priceUSD,
-                logoUrl: t.logoUrl,
-              }))}
-              selectedToken={selectedToken?.symbol}
-              onSelect={setSelectedToken}
-              showBalances={false}
-              placeholder="Select stake token..."
-            />
+            <span className="input-label">Stake Tier</span>
+            <p
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--text-secondary)',
+                marginBottom: '0.75rem',
+              }}
+            >
+              Higher tiers increase visibility and trust. Stake is paid in
+              ELIZAOS tokens and fully refundable.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {TIER_OPTIONS.map((tier) => (
+                <button
+                  key={tier.value}
+                  type="button"
+                  onClick={() => setSelectedTier(tier.value)}
+                  className={`pill ${selectedTier === tier.value ? 'pill-active' : ''}`}
+                  style={{ minWidth: '100px' }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{tier.label}</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                      {tier.description}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {selectedToken && requiredStake && (
+          {selectedTier !== StakeTier.NONE && stakeAmount !== undefined && (
             <div
               style={{
                 padding: '1rem',
@@ -382,8 +430,7 @@ export default function RegisterAppForm() {
                   color: 'var(--text-primary)',
                 }}
               >
-                {formatTokenAmount(requiredStake, selectedToken.decimals, 6)}{' '}
-                {selectedToken.symbol}
+                {formatUnits(stakeAmount, 18)} ELIZAOS
               </p>
             </div>
           )}
@@ -392,10 +439,7 @@ export default function RegisterAppForm() {
             type="submit"
             className="button"
             disabled={
-              isSubmitting ||
-              !name.trim() ||
-              selectedTags.length === 0 ||
-              !selectedToken
+              isSubmitting || !name.trim() || selectedTags.length === 0
             }
             style={{
               width: '100%',
@@ -404,7 +448,11 @@ export default function RegisterAppForm() {
               fontWeight: 600,
             }}
           >
-            {isSubmitting ? 'Registering...' : 'Register & Stake'}
+            {isSubmitting
+              ? 'Registering...'
+              : selectedTier === StakeTier.NONE
+                ? 'Register (Free)'
+                : 'Register & Stake'}
           </button>
           <p
             style={{
@@ -414,7 +462,9 @@ export default function RegisterAppForm() {
               textAlign: 'center',
             }}
           >
-            Your stake is fully refundable when you unregister
+            {selectedTier === StakeTier.NONE
+              ? 'Free registration with no stake'
+              : 'Your ELIZAOS stake is fully refundable when you unregister'}
           </p>
         </form>
       </div>
