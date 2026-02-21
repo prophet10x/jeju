@@ -64,7 +64,7 @@ export default function App() {
             <GatewayOAuth3Provider>
               <ToastProvider>
                 <BanCheckWrapper>
-                  <BrowserRouter>
+                  <BrowserRouter basename={typeof window !== 'undefined' && window.location.pathname.startsWith('/gateway') ? '/gateway' : undefined}>
                     <OnboardingWizard />
                     <Routes>
                       <Route
