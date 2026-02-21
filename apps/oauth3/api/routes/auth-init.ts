@@ -632,6 +632,7 @@ export function createAuthInitRouter(config: AuthConfig) {
             'oauth3.testnet.jejunetwork.org',
             'crucible.testnet.jejunetwork.org',
             'crucible.jejunetwork.org',
+            'jeju-testnet.fartbag.fun',
             'localhost',
             getLocalhostHost(),
           ]
