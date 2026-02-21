@@ -98,7 +98,7 @@ export default function RegisterAppForm() {
       return
     }
 
-    if (!requiredStake) {
+    if (requiredStake === null || requiredStake === undefined) {
       setError('Unable to calculate required stake')
       return
     }

@@ -294,7 +294,9 @@ export function useRequiredStake(token: Address | undefined) {
     functionName: 'calculateRequiredStake',
     args: token ? [token] : undefined,
   })
-  return data ? (data as bigint) : null
+  // Contract may not support calculateRequiredStake yet (testnet)
+  // Default to 0 stake so registration can proceed
+  return data ? (data as bigint) : 0n
 }
 
 interface MarketplaceInfo {
