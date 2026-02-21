@@ -1686,17 +1686,14 @@ if (import.meta.main) {
 
       // Check if this is a deployed app (not dws itself)
       // Skip internal IPs and localhost for health checks
-      const isInternalIp = hostname.match(
-        /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/,
-      )
+      const isIpAddress = /^\d+\.\d+\.\d+\.\d+(:\d+)?$/.test(hostname)
       // Extract hostname without port for comparison
       const hostnameWithoutPort = hostname.split(':')[0]
       if (
         !hostname.startsWith('dws.') &&
         hostnameWithoutPort !== 'dws' &&
-        !isInternalIp &&
-        hostnameWithoutPort !== 'localhost' &&
-        hostnameWithoutPort !== '127.0.0.1'
+        !isIpAddress &&
+        hostnameWithoutPort !== 'localhost'
       ) {
         const appName = hostname.split('.')[0]
         const deployedApp = getDeployedApp(appName)

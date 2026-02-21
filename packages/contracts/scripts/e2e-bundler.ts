@@ -1,430 +1,250 @@
 /**
- * E2E Test via Bundler - Submits UserOperation through Alto bundler
+ * E2E Test - UserOperation via EntryPoint v0.9 (handleOps)
  *
- * This is the REAL ERC-4337 flow:
- * 1. Build UserOperation
- * 2. Submit to bundler via eth_sendUserOperation
- * 3. Bundler validates and submits to EntryPoint
+ * Tests the full ERC-4337 flow with v0.9 EntryPoint:
+ * 1. Deploy smart wallet via EntryPoint's senderCreator
+ * 2. Execute UserOperation (no-op call)
+ * 3. Verify execution
+ *
+ * Note: v0.9 EntryPoint uses EIP-712 typed data hash which is incompatible with
+ * current bundler implementations (Alto, etc.) that use v0.7 hash format.
+ * This test submits directly via handleOps.
+ *
+ * Environment variables:
+ *   RPC_URL          - L2 RPC URL (default: http://localhost:9545)
+ *   CHAIN_ID         - Chain ID (default: 420690)
+ *   ENTRYPOINT       - EntryPoint v0.9 address
+ *   FACTORY          - SimpleAccountFactory address
+ *   DEPLOYER_PRIVATE_KEY - Key with ETH for funding
+ *   TEST_USER_KEY    - Key for test user (random if not set)
  */
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   type Address,
+  concat,
   createPublicClient,
   createWalletClient,
-  encodeAbiParameters,
+  defineChain,
   encodeFunctionData,
   type Hex,
   http,
-  keccak256,
+  pad,
+  parseAbi,
   parseEther,
   toHex,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { foundry } from 'viem/chains'
 
-// Load deployment addresses
-const deploymentPath = join(
-  process.cwd(),
-  'packages/contracts/deployments/localnet-crosschain.json',
-)
-let ENTRY_POINT: Address
-let SIMPLE_ACCOUNT_FACTORY: Address
-let CROSS_CHAIN_PAYMASTER: Address
-if (existsSync(deploymentPath)) {
-  const deployment = JSON.parse(readFileSync(deploymentPath, 'utf-8'))
-  ENTRY_POINT = deployment.entryPoint as Address
-  SIMPLE_ACCOUNT_FACTORY = deployment.simpleAccountFactory as Address
-  CROSS_CHAIN_PAYMASTER = deployment.crossChainPaymaster as Address
-} else {
-  console.error('No deployment file found. Run deploy-crosschain.ts first.')
-  process.exit(1)
-}
+// === Configuration ===
+const RPC_URL = process.env.RPC_URL || 'https://jeju-testnet.fartbag.fun/'
+const CHAIN_ID = parseInt(process.env.CHAIN_ID || '420690')
 
-// URLs
-const RPC_URL = 'http://127.0.0.1:6546'
-const BUNDLER_URL = 'http://127.0.0.1:4337'
+const ENTRY_POINT = (process.env.ENTRYPOINT ||
+  '0x4826533b4897376654bb4d4ad88b7fafd0c98528') as Address
+const FACTORY = (process.env.FACTORY ||
+  '0x9d4454B023096f34B160D6B654540c56A1F81688') as Address
 
-// Test accounts - use account index 4 (0x15d34...) which already has an account deployed
-const OWNER_PRIVATE_KEY =
-  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
-const USER_PRIVATE_KEY =
-  '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a' // Account 4 - 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65
+const DEPLOYER_KEY = process.env.DEPLOYER_PRIVATE_KEY as Hex
+const USER_KEY = (process.env.TEST_USER_KEY ||
+  (() => {
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    return (
+      '0x' +
+      Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    )
+  })()) as Hex
 
-// ABIs
-const simpleAccountFactoryAbi = [
-  {
-    name: 'createAccount',
-    type: 'function',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'salt', type: 'uint256' },
-    ],
-    outputs: [{ name: 'ret', type: 'address' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    name: 'getAddress',
-    type: 'function',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'salt', type: 'uint256' },
-    ],
-    outputs: [{ name: '', type: 'address' }],
-    stateMutability: 'view',
-  },
-] as const
+const chain = defineChain({
+  id: CHAIN_ID,
+  name: 'Jeju Testnet',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: [RPC_URL] } },
+})
 
-const entryPointAbi = [
-  {
-    name: 'getNonce',
-    type: 'function',
-    inputs: [
-      { name: 'sender', type: 'address' },
-      { name: 'key', type: 'uint192' },
-    ],
-    outputs: [{ name: 'nonce', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    name: 'balanceOf',
-    type: 'function',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    name: 'depositTo',
-    type: 'function',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [],
-    stateMutability: 'payable',
-  },
-] as const
-
-const simpleAccountAbi = [
-  {
-    name: 'execute',
-    type: 'function',
-    inputs: [
-      { name: 'dest', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'func', type: 'bytes' },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-] as const
-
-// Compute UserOp hash for v0.6 format
-function computeUserOpHashV06(
-  userOp: {
-    sender: Hex
-    nonce: bigint
-    initCode: Hex
-    callData: Hex
-    callGasLimit: bigint
-    verificationGasLimit: bigint
-    preVerificationGas: bigint
-    maxFeePerGas: bigint
-    maxPriorityFeePerGas: bigint
-    paymasterAndData: Hex
-  },
-  entryPoint: Hex,
-  chainId: bigint,
-): Hex {
-  const hashInitCode = keccak256(userOp.initCode)
-  const hashCallData = keccak256(userOp.callData)
-  const hashPaymasterAndData = keccak256(userOp.paymasterAndData)
-
-  // Pack UserOp fields
-  const packed = encodeAbiParameters(
-    [
-      { type: 'address' },
-      { type: 'uint256' },
-      { type: 'bytes32' },
-      { type: 'bytes32' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'bytes32' },
-    ],
-    [
-      userOp.sender,
-      userOp.nonce,
-      hashInitCode,
-      hashCallData,
-      userOp.callGasLimit,
-      userOp.verificationGasLimit,
-      userOp.preVerificationGas,
-      userOp.maxFeePerGas,
-      userOp.maxPriorityFeePerGas,
-      hashPaymasterAndData,
-    ],
-  )
-
-  const userOpHash = keccak256(packed)
-
-  // Pack with entryPoint and chainId
-  return keccak256(
-    encodeAbiParameters(
-      [{ type: 'bytes32' }, { type: 'address' }, { type: 'uint256' }],
-      [userOpHash, entryPoint, chainId],
-    ),
-  )
-}
+const factoryAbi = parseAbi([
+  'function createAccount(address,uint256) returns (address)',
+  'function getAddress(address,uint256) view returns (address)',
+])
+const accountAbi = parseAbi(['function execute(address,uint256,bytes)'])
+const epAbi = parseAbi([
+  'function handleOps((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] ops, address payable beneficiary)',
+  'function getUserOpHash((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)) view returns (bytes32)',
+  'function getNonce(address,uint192) view returns (uint256)',
+])
 
 async function main() {
+  if (!DEPLOYER_KEY) {
+    console.error('Error: DEPLOYER_PRIVATE_KEY env var required')
+    process.exit(1)
+  }
+
   console.log('====================================================')
-  console.log('   E2E Test via Bundler (eth_sendUserOperation)')
+  console.log('   E2E UserOp Test - EntryPoint v0.9 (handleOps)')
   console.log('====================================================\n')
 
-  const publicClient = createPublicClient({
-    chain: foundry,
+  const pub = createPublicClient({ chain, transport: http(RPC_URL) })
+  const deployer = privateKeyToAccount(DEPLOYER_KEY)
+  const testUser = privateKeyToAccount(USER_KEY)
+  const deployerW = createWalletClient({
+    account: deployer,
+    chain,
     transport: http(RPC_URL),
   })
 
-  const ownerAccount = privateKeyToAccount(OWNER_PRIVATE_KEY)
-  const userAccount = privateKeyToAccount(USER_PRIVATE_KEY)
+  console.log('Deployer:', deployer.address)
+  console.log('Test User:', testUser.address)
 
-  const walletClient = createWalletClient({
-    chain: foundry,
-    transport: http(RPC_URL),
-    account: ownerAccount,
-  })
-
-  // Step 1: Check bundler is running
-  console.log('1. Checking bundler...')
-  const bundlerCheck = await fetch(BUNDLER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_supportedEntryPoints',
-      params: [],
-    }),
-  })
-  const bundlerResult = await bundlerCheck.json()
-  if (bundlerResult.error) {
-    throw new Error(`Bundler not responding: ${bundlerResult.error.message}`)
-  }
-  console.log(
-    `   Supported EntryPoints: ${JSON.stringify(bundlerResult.result)}`,
-  )
-
-  // Step 2: Get smart account address (use already deployed account)
-  console.log('\n2. Computing smart account address...')
-  const salt = 1n
-
-  const accountAddress = await publicClient.readContract({
-    address: SIMPLE_ACCOUNT_FACTORY,
-    abi: simpleAccountFactoryAbi,
+  // Step 1: Compute wallet address
+  const wallet = await pub.readContract({
+    address: FACTORY,
+    abi: factoryAbi,
     functionName: 'getAddress',
-    args: [userAccount.address, salt],
+    args: [testUser.address, 0n],
   })
+  console.log('Smart Wallet:', wallet)
 
-  console.log(`   User EOA: ${userAccount.address}`)
-  console.log(`   Smart Account: ${accountAddress}`)
-
-  const code = await publicClient.getCode({ address: accountAddress })
-  const accountExists = code !== undefined && code !== '0x'
-  console.log(`   Deployed: ${accountExists}`)
-
-  if (!accountExists) {
-    console.log(
-      "   ERROR: Account not deployed. Run 'cast send' to create it first.",
-    )
-    throw new Error('Account not deployed')
-  }
-
-  // Step 3: Ensure paymaster has deposit
-  console.log('\n3. Checking paymaster deposit...')
-  const paymasterDeposit = await publicClient.readContract({
-    address: ENTRY_POINT,
-    abi: entryPointAbi,
-    functionName: 'balanceOf',
-    args: [CROSS_CHAIN_PAYMASTER],
+  // Step 2: Fund wallet
+  console.log('\n--- Phase 1: Deploy wallet ---')
+  let h = await deployerW.sendTransaction({
+    to: wallet,
+    value: parseEther('0.05'),
   })
-  console.log(`   Deposit: ${Number(paymasterDeposit) / 1e18} ETH`)
+  await pub.waitForTransactionReceipt({ hash: h })
+  console.log('Funded wallet with 0.05 ETH')
 
-  if (paymasterDeposit < parseEther('1')) {
-    console.log('   Topping up...')
-    const hash = await walletClient.writeContract({
-      address: ENTRY_POINT,
-      abi: entryPointAbi,
-      functionName: 'depositTo',
-      args: [CROSS_CHAIN_PAYMASTER],
-      value: parseEther('5'),
-    })
-    await publicClient.waitForTransactionReceipt({ hash })
-  }
-
-  // Step 4: Get nonce
-  console.log('\n4. Getting nonce...')
-  const nonce = await publicClient.readContract({
-    address: ENTRY_POINT,
-    abi: entryPointAbi,
-    functionName: 'getNonce',
-    args: [accountAddress, 0n],
-  })
-  console.log(`   Nonce: ${nonce}`)
-
-  // Step 5: Build UserOperation (no initCode for already-deployed account)
-  console.log('\n5. Building UserOperation...')
-
-  const initCode: Hex = '0x'
-
-  const executeCallData = encodeFunctionData({
-    abi: simpleAccountAbi,
-    functionName: 'execute',
-    args: [userAccount.address, 0n, '0x'],
-  })
-
-  // Gas parameters for v0.6
-  const verificationGasLimit = 500000n
-  const callGasLimit = 100000n
-  const maxPriorityFeePerGas = 1000000000n
-  const maxFeePerGas = 2000000000n
-  const preVerificationGas = 100000n
-
-  // v0.7 format: paymasterAndData is paymaster address (20 bytes) + packed gas limits (32 bytes) + data
-  // For CrossChainPaymasterUpgradeable, we use minimal encoding
-  const paymasterAndData = CROSS_CHAIN_PAYMASTER as Hex
-
-  const userOp = {
-    sender: accountAddress,
-    nonce,
-    initCode,
-    callData: executeCallData,
-    callGasLimit,
-    verificationGasLimit,
-    preVerificationGas,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    paymasterAndData,
-  }
-
-  // Step 6: Sign
-  console.log('\n6. Signing UserOperation...')
-  const chainId = BigInt(await publicClient.getChainId())
-  const userOpHash = computeUserOpHashV06(userOp, ENTRY_POINT as Hex, chainId)
-  console.log(`   Hash: ${userOpHash}`)
-
-  // v0.6 uses toEthSignedMessageHash in the account, so we use signMessage
-  const signature = await userAccount.signMessage({
-    message: { raw: userOpHash },
-  })
-  console.log(`   Signature: ${signature.slice(0, 20)}...`)
-
-  // Step 7: Submit to bundler
-  console.log('\n7. Submitting to bundler via eth_sendUserOperation...')
-
-  // Try v0.6 format first (what Alto expects)
-  const bundlerUserOp = {
-    sender: userOp.sender,
-    nonce: toHex(userOp.nonce),
-    initCode: userOp.initCode,
-    callData: userOp.callData,
-    callGasLimit: toHex(callGasLimit),
-    verificationGasLimit: toHex(verificationGasLimit),
-    preVerificationGas: toHex(userOp.preVerificationGas),
-    maxFeePerGas: toHex(maxFeePerGas),
-    maxPriorityFeePerGas: toHex(maxPriorityFeePerGas),
-    paymasterAndData: userOp.paymasterAndData,
-    signature: signature,
-  }
-
-  console.log('   UserOp (v0.6 format for bundler):')
-  console.log(`   - sender: ${bundlerUserOp.sender}`)
-  console.log(`   - nonce: ${bundlerUserOp.nonce}`)
-  console.log(`   - callGasLimit: ${bundlerUserOp.callGasLimit}`)
-
-  const sendResponse = await fetch(BUNDLER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'eth_sendUserOperation',
-      params: [bundlerUserOp, ENTRY_POINT],
+  // Step 3: Build deploy UserOp
+  const initCode = concat([
+    FACTORY,
+    encodeFunctionData({
+      abi: factoryAbi,
+      functionName: 'createAccount',
+      args: [testUser.address, 0n],
     }),
+  ])
+  const callData = encodeFunctionData({
+    abi: accountAbi,
+    functionName: 'execute',
+    args: [testUser.address, 0n, '0x'],
   })
 
-  const sendResult = await sendResponse.json()
+  const vgl = 500000n
+  const cgl = 200000n
+  const accountGasLimits = concat([
+    pad(toHex(vgl), { size: 16 }),
+    pad(toHex(cgl), { size: 16 }),
+  ]) as Hex
+  const gasFees = concat([
+    pad(toHex(1000000n), { size: 16 }),
+    pad(toHex(1000000n), { size: 16 }),
+  ]) as Hex
 
-  if (sendResult.error) {
-    console.log(`   Error: ${JSON.stringify(sendResult.error, null, 2)}`)
+  const nonce0 = await pub.readContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'getNonce',
+    args: [wallet, 0n],
+  })
 
-    // Try to get more info
-    console.log('\n   Attempting gas estimation...')
-    const estimateResponse = await fetch(BUNDLER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 3,
-        method: 'eth_estimateUserOperationGas',
-        params: [bundlerUserOp, ENTRY_POINT],
-      }),
-    })
-    const estimateResult = await estimateResponse.json()
-    console.log(`   Estimation: ${JSON.stringify(estimateResult, null, 2)}`)
-
-    throw new Error(`Bundler rejected: ${sendResult.error.message}`)
+  const op1 = {
+    sender: wallet,
+    nonce: nonce0,
+    initCode,
+    callData,
+    accountGasLimits,
+    preVerificationGas: 100000n,
+    gasFees,
+    paymasterAndData: '0x' as Hex,
+    signature: '0x' as Hex,
   }
 
-  console.log(`   UserOp hash from bundler: ${sendResult.result}`)
+  // Sign using EntryPoint's getUserOpHash (EIP-712 format)
+  const hash1 = await pub.readContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'getUserOpHash',
+    args: [op1],
+  })
+  op1.signature = await testUser.sign({ hash: hash1 as Hex })
 
-  // Step 8: Wait for receipt
-  console.log('\n8. Waiting for receipt...')
+  console.log('Submitting deploy UserOp...')
+  h = await deployerW.writeContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'handleOps',
+    args: [[op1], deployer.address],
+    gas: 2000000n,
+  })
+  const r1 = await pub.waitForTransactionReceipt({ hash: h })
+  console.log('Status:', r1.status, '| Gas:', r1.gasUsed.toString())
 
-  let receipt = null
-  for (let i = 0; i < 30; i++) {
-    const receiptResponse = await fetch(BUNDLER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 4,
-        method: 'eth_getUserOperationReceipt',
-        params: [sendResult.result],
-      }),
-    })
-
-    const receiptResult = await receiptResponse.json()
-    if (receiptResult.result) {
-      receipt = receiptResult.result
-      break
-    }
-
-    await new Promise((r) => setTimeout(r, 500))
+  if (r1.status !== 'success') {
+    console.error('Phase 1 FAILED')
+    process.exit(1)
   }
 
-  if (receipt) {
-    console.log('   Receipt received:')
-    console.log(`   - Success: ${receipt.success}`)
-    console.log(`   - Transaction: ${receipt.receipt?.transactionHash}`)
-    console.log(`   - Gas used: ${receipt.actualGasUsed}`)
+  // Verify deployment
+  const code = await pub.getCode({ address: wallet })
+  console.log('Wallet deployed:', code !== undefined && code !== '0x')
+
+  // Step 4: Execute a second UserOp (post-deploy)
+  console.log('\n--- Phase 2: Execute UserOp ---')
+  const nonce1 = await pub.readContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'getNonce',
+    args: [wallet, 0n],
+  })
+
+  const callData2 = encodeFunctionData({
+    abi: accountAbi,
+    functionName: 'execute',
+    args: [deployer.address, 0n, '0x'],
+  })
+
+  const op2 = {
+    sender: wallet,
+    nonce: nonce1,
+    initCode: '0x' as Hex,
+    callData: callData2,
+    accountGasLimits,
+    preVerificationGas: 100000n,
+    gasFees,
+    paymasterAndData: '0x' as Hex,
+    signature: '0x' as Hex,
+  }
+
+  const hash2 = await pub.readContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'getUserOpHash',
+    args: [op2],
+  })
+  op2.signature = await testUser.sign({ hash: hash2 as Hex })
+
+  console.log('Submitting execute UserOp...')
+  h = await deployerW.writeContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'handleOps',
+    args: [[op2], deployer.address],
+    gas: 2000000n,
+  })
+  const r2 = await pub.waitForTransactionReceipt({ hash: h })
+  console.log('Status:', r2.status, '| Gas:', r2.gasUsed.toString())
+
+  // Results
+  console.log('\n====================================================')
+  if (r1.status === 'success' && r2.status === 'success') {
+    console.log('   SUCCESS - ERC-4337 flow via EntryPoint v0.9')
+    console.log('   Phase 1: Wallet deploy via handleOps')
+    console.log('   Phase 2: UserOp execution via handleOps')
   } else {
-    console.log('   Timeout waiting for receipt')
+    console.log('   FAILED')
   }
-
-  // Step 9: Verify
-  console.log('\n9. Verifying...')
-  const finalCode = await publicClient.getCode({ address: accountAddress })
-  const finalDeployed = finalCode !== undefined && finalCode !== '0x'
-  console.log(`   Smart account deployed: ${finalDeployed}`)
-
-  if (finalDeployed && receipt?.success) {
-    console.log('\n====================================================')
-    console.log('   SUCCESS - REAL ERC-4337 FLOW VIA BUNDLER')
-    console.log('====================================================')
-    console.log('\n   User -> Bundler -> EntryPoint -> Account')
-  }
+  console.log('====================================================')
 }
 
 main().catch(console.error)

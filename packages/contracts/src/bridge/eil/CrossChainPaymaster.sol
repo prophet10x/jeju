@@ -158,9 +158,6 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
     /// @notice Track fulfilled voucher hashes to prevent replay attacks
     mapping(bytes32 => bool) public fulfilledVoucherHashes;
 
-    /// @notice Protocol's accumulated swap fees (claimable by treasury)
-    uint256 public protocolSwapFees;
-
     /// @notice Total gas fees collected (in selected tokens)
     uint256 public totalGasFeesCollected;
 
@@ -289,34 +286,14 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
     );
 
     event ExchangeRateUpdated(address indexed token, uint256 newRate, uint256 timestamp);
-
     event PriceOracleUpdated(address indexed oldOracle, address indexed newOracle);
-
     event FeeDistributorUpdated(address indexed oldDistributor, address indexed newDistributor);
-
     event AppTokenPreferenceUpdated(address indexed oldPreference, address indexed newPreference);
-
     event FeeMarginUpdated(uint256 oldMargin, uint256 newMargin);
-
-    // Multi-XLP Competition Events
-    event XLPBidSubmitted(
-        bytes32 indexed requestId, address indexed xlp, uint256 bidFee, uint256 bidBlock, uint256 totalBids
-    );
-
-    event XLPCompetitionWon(
-        bytes32 indexed requestId, address indexed winner, uint256 winningFee, uint256 competitorCount
-    );
-
-    event XLPCompetitionLost(
-        bytes32 indexed requestId,
-        address indexed loser,
-        address indexed winner,
-        uint256 loserBidFee,
-        uint256 winnerBidFee
-    );
-
+    event XLPBidSubmitted(bytes32 indexed requestId, address indexed xlp, uint256 bidFee, uint256 bidBlock, uint256 totalBids);
+    event XLPCompetitionWon(bytes32 indexed requestId, address indexed winner, uint256 winningFee, uint256 competitorCount);
+    event XLPCompetitionLost(bytes32 indexed requestId, address indexed loser, address indexed winner, uint256 loserBidFee, uint256 winnerBidFee);
     event RequestAllowlistSet(bytes32 indexed requestId, address[] allowedXLPs);
-
     event XLPStatsUpdated(address indexed xlp, uint256 totalBids, uint256 wonBids, uint256 totalVolume);
 
     error UnsupportedToken();
@@ -743,24 +720,6 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
         emit XLPWithdraw(msg.sender, address(0), amount);
         _transferETH(msg.sender, amount);
     }
-
-    function claimProtocolFees() external nonReentrant returns (uint256 claimed) {
-        address treasury = address(feeConfig) != address(0) ? feeConfig.getTreasury() : owner();
-        require(msg.sender == treasury || msg.sender == owner(), "Only treasury");
-
-        claimed = protocolSwapFees;
-        if (claimed == 0) revert InsufficientAmount();
-
-        protocolSwapFees = 0;
-        emit ProtocolFeesClaimed(treasury, claimed);
-        _transferETH(treasury, claimed);
-    }
-
-    function getPendingProtocolFees() external view returns (uint256) {
-        return protocolSwapFees;
-    }
-
-    event ProtocolFeesClaimed(address indexed treasury, uint256 amount);
 
     function updateExchangeRate(address token) external {
         require(address(priceOracle) != address(0), "Oracle not set");

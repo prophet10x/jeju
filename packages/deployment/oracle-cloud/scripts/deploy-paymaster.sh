@@ -22,7 +22,7 @@ log() { echo -e "${GREEN}[PAYMASTER]${NC} $1"; }
 
 # Configuration
 L2_RPC="${L2_RPC:-http://localhost:9545}"
-L2_CHAIN_ID="${L2_CHAIN_ID:-2151908}"
+L2_CHAIN_ID="${L2_CHAIN_ID:-420690}"
 DEPLOYER_PRIVATE_KEY="${DEPLOYER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 
 # EntryPoint v0.7.0 address (standard)

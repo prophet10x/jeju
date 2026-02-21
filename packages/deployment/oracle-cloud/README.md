@@ -79,7 +79,7 @@ You should see the block number increasing every 2 seconds.
 ## Chain Configuration
 
 - **L1 Chain ID**: 1337 (Geth --dev default)
-- **L2 Chain ID**: 2151908
+- **L2 Chain ID**: 420690
 - **Block Time**: 2 seconds
 
 ## Test Accounts (Anvil defaults)

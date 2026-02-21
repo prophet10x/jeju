@@ -2,15 +2,38 @@
 //!
 //! Registers with DWS (Decentralized Web Services) to receive inference requests
 //! and routes them to local Ollama instance.
+//!
+//! Also registers on-chain with the ComputeRegistry contract.
 
 use super::{Service, ServiceId, ServiceMetadata, ServiceState};
 use crate::config::ServiceConfig;
 use crate::hardware::ServiceRequirements;
+use alloy::primitives::{Address, FixedBytes, U256};
+use alloy::sol;
+use alloy::sol_types::SolCall;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
+
+// ComputeRegistry contract interface
+sol! {
+    #[sol(rpc)]
+    interface IComputeRegistry {
+        function registerWithAgent(
+            string calldata name,
+            string calldata endpoint,
+            bytes32 attestationHash,
+            uint256 agentId
+        ) external payable;
+
+        function hasValidAgent(address provider) external view returns (bool);
+        function getAgentByProvider(address provider) external view returns (uint256);
+        function providerCount() external view returns (uint256);
+    }
+}
 
 /// Request body for DWS node registration
 #[derive(Debug, Serialize)]
@@ -44,6 +67,13 @@ struct DWSRegisterResponse {
     gpu_tier: u32,
 }
 
+/// Callback for sending on-chain transactions
+pub type SendTxCallback = Arc<
+    dyn Fn(String, String, Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 pub struct ComputeService {
     rpc_url: String,
     dws_url: Arc<RwLock<Option<String>>>,
@@ -56,6 +86,10 @@ pub struct ComputeService {
     earnings_wei: Arc<RwLock<String>>,
     last_error: Arc<RwLock<Option<String>>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    // On-chain registration fields
+    compute_registry_address: Arc<RwLock<Option<String>>>,
+    agent_id: Arc<RwLock<Option<u64>>>,
+    send_tx_callback: Arc<RwLock<Option<SendTxCallback>>>,
 }
 
 impl ComputeService {
@@ -72,6 +106,124 @@ impl ComputeService {
             earnings_wei: Arc::new(RwLock::new("0".to_string())),
             last_error: Arc::new(RwLock::new(None)),
             shutdown_tx: None,
+            compute_registry_address: Arc::new(RwLock::new(None)),
+            agent_id: Arc::new(RwLock::new(None)),
+            send_tx_callback: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Set the ComputeRegistry contract address
+    pub async fn set_compute_registry(&self, address: String) {
+        *self.compute_registry_address.write().await = Some(address);
+    }
+
+    /// Set the agent ID for on-chain registration
+    pub async fn set_agent_id(&self, agent_id: u64) {
+        *self.agent_id.write().await = Some(agent_id);
+    }
+
+    /// Set the transaction sending callback
+    pub async fn set_send_tx_callback(&self, callback: SendTxCallback) {
+        *self.send_tx_callback.write().await = Some(callback);
+    }
+
+    /// Register on-chain with the ComputeRegistry contract
+    async fn register_on_chain(&self) -> Result<(), String> {
+        let registry_address = self.compute_registry_address.read().await.clone();
+        let wallet_address = self.wallet_address.read().await.clone();
+        let agent_id = self.agent_id.read().await;
+        let ollama_endpoint = self.ollama_endpoint.read().await.clone();
+        let send_tx = self.send_tx_callback.read().await.clone();
+
+        let registry_address = match registry_address {
+            Some(addr) => addr,
+            None => {
+                tracing::warn!("ComputeRegistry address not configured, skipping on-chain registration");
+                return Ok(());
+            }
+        };
+
+        let wallet_address = match wallet_address {
+            Some(addr) => addr,
+            None => {
+                tracing::warn!("Wallet address not configured, skipping on-chain registration");
+                return Ok(());
+            }
+        };
+
+        let agent_id = match *agent_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!("Agent ID not configured, skipping on-chain registration");
+                return Ok(());
+            }
+        };
+
+        let send_tx = match send_tx {
+            Some(callback) => callback,
+            None => {
+                tracing::warn!("Transaction callback not configured, skipping on-chain registration");
+                return Ok(());
+            }
+        };
+
+        // Check if already registered on-chain
+        tracing::info!("Checking if already registered on-chain...");
+
+        // First check if we're already registered using a simple RPC call
+        let provider = alloy::providers::ProviderBuilder::new()
+            .on_http(self.rpc_url.parse().map_err(|e| format!("Invalid RPC URL: {}", e))?);
+
+        let registry = Address::from_str(&registry_address)
+            .map_err(|e| format!("Invalid registry address: {}", e))?;
+        let wallet = Address::from_str(&wallet_address)
+            .map_err(|e| format!("Invalid wallet address: {}", e))?;
+
+        let contract = IComputeRegistry::new(registry, &provider);
+
+        match contract.hasValidAgent(wallet).call().await {
+            Ok(result) => {
+                if result._0 {
+                    tracing::info!("Already registered on-chain with valid agent, skipping registration");
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to check on-chain registration status: {}", e);
+                // Continue with registration attempt
+            }
+        }
+
+        tracing::info!(
+            "Registering on-chain with ComputeRegistry at {} with agent ID {}",
+            registry_address,
+            agent_id
+        );
+
+        // Build the node name from wallet address
+        let node_name = format!("node-{}", &wallet_address[2..10]);
+
+        // Encode the registerWithAgent call
+        let call = IComputeRegistry::registerWithAgentCall {
+            name: node_name,
+            endpoint: ollama_endpoint,
+            attestationHash: FixedBytes::ZERO, // No attestation for now
+            agentId: U256::from(agent_id),
+        };
+        let calldata = hex::encode(call.abi_encode());
+
+        // Send transaction via callback
+        match send_tx(registry_address.clone(), "0".to_string(), Some(calldata)).await {
+            Ok(tx_hash) => {
+                tracing::info!("On-chain registration transaction sent: {}", tx_hash);
+                Ok(())
+            }
+            Err(e) => {
+                let msg = format!("Failed to send on-chain registration: {}", e);
+                tracing::error!("{}", msg);
+                *self.last_error.write().await = Some(msg.clone());
+                Err(msg)
+            }
         }
     }
 

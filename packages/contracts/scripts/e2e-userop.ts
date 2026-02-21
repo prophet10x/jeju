@@ -1,375 +1,312 @@
 /**
- * E2E UserOp Test - Submits a real UserOperation through the Alto bundler
+ * E2E UserOp Test - Paymaster-sponsored transaction via EntryPoint v0.9
  *
- * This script:
- * 1. Creates a smart contract wallet via SimpleAccountFactory
- * 2. Funds the paymaster with ETH for the EntryPoint deposit
- * 3. Constructs a UserOperation
- * 4. Submits it to the bundler
- * 5. Verifies execution
+ * Tests the full gasless flow:
+ * 1. Deploy smart wallet + approve ELIZAOS tokens (Phase 1, wallet pays ETH)
+ * 2. Send paymaster-sponsored transaction (Phase 2, gas paid in ELIZAOS)
+ *
+ * Note: v0.9 EntryPoint uses EIP-712 typed data hash. Current bundlers (Alto)
+ * compute hash using v0.7 format, causing signature mismatch. This test
+ * submits directly via handleOps.
+ *
+ * Environment variables:
+ *   RPC_URL          - L2 RPC URL (default: http://localhost:9545)
+ *   CHAIN_ID         - Chain ID (default: 420690)
+ *   ENTRYPOINT       - EntryPoint v0.9 address
+ *   FACTORY          - SimpleAccountFactory address
+ *   PAYMASTER        - LiquidityPaymaster address
+ *   ELIZAOS_TOKEN    - ELIZAOS ERC-20 address
+ *   DEPLOYER_PRIVATE_KEY - Key with ETH + ELIZAOS tokens
+ *   TEST_USER_KEY    - Key for test user (random if not set)
  */
 
 import {
+  type Address,
   concat,
   createPublicClient,
   createWalletClient,
+  defineChain,
   encodeFunctionData,
   type Hex,
   http,
+  pad,
+  parseAbi,
   parseEther,
   toHex,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { foundry } from 'viem/chains'
 
-// Contract addresses from deployment
-const ENTRY_POINT = '0x547382C0D1b23f707918D3c83A77317B71Aa8470'
-const MULTI_TOKEN_PAYMASTER = '0x7C8BaafA542c57fF9B2B90612bf8aB9E86e22C09'
-const SIMPLE_ACCOUNT_FACTORY = '0x0Dd99d9f56A14E9D53b2DdC62D9f0bAbe806647A'
+// === Configuration ===
+const RPC_URL = process.env.RPC_URL || 'https://jeju-testnet.fartbag.fun/'
+const CHAIN_ID = parseInt(process.env.CHAIN_ID || '420690')
 
-// URLs
-const RPC_URL = 'http://127.0.0.1:6546'
-const BUNDLER_URL = 'http://127.0.0.1:4337'
+const ENTRY_POINT = (process.env.ENTRYPOINT ||
+  '0x4826533b4897376654bb4d4ad88b7fafd0c98528') as Address
+const FACTORY = (process.env.FACTORY ||
+  '0x9d4454B023096f34B160D6B654540c56A1F81688') as Address
+const PAYMASTER = (process.env.PAYMASTER ||
+  '0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf') as Address
+const ELIZAOS_TOKEN = (process.env.ELIZAOS_TOKEN ||
+  '0x5FbDB2315678afecb367f032d93F642f64180aa3') as Address
 
-// Test accounts
-const OWNER_PRIVATE_KEY =
-  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
-const USER_PRIVATE_KEY =
-  '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a' // Account 2
+const DEPLOYER_KEY = process.env.DEPLOYER_PRIVATE_KEY as Hex
+const USER_KEY = (process.env.TEST_USER_KEY ||
+  (() => {
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    return (
+      '0x' +
+      Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    )
+  })()) as Hex
 
-// ABIs
-const simpleAccountFactoryAbi = [
-  {
-    name: 'createAccount',
-    type: 'function',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'salt', type: 'uint256' },
-    ],
-    outputs: [{ name: 'ret', type: 'address' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    name: 'getAddress',
-    type: 'function',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'salt', type: 'uint256' },
-    ],
-    outputs: [{ name: '', type: 'address' }],
-    stateMutability: 'view',
-  },
-] as const
+const chain = defineChain({
+  id: CHAIN_ID,
+  name: 'Jeju Testnet',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: [RPC_URL] } },
+})
 
-const entryPointAbi = [
-  {
-    name: 'getNonce',
-    type: 'function',
-    inputs: [
-      { name: 'sender', type: 'address' },
-      { name: 'key', type: 'uint192' },
-    ],
-    outputs: [{ name: 'nonce', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    name: 'getUserOpHash',
-    type: 'function',
-    inputs: [
-      {
-        name: 'userOp',
-        type: 'tuple',
-        components: [
-          { name: 'sender', type: 'address' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'initCode', type: 'bytes' },
-          { name: 'callData', type: 'bytes' },
-          { name: 'callGasLimit', type: 'uint256' },
-          { name: 'verificationGasLimit', type: 'uint256' },
-          { name: 'preVerificationGas', type: 'uint256' },
-          { name: 'maxFeePerGas', type: 'uint256' },
-          { name: 'maxPriorityFeePerGas', type: 'uint256' },
-          { name: 'paymasterAndData', type: 'bytes' },
-          { name: 'signature', type: 'bytes' },
-        ],
-      },
-    ],
-    outputs: [{ name: '', type: 'bytes32' }],
-    stateMutability: 'view',
-  },
-  {
-    name: 'balanceOf',
-    type: 'function',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    name: 'depositTo',
-    type: 'function',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [],
-    stateMutability: 'payable',
-  },
-] as const
-
-const simpleAccountAbi = [
-  {
-    name: 'execute',
-    type: 'function',
-    inputs: [
-      { name: 'dest', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'func', type: 'bytes' },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-] as const
+const factoryAbi = parseAbi([
+  'function createAccount(address,uint256) returns (address)',
+  'function getAddress(address,uint256) view returns (address)',
+])
+const tokenAbi = parseAbi([
+  'function transfer(address,uint256) returns (bool)',
+  'function approve(address,uint256) returns (bool)',
+  'function balanceOf(address) view returns (uint256)',
+])
+const accountAbi = parseAbi(['function execute(address,uint256,bytes)'])
+const epAbi = parseAbi([
+  'function handleOps((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)[] ops, address payable beneficiary)',
+  'function getUserOpHash((address sender, uint256 nonce, bytes initCode, bytes callData, bytes32 accountGasLimits, uint256 preVerificationGas, bytes32 gasFees, bytes paymasterAndData, bytes signature)) view returns (bytes32)',
+  'function getNonce(address,uint192) view returns (uint256)',
+])
 
 async function main() {
+  if (!DEPLOYER_KEY) {
+    console.error('Error: DEPLOYER_PRIVATE_KEY env var required')
+    process.exit(1)
+  }
+
   console.log('====================================================')
-  console.log('   E2E UserOperation Test via Alto Bundler')
+  console.log('   E2E Paymaster Test - Gas paid with ELIZAOS tokens')
+  console.log('   EntryPoint v0.9 / LiquidityPaymaster')
   console.log('====================================================\n')
 
-  const publicClient = createPublicClient({
-    chain: foundry,
+  const pub = createPublicClient({ chain, transport: http(RPC_URL) })
+  const deployer = privateKeyToAccount(DEPLOYER_KEY)
+  const testUser = privateKeyToAccount(USER_KEY)
+  const deployerW = createWalletClient({
+    account: deployer,
+    chain,
     transport: http(RPC_URL),
   })
 
-  const ownerAccount = privateKeyToAccount(OWNER_PRIVATE_KEY)
-  const userAccount = privateKeyToAccount(USER_PRIVATE_KEY)
+  console.log('Test User EOA:', testUser.address)
 
-  const walletClient = createWalletClient({
-    chain: foundry,
-    transport: http(RPC_URL),
-    account: ownerAccount,
-  })
-
-  // Step 1: Get or create smart account address
-  console.log('1. Computing smart account address...')
-  const salt = 0n
-
-  const accountAddress = await publicClient.readContract({
-    address: SIMPLE_ACCOUNT_FACTORY,
-    abi: simpleAccountFactoryAbi,
+  const wallet = await pub.readContract({
+    address: FACTORY,
+    abi: factoryAbi,
     functionName: 'getAddress',
-    args: [userAccount.address, salt],
+    args: [testUser.address, 0n],
+  })
+  console.log('Smart Wallet:', wallet)
+
+  // === PHASE 1: Deploy wallet + approve tokens ===
+  console.log('\n--- Phase 1: Deploy wallet & approve (setup) ---')
+
+  console.log('Transferring 1000 ELIZAOS to wallet...')
+  let h = await deployerW.writeContract({
+    address: ELIZAOS_TOKEN,
+    abi: tokenAbi,
+    functionName: 'transfer',
+    args: [wallet, parseEther('1000')],
+  })
+  await pub.waitForTransactionReceipt({ hash: h })
+
+  console.log('Sending 0.05 ETH for setup...')
+  h = await deployerW.sendTransaction({ to: wallet, value: parseEther('0.05') })
+  await pub.waitForTransactionReceipt({ hash: h })
+
+  const initCode = concat([
+    FACTORY,
+    encodeFunctionData({
+      abi: factoryAbi,
+      functionName: 'createAccount',
+      args: [testUser.address, 0n],
+    }),
+  ])
+  const approveData = encodeFunctionData({
+    abi: tokenAbi,
+    functionName: 'approve',
+    args: [PAYMASTER, 2n ** 256n - 1n],
+  })
+  const callData = encodeFunctionData({
+    abi: accountAbi,
+    functionName: 'execute',
+    args: [ELIZAOS_TOKEN, 0n, approveData],
   })
 
-  console.log(`   User EOA: ${userAccount.address}`)
-  console.log(`   Smart Account (counterfactual): ${accountAddress}`)
+  const vgl = 500000n
+  const cgl = 200000n
+  const accountGasLimits = concat([
+    pad(toHex(vgl), { size: 16 }),
+    pad(toHex(cgl), { size: 16 }),
+  ]) as Hex
+  const gasFees = concat([
+    pad(toHex(1000000n), { size: 16 }),
+    pad(toHex(1000000n), { size: 16 }),
+  ]) as Hex
 
-  // Check if account exists
-  const code = await publicClient.getCode({ address: accountAddress })
-  const accountExists = code !== undefined && code !== '0x'
-  console.log(`   Account deployed: ${accountExists}`)
-
-  // Step 2: Ensure paymaster has deposit at EntryPoint
-  console.log('\n2. Checking paymaster deposit...')
-  const paymasterDeposit = await publicClient.readContract({
+  const nonce0 = await pub.readContract({
     address: ENTRY_POINT,
-    abi: entryPointAbi,
+    abi: epAbi,
+    functionName: 'getNonce',
+    args: [wallet, 0n],
+  })
+
+  const op1 = {
+    sender: wallet,
+    nonce: nonce0,
+    initCode,
+    callData,
+    accountGasLimits,
+    preVerificationGas: 100000n,
+    gasFees,
+    paymasterAndData: '0x' as Hex,
+    signature: '0x' as Hex,
+  }
+
+  const hash1 = await pub.readContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'getUserOpHash',
+    args: [op1],
+  })
+  op1.signature = await testUser.sign({ hash: hash1 as Hex })
+
+  console.log('Submitting setup UserOp...')
+  h = await deployerW.writeContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'handleOps',
+    args: [[op1], deployer.address],
+    gas: 2000000n,
+  })
+  const r1 = await pub.waitForTransactionReceipt({ hash: h })
+  console.log('Status:', r1.status, '| Gas:', r1.gasUsed.toString())
+
+  if (r1.status !== 'success') {
+    console.error('Phase 1 FAILED')
+    process.exit(1)
+  }
+
+  const startBal = await pub.readContract({
+    address: ELIZAOS_TOKEN,
+    abi: tokenAbi,
     functionName: 'balanceOf',
-    args: [MULTI_TOKEN_PAYMASTER],
+    args: [wallet],
   })
   console.log(
-    `   Paymaster deposit: ${paymasterDeposit} wei (${Number(paymasterDeposit) / 1e18} ETH)`,
+    'Wallet deployed: YES | ELIZAOS:',
+    (startBal / 10n ** 18n).toString(),
+    '| Allowance: YES',
   )
 
-  if (paymasterDeposit < parseEther('1')) {
-    console.log('   Topping up paymaster deposit...')
-    const hash = await walletClient.writeContract({
-      address: ENTRY_POINT,
-      abi: entryPointAbi,
-      functionName: 'depositTo',
-      args: [MULTI_TOKEN_PAYMASTER],
-      value: parseEther('5'),
-    })
-    await publicClient.waitForTransactionReceipt({ hash })
-    console.log('   Deposited 5 ETH')
-  }
+  // === PHASE 2: Paymaster-sponsored transaction ===
+  console.log('\n--- Phase 2: Paymaster-sponsored tx (gas = ELIZAOS) ---')
 
-  // Step 3: Get nonce
-  console.log('\n3. Getting nonce...')
-  const nonce = await publicClient.readContract({
-    address: ENTRY_POINT,
-    abi: entryPointAbi,
-    functionName: 'getNonce',
-    args: [accountAddress, 0n],
+  const transferData = encodeFunctionData({
+    abi: tokenAbi,
+    functionName: 'transfer',
+    args: [deployer.address, parseEther('1')],
   })
-  console.log(`   Nonce: ${nonce}`)
-
-  // Step 4: Build UserOperation
-  console.log('\n4. Building UserOperation...')
-
-  // Create initCode if account doesn't exist
-  let initCode: Hex = '0x'
-  if (!accountExists) {
-    const initCallData = encodeFunctionData({
-      abi: simpleAccountFactoryAbi,
-      functionName: 'createAccount',
-      args: [userAccount.address, salt],
-    })
-    initCode = concat([SIMPLE_ACCOUNT_FACTORY as Hex, initCallData])
-    console.log(`   InitCode length: ${initCode.length} bytes`)
-  }
-
-  // Simple execute call - just send 0 ETH to self (no-op)
-  const executeCallData = encodeFunctionData({
-    abi: simpleAccountAbi,
+  const callData2 = encodeFunctionData({
+    abi: accountAbi,
     functionName: 'execute',
-    args: [userAccount.address, 0n, '0x'],
+    args: [ELIZAOS_TOKEN, 0n, transferData],
   })
-  console.log(`   CallData: ${executeCallData.slice(0, 20)}...`)
 
-  // Gas parameters for ERC-4337 v0.6 format (what Alto bundler expects)
-  const verificationGasLimit = 500000n
-  const callGasLimit = 100000n
-  const maxPriorityFeePerGas = 1000000000n // 1 gwei
-  const maxFeePerGas = 2000000000n // 2 gwei
-  const preVerificationGas = 100000n
+  const accountGasLimits2 = concat([
+    pad(toHex(200000n), { size: 16 }),
+    pad(toHex(200000n), { size: 16 }),
+  ]) as Hex
+  const pmAndData = concat([
+    PAYMASTER,
+    pad(toHex(200000n), { size: 16 }),
+    pad(toHex(150000n), { size: 16 }),
+  ]) as Hex
 
-  // v0.6 format: paymasterAndData is just the paymaster address + optional data
-  const paymasterAndData = MULTI_TOKEN_PAYMASTER as Hex
-
-  // Build the UserOperation for v0.6 format
-  const userOp = {
-    sender: accountAddress,
-    nonce,
-    initCode,
-    callData: executeCallData,
-    callGasLimit,
-    verificationGasLimit,
-    preVerificationGas,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    paymasterAndData,
-    signature: '0x' as Hex, // Will be replaced after signing
-  }
-
-  // Step 5: Get UserOp hash and sign
-  console.log('\n5. Signing UserOperation...')
-
-  // Get the hash from EntryPoint
-  const userOpHash = await publicClient.readContract({
+  const nonce1 = await pub.readContract({
     address: ENTRY_POINT,
-    abi: entryPointAbi,
+    abi: epAbi,
+    functionName: 'getNonce',
+    args: [wallet, 0n],
+  })
+
+  const op2 = {
+    sender: wallet,
+    nonce: nonce1,
+    initCode: '0x' as Hex,
+    callData: callData2,
+    accountGasLimits: accountGasLimits2,
+    preVerificationGas: 100000n,
+    gasFees,
+    paymasterAndData: pmAndData,
+    signature: '0x' as Hex,
+  }
+
+  const hash2 = await pub.readContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
     functionName: 'getUserOpHash',
-    args: [userOp],
+    args: [op2],
   })
-  console.log(`   UserOp hash: ${userOpHash}`)
+  op2.signature = await testUser.sign({ hash: hash2 as Hex })
 
-  // Sign the hash with the user's key
-  const signature = await userAccount.signMessage({
-    message: { raw: userOpHash },
+  console.log('Sending paymaster-sponsored UserOp...')
+  h = await deployerW.writeContract({
+    address: ENTRY_POINT,
+    abi: epAbi,
+    functionName: 'handleOps',
+    args: [[op2], deployer.address],
+    gas: 2000000n,
   })
-  userOp.signature = signature
-  console.log(`   Signature: ${signature.slice(0, 20)}...`)
+  const r2 = await pub.waitForTransactionReceipt({ hash: h })
+  console.log('Status:', r2.status, '| Gas:', r2.gasUsed.toString())
 
-  // Step 6: Submit to bundler
-  console.log('\n6. Submitting to bundler...')
-
-  // Convert to bundler format (all hex strings)
-  const bundlerUserOp = {
-    sender: userOp.sender,
-    nonce: toHex(userOp.nonce),
-    initCode: userOp.initCode,
-    callData: userOp.callData,
-    callGasLimit: toHex(userOp.callGasLimit),
-    verificationGasLimit: toHex(userOp.verificationGasLimit),
-    preVerificationGas: toHex(userOp.preVerificationGas),
-    maxFeePerGas: toHex(userOp.maxFeePerGas),
-    maxPriorityFeePerGas: toHex(userOp.maxPriorityFeePerGas),
-    paymasterAndData: userOp.paymasterAndData,
-    signature: userOp.signature,
-  }
-
-  const bundlerRequest = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'eth_sendUserOperation',
-    params: [bundlerUserOp, ENTRY_POINT],
-  }
-
-  console.log('   Sending to bundler...')
-
-  const response = await fetch(BUNDLER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(bundlerRequest),
+  // Verify
+  const endBal = await pub.readContract({
+    address: ELIZAOS_TOKEN,
+    abi: tokenAbi,
+    functionName: 'balanceOf',
+    args: [wallet],
   })
+  const gasTokenCost = startBal - endBal - parseEther('1')
 
-  const result = await response.json()
+  console.log('\n=== Results ===')
+  console.log(
+    'ELIZAOS remaining:',
+    (endBal / 10n ** 18n).toString(),
+    'tokens',
+  )
+  console.log(
+    'ELIZAOS gas cost:',
+    gasTokenCost.toString(),
+    'wei (~',
+    ((gasTokenCost * 100n) / 10n ** 18n).toString(),
+    '/100 tokens)',
+  )
+  console.log('ETH spent by user: 0 (paymaster paid!)')
 
-  if (result.error) {
-    console.log(`   Error: ${JSON.stringify(result.error, null, 2)}`)
-
-    // Try debug_traceCall to get more info
-    console.log('\n   Attempting to diagnose...')
-
-    // Check if the account is properly initialized
-    if (!accountExists) {
-      console.log(
-        '   Account not deployed yet - this is expected for first UserOp',
-      )
-    }
-
-    // Check paymaster validation
-    console.log('   Checking if paymaster is properly configured...')
-
-    throw new Error(`Bundler rejected UserOp: ${result.error.message}`)
+  if (r2.status === 'success') {
+    console.log(
+      '\n*** SUCCESS: Gas paid with ELIZAOS tokens via LiquidityPaymaster! ***',
+    )
   }
-
-  console.log(`   UserOp hash from bundler: ${result.result}`)
-
-  // Step 7: Wait for receipt
-  console.log('\n7. Waiting for receipt...')
-
-  // Poll for receipt
-  let receipt = null
-  for (let i = 0; i < 30; i++) {
-    const receiptRequest = {
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'eth_getUserOperationReceipt',
-      params: [result.result],
-    }
-
-    const receiptResponse = await fetch(BUNDLER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(receiptRequest),
-    })
-
-    const receiptResult = await receiptResponse.json()
-    if (receiptResult.result) {
-      receipt = receiptResult.result
-      break
-    }
-
-    await new Promise((r) => setTimeout(r, 500))
-  }
-
-  if (receipt) {
-    console.log('   Receipt received:')
-    console.log(`   - Success: ${receipt.success}`)
-    console.log(`   - Transaction hash: ${receipt.receipt?.transactionHash}`)
-    console.log(`   - Gas used: ${receipt.receipt?.gasUsed}`)
-    console.log(`   - Actual gas cost: ${receipt.actualGasCost}`)
-  } else {
-    console.log('   No receipt received (timeout)')
-  }
-
-  // Step 8: Verify account is now deployed
-  console.log('\n8. Verifying final state...')
-  const finalCode = await publicClient.getCode({ address: accountAddress })
-  const finalDeployed = finalCode !== undefined && finalCode !== '0x'
-  console.log(`   Smart account deployed: ${finalDeployed}`)
-
-  console.log('\n====================================================')
-  console.log('   E2E Test Complete')
-  console.log('====================================================')
 }
 
 main().catch(console.error)

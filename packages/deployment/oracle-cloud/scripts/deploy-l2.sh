@@ -33,7 +33,7 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # Configuration
 # NOTE: Geth --dev mode uses chain ID 1337 by default
 L1_CHAIN_ID=1337
-L2_CHAIN_ID=2151908
+L2_CHAIN_ID=420690
 L1_RPC_PORT=8545
 L2_RPC_PORT=9545
 L2_ENGINE_PORT=8551

@@ -67,7 +67,7 @@ services:
         if [ ! -d /data/geth ]; then
           geth init --datadir=/data --state.scheme=hash /config/genesis.json
         fi
-        exec geth --datadir=/data --http --http.addr=0.0.0.0 --http.port=9545 --http.api=eth,net,web3,debug,txpool,engine --http.corsdomain=* --http.vhosts=* --ws --ws.addr=0.0.0.0 --ws.port=9546 --ws.api=eth,net,web3,debug --ws.origins=* --authrpc.addr=0.0.0.0 --authrpc.port=9551 --authrpc.vhosts=* --authrpc.jwtsecret=/jwt/jwt.hex --syncmode=full --gcmode=archive --nodiscover --maxpeers=0 --networkid=2151908 --rollup.sequencerhttp=http://localhost:9545 --rollup.disabletxpoolgossip
+        exec geth --datadir=/data --http --http.addr=0.0.0.0 --http.port=9545 --http.api=eth,net,web3,debug,txpool,engine --http.corsdomain=* --http.vhosts=* --ws --ws.addr=0.0.0.0 --ws.port=9546 --ws.api=eth,net,web3,debug --ws.origins=* --authrpc.addr=0.0.0.0 --authrpc.port=9551 --authrpc.vhosts=* --authrpc.jwtsecret=/jwt/jwt.hex --syncmode=full --gcmode=archive --nodiscover --maxpeers=0 --networkid=420690 --rollup.sequencerhttp=http://localhost:9545 --rollup.disabletxpoolgossip
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9545"]
       interval: 5s
@@ -227,7 +227,7 @@ services:
       - DB_USER=postgres
       - DB_PASS=postgres
       - RPC_ETH_HTTP=http://op-geth:9545
-      - CHAIN_ID=2151908
+      - CHAIN_ID=420690
     restart: unless-stopped
 
   crucible:

@@ -127,9 +127,9 @@ const OAuth3ProvisionSchema = z.object({
   namespace: z.string().default('default'),
   replicas: z.number().int().min(3).max(9).default(3),
   chainId: z.string().default('420690'),
-  rpcUrl: z.string().url().default('https://testnet.jejunetwork.org'),
-  dwsUrl: z.string().url().default('https://dws.testnet.jejunetwork.org'),
-  jnsGateway: z.string().url().default('https://jns.testnet.jejunetwork.org'),
+  rpcUrl: z.string().url().default('https://jeju-testnet.fartbag.fun/'),
+  dwsUrl: z.string().url().default('http://localhost:4030'),
+  jnsGateway: z.string().url().default('https://jeju-testnet.fartbag.fun/'),
   teeMode: z.enum(['simulated', 'dstack', 'phala']).default('simulated'),
   mpcThreshold: z.number().int().min(2).max(5).default(2),
   providers: z
