@@ -46,7 +46,7 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | FeeConfig | `0x1613beb3b2c4f22ee086b2b38c1476a3ce7f78e8` |
 | DAORegistry | `0x851356ae760d987e095750cceb3bc6014560891c` |
 | DAOFunding | `0xf5059a5d33d5853360d16c683c16e67980206f36` |
-| NodeStakingManager | `0x5FeaeBfB4439F3516c74939A9D04e95AFE82C4ae` |
+| NodeStakingManager | `0x638A246F0Ec8883eF68280293FFE8Cfbabe61B44` |
 | PriceOracle | `0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d` |
 
 ### JNS (Jeju Name Service)
@@ -133,11 +133,15 @@ All contracts from the following deploy scripts have been deployed:
 
 | Contract | Address |
 |----------|---------|
-| NodeStakingManager | `0x5FeaeBfB4439F3516c74939A9D04e95AFE82C4ae` |
+| NodeStakingManager | `0x638A246F0Ec8883eF68280293FFE8Cfbabe61B44` |
 | PerformanceOracle | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (deployer) |
 
+**Dependencies (set up on deploy):**
+- TokenRegistry (`0x4631...`): JEJU registered via `registerToken`
+- PaymasterFactory (`0xB820...`): JEJU paymaster deployed via `deployPaymaster`
+- PriceOracle (`0xfbC2...`): JEJU price set to $1 via `setPrice`
+
 **Configuration:**
-- Constructor args: TokenRegistry, PaymasterFactory, PriceOracle, PerformanceOracle, Owner (all deployer-controlled)
 - Min stake: $1000 USD equivalent
 - Max nodes per operator: 5
 - Min staking period: 7 days
