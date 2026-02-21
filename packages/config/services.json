@@ -213,8 +213,8 @@
       "mcp": "https://factory.testnet.jejunetwork.org/api/mcp"
     },
     "oauth3": {
-      "api": "https://auth.testnet.jejunetwork.org",
-      "tee": "https://auth.testnet.jejunetwork.org"
+      "api": "https://jeju-testnet.fartbag.fun/oauth3",
+      "tee": "https://jeju-testnet.fartbag.fun/oauth3"
     },
     "tee": {
       "mode": "phala",
