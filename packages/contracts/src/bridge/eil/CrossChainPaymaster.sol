@@ -12,24 +12,6 @@ import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.s
 import {MessageHashUtils} from "openzeppelin-contracts/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ICrossDomainMessenger} from "./ICrossDomainMessenger.sol";
 
-/**
- * @title IEIP3009
- * @notice Interface for EIP-3009 transferWithAuthorization
- */
-interface IEIP3009 {
-    function transferWithAuthorization(
-        address from,
-        address to,
-        uint256 value,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce,
-        bytes calldata signature
-    ) external;
-
-    function authorizationState(address authorizer, bytes32 nonce) external view returns (bool);
-}
-
 interface IPriceOracle {
     function getPrice(address token) external view returns (uint256 priceUSD, uint256 decimals);
     function isPriceFresh(address token) external view returns (bool);
@@ -48,41 +30,10 @@ interface IFeeConfigCrossChain {
     function getTreasury() external view returns (address);
 }
 
-interface IAppTokenPreference {
-    struct TokenBalance {
-        address token;
-        uint256 balance;
-    }
-
-    function getBestPaymentToken(address appAddress, address user, TokenBalance[] calldata userBalances)
-        external
-        view
-        returns (address bestToken, string memory reason);
-
-    function hasPreferredToken(address appAddress, address user, address token, uint256 balance)
-        external
-        view
-        returns (bool hasPreferred);
-
-    function getAppPreference(address appAddress)
-        external
-        view
-        returns (
-            address appAddr,
-            address preferredToken,
-            string memory tokenSymbol,
-            uint8 tokenDecimals,
-            bool allowFallback,
-            uint256 minBalance,
-            bool isActive,
-            address registrant,
-            uint256 registrationTime
-        );
-}
-
 /**
  * @title CrossChainPaymaster
- * @notice EIL-compliant paymaster enabling trustless cross-chain transfers and multi-token gas sponsorship
+ * @notice EIL-compliant paymaster enabling trustless cross-chain transfers and multi-token gas sponsorship.
+ *         AMM/swap functionality has been extracted to CrossChainSwapRouter for code size optimization.
  */
 contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -105,9 +56,6 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
 
     /// @notice Fee distributor for LP rewards
     IFeeDistributor public feeDistributor;
-
-    /// @notice App token preference registry for app-specific payment tokens
-    IAppTokenPreference public appTokenPreference;
 
     /// @notice Fee margin for gas sponsorship (basis points)
     /// @dev Can be overridden by FeeConfig if set
@@ -320,7 +268,6 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
     error InsufficientTokenBalance();
     error InsufficientTokenAllowance();
     error InvalidPaymasterData();
-    error InsufficientPoolLiquidity();
     error XLPNotInAllowlist();
     error XLPAlreadyBid();
 
@@ -363,12 +310,6 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
         address oldDistributor = address(feeDistributor);
         feeDistributor = IFeeDistributor(_feeDistributor);
         emit FeeDistributorUpdated(oldDistributor, _feeDistributor);
-    }
-
-    function setAppTokenPreference(address _appTokenPreference) external onlyOwner {
-        address oldPreference = address(appTokenPreference);
-        appTokenPreference = IAppTokenPreference(_appTokenPreference);
-        emit AppTokenPreferenceUpdated(oldPreference, _appTokenPreference);
     }
 
     function setFeeMargin(uint256 _feeMargin) external onlyOwner {
@@ -523,69 +464,6 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
         if (token != address(0)) {
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         }
-
-        if (excessRefund > 0) {
-            (bool success,) = msg.sender.call{value: excessRefund}("");
-            if (!success) revert TransferFailed();
-        }
-    }
-
-    function createVoucherRequestGasless(
-        address token,
-        uint256 amount,
-        address destinationToken,
-        uint256 destinationChainId,
-        address recipient,
-        uint256 gasOnDestination,
-        uint256 maxFee,
-        uint256 feeIncrement,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 authNonce,
-        bytes calldata authSignature
-    ) external payable nonReentrant returns (bytes32 requestId) {
-        if (!supportedTokens[token]) revert UnsupportedToken();
-        if (amount == 0) revert InsufficientAmount();
-        if (maxFee < MIN_FEE) revert InsufficientFee();
-        if (destinationChainId == chainId) revert InvalidDestinationChain();
-        if (recipient == address(0)) revert InvalidRecipient();
-        if (msg.value < maxFee) revert InsufficientFee();
-
-        uint256 excessRefund = msg.value - maxFee;
-
-        requestId = keccak256(
-            abi.encodePacked(
-                msg.sender, token, amount, destinationChainId, block.number, block.timestamp, ++_requestNonce
-            )
-        );
-
-        voucherRequests[requestId] = VoucherRequest({
-            requester: msg.sender,
-            token: token,
-            amount: amount,
-            destinationToken: destinationToken,
-            destinationChainId: destinationChainId,
-            recipient: recipient,
-            gasOnDestination: gasOnDestination,
-            maxFee: maxFee,
-            feeIncrement: feeIncrement,
-            deadline: block.number + REQUEST_TIMEOUT,
-            createdBlock: block.number,
-            claimed: false,
-            expired: false,
-            refunded: false,
-            bidCount: 0,
-            winningXLP: address(0),
-            winningFee: 0
-        });
-
-        emit VoucherRequested(
-            requestId, msg.sender, token, amount, destinationChainId, recipient, maxFee, block.number + REQUEST_TIMEOUT
-        );
-
-        IEIP3009(token).transferWithAuthorization(
-            msg.sender, address(this), amount, validAfter, validBefore, authNonce, authSignature
-        );
 
         if (excessRefund > 0) {
             (bool success,) = msg.sender.call{value: excessRefund}("");
@@ -1138,493 +1016,57 @@ contract CrossChainPaymaster is BasePaymaster, ReentrancyGuard {
         return _calculateTokenCost(gasCostETH, token);
     }
 
-    /**
-     * @notice Get the best token option for gas payment based on user balances
-     * @param user User address
-     * @param gasCostETH Gas cost in ETH
-     * @param tokens Array of tokens to check
-     * @return bestToken Best token to use
-     * @return tokenCost Cost in that token
-     */
-    function getBestGasToken(address user, uint256 gasCostETH, address[] calldata tokens)
-        external
-        view
-        returns (address bestToken, uint256 tokenCost)
-    {
-        uint256 lowestUsdCost = type(uint256).max;
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            address token = tokens[i];
-            if (!supportedTokens[token]) continue;
-
-            uint256 cost = _calculateTokenCost(gasCostETH, token);
-            uint256 userBalance = IERC20(token).balanceOf(user);
-
-            if (userBalance < cost) continue;
-
-            // Get USD value of cost
-            uint256 usdCost = cost;
-            if (address(priceOracle) != address(0)) {
-                // slither-disable-next-line unused-return
-                (uint256 price,) = priceOracle.getPrice(token);
-                usdCost = (cost * price) / 1e18;
-            }
-
-            if (usdCost < lowestUsdCost) {
-                lowestUsdCost = usdCost;
-                bestToken = token;
-                tokenCost = cost;
-            }
-        }
-    }
-
-    /**
-     * @notice Get the best payment token for a user considering app preferences
-     * @dev Priority order:
-     *      1. App's preferred token (if user has it with sufficient balance)
-     *      2. App's fallback tokens (in priority order)
-     *      3. Cheapest token from user's wallet with XLP liquidity
-     * @param appAddress The app requesting payment
-     * @param user User's address
-     * @param gasCostETH Gas cost in ETH
-     * @param tokens Array of tokens user has
-     * @param balances Array of balances corresponding to tokens
-     * @return bestToken Best token to use
-     * @return tokenCost Cost in that token
-     * @return reason Why this token was selected
-     */
-    function getBestPaymentTokenForApp(
-        address appAddress,
-        address user,
-        uint256 gasCostETH,
-        address[] calldata tokens,
-        uint256[] calldata balances
-    ) external view returns (address bestToken, uint256 tokenCost, string memory reason) {
-        require(tokens.length == balances.length, "Arrays must match");
-
-        // Check app token preference first
-        if (address(appTokenPreference) != address(0) && appAddress != address(0)) {
-            // Build token balance array for preference check
-            IAppTokenPreference.TokenBalance[] memory tokenBalances =
-                new IAppTokenPreference.TokenBalance[](tokens.length);
-            for (uint256 i = 0; i < tokens.length; i++) {
-                tokenBalances[i] = IAppTokenPreference.TokenBalance({token: tokens[i], balance: balances[i]});
-            }
-
-            (address preferredToken, string memory preferenceReason) =
-                appTokenPreference.getBestPaymentToken(appAddress, user, tokenBalances);
-
-            // If we got a preferred token and it's supported, use it
-            if (preferredToken != address(0) && supportedTokens[preferredToken]) {
-                uint256 cost = _calculateTokenCost(gasCostETH, preferredToken);
-
-                // Find user's balance for this token
-                for (uint256 i = 0; i < tokens.length; i++) {
-                    if (tokens[i] == preferredToken && balances[i] >= cost) {
-                        return (preferredToken, cost, preferenceReason);
-                    }
-                }
-            }
-        }
-
-        // Fall back to cheapest available token
-        uint256 lowestUsdCost = type(uint256).max;
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            address token = tokens[i];
-            if (!supportedTokens[token]) continue;
-
-            uint256 cost = _calculateTokenCost(gasCostETH, token);
-            if (balances[i] < cost) continue;
-
-            // Get USD value of cost
-            uint256 usdCost = cost;
-            if (address(priceOracle) != address(0)) {
-                // slither-disable-next-line unused-return
-                (uint256 price,) = priceOracle.getPrice(token);
-                usdCost = (cost * price) / 1e18;
-            }
-
-            if (usdCost < lowestUsdCost) {
-                lowestUsdCost = usdCost;
-                bestToken = token;
-                tokenCost = cost;
-                reason = "Cheapest available token";
-            }
-        }
-
-        if (bestToken == address(0)) {
-            reason = "No suitable token found";
-        }
-    }
-
-    /**
-     * @notice Check if user has app's preferred token
-     * @param appAddress The app's address
-     * @param user User's address
-     * @param token Token to check
-     * @param balance User's balance
-     * @return hasPreferred Whether user has the preferred token
-     * @return preferredToken The app's preferred token (if set)
-     */
-    function checkAppPreference(address appAddress, address user, address token, uint256 balance)
-        external
-        view
-        returns (bool hasPreferred, address preferredToken)
-    {
-        if (address(appTokenPreference) == address(0)) {
-            return (false, address(0));
-        }
-
-        hasPreferred = appTokenPreference.hasPreferredToken(appAddress, user, token, balance);
-
-        // Get the preferred token - we only need the preferredToken field
-        // slither-disable-next-line unused-return
-        (, address prefToken,,,,,,,) = appTokenPreference.getAppPreference(appAddress);
-        preferredToken = prefToken;
-    }
-
-    /**
-     * @notice Get XLP liquidity for a token
-     * @param xlp XLP address
-     * @param token Token address
-     * @return amount Liquidity amount
-     */
     function getXLPLiquidity(address xlp, address token) external view returns (uint256) {
         return xlpDeposits[xlp][token];
     }
 
-    /**
-     * @notice Get XLP ETH balance
-     * @param xlp XLP address
-     * @return amount ETH balance
-     */
     function getXLPETH(address xlp) external view returns (uint256) {
         return xlpETHDeposits[xlp];
     }
 
-    /**
-     * @notice Check if a request can be fulfilled
-     * @param requestId Request ID
-     * @return canFulfill Whether request is open for fulfillment
-     */
     function canFulfillRequest(bytes32 requestId) external view returns (bool) {
         VoucherRequest storage request = voucherRequests[requestId];
-        return
-            request.requester != address(0) && !request.claimed && !request.expired && block.number <= request.deadline;
+        return request.requester != address(0) && !request.claimed && !request.expired && block.number <= request.deadline;
     }
 
-    /**
-     * @notice Get request details
-     * @param requestId Request ID
-     * @return request Full request details
-     */
     function getRequest(bytes32 requestId) external view returns (VoucherRequest memory) {
         return voucherRequests[requestId];
     }
 
-    /**
-     * @notice Get voucher details
-     * @param voucherId Voucher ID
-     * @return voucher Full voucher details
-     */
     function getVoucher(bytes32 voucherId) external view returns (Voucher memory) {
         return vouchers[voucherId];
     }
 
-    /**
-     * @notice Get total liquidity for a token across all XLPs
-     * @param token Token address (address(0) for ETH)
-     * @return liquidity Total liquidity
-     */
     function getTotalLiquidity(address token) external view returns (uint256) {
-        if (token == address(0)) {
-            return totalETHLiquidity;
-        }
+        if (token == address(0)) return totalETHLiquidity;
         return totalTokenLiquidity[token];
     }
 
-    /**
-     * @notice Get all supported tokens
-     * @param tokens Array of token addresses to check
-     * @return supported Array of booleans indicating support
-     * @return rates Array of exchange rates (tokens per ETH)
-     */
-    function getTokensInfo(address[] calldata tokens)
-        external
-        view
-        returns (bool[] memory supported, uint256[] memory rates)
-    {
-        supported = new bool[](tokens.length);
-        rates = new uint256[](tokens.length);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            supported[i] = supportedTokens[tokens[i]];
-            rates[i] = tokenExchangeRates[tokens[i]];
-        }
-    }
-
-    /**
-     * @notice Check if paymaster can sponsor a transaction
-     * @param gasCost Estimated gas cost in ETH
-     * @param paymentToken Token user will pay with
-     * @param userAddress User's address
-     * @return canSponsorTx Whether sponsorship is possible
-     * @return tokenCost Cost in payment token
-     * @return userBal User's balance of payment token
-     */
     function canSponsor(uint256 gasCost, address paymentToken, address userAddress)
         external
         view
         returns (bool canSponsorTx, uint256 tokenCost, uint256 userBal)
     {
-        if (!supportedTokens[paymentToken]) {
-            return (false, 0, 0);
-        }
-
+        if (!supportedTokens[paymentToken]) return (false, 0, 0);
         tokenCost = _calculateTokenCost(gasCost, paymentToken);
         userBal = IERC20(paymentToken).balanceOf(userAddress);
         uint256 userAllowance = IERC20(paymentToken).allowance(userAddress, address(this));
         uint256 entryPointBalance = entryPoint().balanceOf(address(this));
-
         canSponsorTx = userBal >= tokenCost && userAllowance >= tokenCost && entryPointBalance >= gasCost;
     }
 
-    /**
-     * @notice Get paymaster status for dashboard display
-     * @return ethLiquidity Total ETH in pool
-     * @return entryPointBalance ETH deposited in EntryPoint
-     * @return supportedTokenCount Number of supported tokens
-     * @return totalGasFees Total gas fees collected
-     * @return oracleSet Whether price oracle is configured
-     */
-    function getPaymasterStatus()
-        external
-        view
-        returns (
-            uint256 ethLiquidity,
-            uint256 entryPointBalance,
-            uint256 supportedTokenCount,
-            uint256 totalGasFees,
-            bool oracleSet
-        )
-    {
-        ethLiquidity = totalETHLiquidity;
-        entryPointBalance = entryPoint().balanceOf(address(this));
-        supportedTokenCount = 0; // Requires off-chain enumeration
-        totalGasFees = totalGasFeesCollected;
-        oracleSet = address(priceOracle) != address(0);
-    }
-
-    /**
-     * @notice Deposit ETH to EntryPoint for gas sponsorship
-     * @dev Called by owner or XLPs to fund gas sponsorship
-     */
     function fundEntryPoint() external payable onlyOwner {
         entryPoint().depositTo{value: msg.value}(address(this));
     }
 
-    /**
-     * @notice Auto-fund EntryPoint from XLP ETH pool
-     * @param amount Amount to transfer from pool to EntryPoint
-     */
     function refillEntryPoint(uint256 amount) external onlyOwner {
         require(totalETHLiquidity >= amount, "Insufficient pool liquidity");
         entryPoint().depositTo{value: amount}(address(this));
     }
 
-    /// @notice Swap fee in basis points (30 = 0.3%)
-    uint256 public swapFeeBps = 30;
-
-    /// @notice Total swap volume
-    uint256 public totalSwapVolume;
-
-    /// @notice Total swap fees collected
-    uint256 public totalSwapFees;
-
-    event Swap(
-        address indexed user,
-        address indexed tokenIn,
-        address indexed tokenOut,
-        uint256 amountIn,
-        uint256 amountOut,
-        uint256 fee
-    );
-
-    event SwapFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    /**
-     * @notice Swap tokens using XLP liquidity (constant-product AMM)
-     * @param tokenIn Input token address (address(0) for ETH)
-     * @param tokenOut Output token address (address(0) for ETH)
-     * @param amountIn Amount of input token
-     * @param minAmountOut Minimum output (slippage protection)
-     * @return amountOut Actual output amount
-     * @dev Uses xy=k formula with XLP liquidity as reserves
-     */
-    function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut)
-        external
-        payable
-        nonReentrant
-        returns (uint256 amountOut)
-    {
-        if (amountIn == 0) revert InsufficientAmount();
-        if (tokenIn == tokenOut) revert UnsupportedToken();
-
-        // CHECKS: Get reserves and validate
-        uint256 reserveIn = _getReserve(tokenIn);
-        uint256 reserveOut = _getReserve(tokenOut);
-
-        if (reserveIn == 0 || reserveOut == 0) revert InsufficientPoolLiquidity();
-
-        // Calculate output using xy=k with fee
-        amountOut = _getAmountOut(amountIn, reserveIn, reserveOut);
-
-        if (amountOut < minAmountOut) revert InsufficientAmount();
-        if (amountOut > reserveOut) revert InsufficientPoolLiquidity();
-
-        // Validate ETH payment if needed
-        uint256 refundAmount;
-        if (tokenIn == address(0)) {
-            if (msg.value < amountIn) revert InsufficientAmount();
-            refundAmount = msg.value - amountIn;
-        }
-
-        // Calculate fee
-        uint256 fee = (amountIn * swapFeeBps) / BASIS_POINTS;
-
-        // EFFECTS: Update all state BEFORE external calls
-        if (tokenIn == address(0)) {
-            totalETHLiquidity += amountIn;
-        } else {
-            totalTokenLiquidity[tokenIn] += amountIn;
-        }
-
-        if (tokenOut == address(0)) {
-            totalETHLiquidity -= amountOut;
-        } else {
-            totalTokenLiquidity[tokenOut] -= amountOut;
-        }
-
-        totalSwapVolume += amountIn;
-        totalSwapFees += fee;
-
-        // Split swap fee: protocol takes a cut, rest compounds into reserves for LPs
-        // Default: 10% to protocol, 90% stays in pool for LPs
-        uint256 protocolCut = (fee * 1000) / BASIS_POINTS; // 10% default
-        if (address(feeConfig) != address(0)) {
-            (uint16 swapProtocolFeeBps,,) = feeConfig.getDeFiFees();
-            protocolCut = (fee * swapProtocolFeeBps) / BASIS_POINTS;
-        }
-        protocolSwapFees += protocolCut;
-        // Remaining fee stays in reserves - LPs benefit proportionally on withdrawal
-
-        // INTERACTIONS: External calls LAST
-        // Handle token input transfer
-        if (tokenIn != address(0)) {
-            IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
-        }
-
-        // Handle output transfer
-        if (tokenOut == address(0)) {
-            _transferETH(msg.sender, amountOut);
-        } else {
-            IERC20(tokenOut).safeTransfer(msg.sender, amountOut);
-        }
-
-        // Refund excess ETH
-        if (refundAmount > 0) _transferETH(msg.sender, refundAmount);
-
-        emit Swap(msg.sender, tokenIn, tokenOut, amountIn, amountOut, fee);
-    }
-
-    /**
-     * @notice Get expected output for a swap
-     * @param tokenIn Input token
-     * @param tokenOut Output token
-     * @param amountIn Input amount
-     * @return amountOut Expected output
-     * @return priceImpact Price impact in basis points
-     */
-    function getSwapQuote(address tokenIn, address tokenOut, uint256 amountIn)
-        external
-        view
-        returns (uint256 amountOut, uint256 priceImpact)
-    {
-        uint256 reserveIn = _getReserve(tokenIn);
-        uint256 reserveOut = _getReserve(tokenOut);
-
-        if (reserveIn == 0 || reserveOut == 0) return (0, 0);
-
-        amountOut = _getAmountOut(amountIn, reserveIn, reserveOut);
-
-        // Calculate price impact: (amountIn / reserveIn) * 10000
-        priceImpact = (amountIn * BASIS_POINTS) / reserveIn;
-    }
-
-    /**
-     * @notice Get reserves for a token pair
-     * @param token0 First token
-     * @param token1 Second token
-     * @return reserve0 Reserve of token0
-     * @return reserve1 Reserve of token1
-     */
-    function getReserves(address token0, address token1) external view returns (uint256 reserve0, uint256 reserve1) {
-        reserve0 = _getReserve(token0);
-        reserve1 = _getReserve(token1);
-    }
-
-    /**
-     * @notice Calculate output amount using constant-product formula
-     * @dev Implements xy=k with fee: amountOut = (amountIn * (1-fee) * reserveOut) / (reserveIn + amountIn * (1-fee))
-     */
-    function _getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) internal view returns (uint256) {
-        uint256 amountInWithFee = amountIn * (BASIS_POINTS - swapFeeBps);
-        uint256 numerator = amountInWithFee * reserveOut;
-        uint256 denominator = (reserveIn * BASIS_POINTS) + amountInWithFee;
-        return numerator / denominator;
-    }
-
-    /**
-     * @notice Get reserve for a token
-     */
-    function _getReserve(address token) internal view returns (uint256) {
-        if (token == address(0)) {
-            return totalETHLiquidity;
-        }
-        return totalTokenLiquidity[token];
-    }
-
-    /**
-     * @notice Set swap fee (owner only)
-     * @param _feeBps Fee in basis points (max 100 = 1%)
-     */
-    function setSwapFee(uint256 _feeBps) external onlyOwner {
-        require(_feeBps <= 100, "Fee too high");
-        uint256 oldFee = swapFeeBps;
-        swapFeeBps = _feeBps;
-        emit SwapFeeUpdated(oldFee, _feeBps);
-    }
-
-    /**
-     * @notice Get AMM stats
-     */
-    function getAMMStats()
-        external
-        view
-        returns (uint256 ethReserve, uint256 swapVolume, uint256 swapFees, uint256 currentFeeBps)
-    {
-        ethReserve = totalETHLiquidity;
-        swapVolume = totalSwapVolume;
-        swapFees = totalSwapFees;
-        currentFeeBps = swapFeeBps;
-    }
-
-    receive() external payable {
-        // Accept ETH for deposits and EntryPoint refunds
-    }
+    receive() external payable {}
 
     function version() external pure returns (string memory) {
-        return "2.1.0";
+        return "3.0.0";
     }
 }
