@@ -14,13 +14,32 @@ import type {
   RegisteredClient,
 } from '../../lib/types'
 
+const USE_MEMORY_STATE = process.env.USE_MEMORY_STATE === 'true'
 const SQLIT_DATABASE_ID = process.env.SQLIT_DATABASE_ID ?? 'oauth3'
+
+if (USE_MEMORY_STATE) {
+  console.log('[OAuth3] Using in-memory state storage (USE_MEMORY_STATE=true)')
+}
 
 let sqlitClient: SQLitClient | null = null
 let cacheClient: CacheClient | null = null
 let initialized = false
 
+// In-memory stores
+const memSessions = new Map<string, AuthSession>()
+const memClients = new Map<string, RegisteredClient>()
+const memAuthCodes = new Map<string, { clientId: string; redirectUri: string; userId: string; scope: string[]; expiresAt: number; codeChallenge?: string; codeChallengeMethod?: string }>()
+const memRefreshTokens = new Map<string, { sessionId: string; clientId: string; userId: string; createdAt: number; expiresAt: number; revoked: boolean }>()
+const memOAuthStates = new Map<string, { nonce: string; provider: string; clientId: string; redirectUri: string; codeVerifier?: string; expiresAt: number }>()
+const memPasskeyChallenges = new Map<string, { challengeId: string; userId: string | null; challenge: string; origin: string; type: 'registration' | 'authentication'; createdAt: number; expiresAt: number }>()
+const memPasskeys = new Map<string, { credentialId: string; userId: string; rpId: string; publicKey: string; counter: number; deviceName: string; transports: string[]; createdAt: number; lastUsedAt: number }>()
+const memClientReports = new Map<string, { reportId: string; clientId: string; reporterAddress: string; category: string; evidence: string; status: 'pending' | 'resolved' | 'dismissed'; createdAt: number; resolvedAt?: number; resolution?: string }>()
+
 async function getSQLitClient(): Promise<SQLitClient> {
+  if (USE_MEMORY_STATE) {
+    throw new Error('SQLit not used in memory mode')
+  }
+
   if (!sqlitClient) {
     const { getSQLit } = await import('@jejunetwork/db')
     sqlitClient = getSQLit({
@@ -49,9 +68,22 @@ function getCache(): CacheClient {
   return cacheClient
 }
 
+// No-op cache for memory mode
+const memCache: CacheClient = {
+  get: async () => null,
+  set: async () => {},
+  delete: async () => {},
+} as unknown as CacheClient
+
 
 async function ensureTablesExist(): Promise<void> {
   if (initialized) return
+
+  if (USE_MEMORY_STATE) {
+    initialized = true
+    console.log('[OAuth3] In-memory database initialized')
+    return
+  }
 
   const client = await getSQLitClient()
 
@@ -169,6 +201,10 @@ async function ensureTablesExist(): Promise<void> {
 // Session State
 export const sessionState = {
   async save(session: AuthSession): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memSessions.set(session.sessionId, session)
+      return
+    }
     const client = await getSQLitClient()
     const cache = getCache()
 
@@ -199,6 +235,12 @@ export const sessionState = {
   },
 
   async get(sessionId: string): Promise<AuthSession | null> {
+    if (USE_MEMORY_STATE) {
+      const s = memSessions.get(sessionId)
+      if (s && s.expiresAt > Date.now()) return s
+      if (s) memSessions.delete(sessionId)
+      return null
+    }
     const cache = getCache()
     const cached = await cache.get(`session:${sessionId}`)
     if (cached) {
@@ -226,6 +268,10 @@ export const sessionState = {
   },
 
   async delete(sessionId: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memSessions.delete(sessionId)
+      return
+    }
     const db = await getSQLitClient()
     const cache = getCache()
 
@@ -239,6 +285,10 @@ export const sessionState = {
   },
 
   async findByUserId(userId: string): Promise<AuthSession[]> {
+    if (USE_MEMORY_STATE) {
+      const now = Date.now()
+      return [...memSessions.values()].filter(s => s.userId === userId && s.expiresAt > now)
+    }
     const client = await getSQLitClient()
 
     const result = await client.query<SessionRow>(
@@ -251,6 +301,11 @@ export const sessionState = {
   },
 
   async updateExpiry(sessionId: string, newExpiry: number): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      const s = memSessions.get(sessionId)
+      if (s) s.expiresAt = newExpiry
+      return
+    }
     const client = await getSQLitClient()
     const cache = getCache()
 
@@ -267,6 +322,10 @@ export const sessionState = {
 // Client State
 export const clientState = {
   async save(client: RegisteredClient): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memClients.set(client.clientId, client)
+      return
+    }
     const db = await getSQLitClient()
     const cache = getCache()
 
@@ -298,6 +357,9 @@ export const clientState = {
   },
 
   async get(clientId: string): Promise<RegisteredClient | null> {
+    if (USE_MEMORY_STATE) {
+      return memClients.get(clientId) ?? null
+    }
     const cache = getCache()
     const cached = await cache.get(`client:${clientId}`)
     if (cached) {
@@ -321,6 +383,10 @@ export const clientState = {
   },
 
   async delete(clientId: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memClients.delete(clientId)
+      return
+    }
     const db = await getSQLitClient()
     const cache = getCache()
 
@@ -348,6 +414,10 @@ export const authCodeState = {
       codeChallengeMethod?: string
     },
   ): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memAuthCodes.set(code, data)
+      return
+    }
     const client = await getSQLitClient()
 
     await client.exec(
@@ -376,6 +446,12 @@ export const authCodeState = {
     codeChallenge?: string
     codeChallengeMethod?: string
   } | null> {
+    if (USE_MEMORY_STATE) {
+      const d = memAuthCodes.get(code)
+      if (d && d.expiresAt > Date.now()) return d
+      if (d) memAuthCodes.delete(code)
+      return null
+    }
     const client = await getSQLitClient()
 
     const result = await client.query<AuthCodeRow>(
@@ -399,6 +475,10 @@ export const authCodeState = {
   },
 
   async delete(code: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memAuthCodes.delete(code)
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       'DELETE FROM auth_codes WHERE code = ?',
@@ -419,6 +499,10 @@ export const refreshTokenState = {
       expiresAt: number
     },
   ): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memRefreshTokens.set(token, { ...data, createdAt: Date.now(), revoked: false })
+      return
+    }
     const client = await getSQLitClient()
 
     await client.exec(
@@ -443,6 +527,10 @@ export const refreshTokenState = {
     expiresAt: number
     revoked: boolean
   } | null> {
+    if (USE_MEMORY_STATE) {
+      const t = memRefreshTokens.get(token)
+      return t ? { sessionId: t.sessionId, clientId: t.clientId, userId: t.userId, expiresAt: t.expiresAt, revoked: t.revoked } : null
+    }
     const client = await getSQLitClient()
 
     const result = await client.query<RefreshTokenRow>(
@@ -464,6 +552,11 @@ export const refreshTokenState = {
   },
 
   async revoke(token: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      const t = memRefreshTokens.get(token)
+      if (t) t.revoked = true
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       'UPDATE refresh_tokens SET revoked = 1 WHERE token = ?',
@@ -473,6 +566,12 @@ export const refreshTokenState = {
   },
 
   async revokeAllForSession(sessionId: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      for (const t of memRefreshTokens.values()) {
+        if (t.sessionId === sessionId) t.revoked = true
+      }
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       'UPDATE refresh_tokens SET revoked = 1 WHERE session_id = ?',
@@ -495,6 +594,10 @@ export const oauthStateStore = {
       expiresAt: number
     },
   ): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memOAuthStates.set(state, { nonce: data.nonce, provider: data.provider, clientId: data.clientId, redirectUri: data.redirectUri, codeVerifier: data.codeVerifier, expiresAt: data.expiresAt })
+      return
+    }
     const client = await getSQLitClient()
 
     // SECURITY: Encrypt PKCE code verifier before storing
@@ -528,6 +631,12 @@ export const oauthStateStore = {
     redirectUri: string
     codeVerifier?: string
   } | null> {
+    if (USE_MEMORY_STATE) {
+      const d = memOAuthStates.get(state)
+      if (d && d.expiresAt > Date.now()) return { nonce: d.nonce, provider: d.provider, clientId: d.clientId, redirectUri: d.redirectUri, codeVerifier: d.codeVerifier }
+      if (d) memOAuthStates.delete(state)
+      return null
+    }
     const client = await getSQLitClient()
 
     const result = await client.query<OAuthStateRow>(
@@ -557,6 +666,10 @@ export const oauthStateStore = {
   },
 
   async delete(state: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memOAuthStates.delete(state)
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       'DELETE FROM oauth_states WHERE state = ?',
@@ -592,6 +705,10 @@ export interface PasskeyChallengeRecord {
 
 export const passkeyState = {
   async saveChallenge(challenge: PasskeyChallengeRecord): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memPasskeyChallenges.set(challenge.challengeId, challenge)
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       `INSERT INTO passkey_challenges (challenge_id, user_id, challenge, origin, type, created_at, expires_at)
@@ -610,6 +727,15 @@ export const passkeyState = {
   },
 
   async getChallenge(challengeId: string): Promise<PasskeyChallengeRecord | null> {
+    if (USE_MEMORY_STATE) {
+      const c = memPasskeyChallenges.get(challengeId)
+      if (!c) return null
+      if (c.expiresAt < Date.now()) {
+        memPasskeyChallenges.delete(challengeId)
+        return null
+      }
+      return c
+    }
     const client = await getSQLitClient()
     const result = await client.query<{
       challenge_id: string
@@ -649,6 +775,10 @@ export const passkeyState = {
   },
 
   async deleteChallenge(challengeId: string): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memPasskeyChallenges.delete(challengeId)
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       'DELETE FROM passkey_challenges WHERE challenge_id = ?',
@@ -658,6 +788,10 @@ export const passkeyState = {
   },
 
   async saveCredential(credential: PasskeyCredentialRecord): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memPasskeys.set(credential.credentialId, credential)
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       `INSERT INTO passkeys (credential_id, user_id, rp_id, public_key, counter, device_name, transports, created_at, last_used_at)
@@ -682,6 +816,9 @@ export const passkeyState = {
   async getCredential(
     credentialId: string,
   ): Promise<PasskeyCredentialRecord | null> {
+    if (USE_MEMORY_STATE) {
+      return memPasskeys.get(credentialId) ?? null
+    }
     const client = await getSQLitClient()
     const result = await client.query<{
       credential_id: string
@@ -714,6 +851,9 @@ export const passkeyState = {
   },
 
   async listCredentialsByRpId(rpId: string): Promise<PasskeyCredentialRecord[]> {
+    if (USE_MEMORY_STATE) {
+      return [...memPasskeys.values()].filter(p => p.rpId === rpId)
+    }
     const client = await getSQLitClient()
     const result = await client.query<{
       credential_id: string
@@ -747,6 +887,11 @@ export const passkeyState = {
     credentialId: string,
     counter: number,
   ): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      const p = memPasskeys.get(credentialId)
+      if (p) { p.counter = counter; p.lastUsedAt = Date.now() }
+      return
+    }
     const client = await getSQLitClient()
     await client.exec(
       'UPDATE passkeys SET counter = ?, last_used_at = ? WHERE credential_id = ?',
@@ -1084,6 +1229,10 @@ interface ClientReport {
 
 export const clientReportState = {
   async save(report: ClientReport): Promise<void> {
+    if (USE_MEMORY_STATE) {
+      memClientReports.set(report.reportId, report)
+      return
+    }
     const db = await getSQLitClient()
 
     await db.exec(
@@ -1107,6 +1256,9 @@ export const clientReportState = {
   },
 
   async get(reportId: string): Promise<ClientReport | null> {
+    if (USE_MEMORY_STATE) {
+      return memClientReports.get(reportId) ?? null
+    }
     const db = await getSQLitClient()
 
     const result = await db.query<{
@@ -1142,6 +1294,9 @@ export const clientReportState = {
   },
 
   async getByClient(clientId: string): Promise<ClientReport[]> {
+    if (USE_MEMORY_STATE) {
+      return [...memClientReports.values()].filter(r => r.clientId === clientId).sort((a, b) => b.createdAt - a.createdAt)
+    }
     const db = await getSQLitClient()
 
     const result = await db.query<{
@@ -1178,6 +1333,10 @@ export const clientReportState = {
     reporterAddress: string,
     withinMs: number = 24 * 60 * 60 * 1000,
   ): Promise<boolean> {
+    if (USE_MEMORY_STATE) {
+      const cutoff = Date.now() - withinMs
+      return [...memClientReports.values()].some(r => r.clientId === clientId && r.reporterAddress === reporterAddress.toLowerCase() && r.createdAt > cutoff)
+    }
     const db = await getSQLitClient()
     const cutoff = Date.now() - withinMs
 
