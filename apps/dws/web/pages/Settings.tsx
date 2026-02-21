@@ -291,7 +291,7 @@ export default function SettingsPage() {
                         No agent registered
                       </div>
                       <a
-                        href="https://gateway.jejunetwork.org/register"
+                        href="https://jeju-testnet.fartbag.fun/gateway/register"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn btn-primary btn-sm"

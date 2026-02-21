@@ -1438,7 +1438,12 @@ if (import.meta.main) {
   })
 
   configureOAuth3RouterConfig({
-    agentUrl: serverConfig.oauth3AgentUrl ?? getOAuth3Url(NETWORK),
+    agentUrl:
+      serverConfig.oauth3AgentUrl ??
+      (typeof process !== 'undefined'
+        ? process.env.OAUTH3_AGENT_URL
+        : undefined) ??
+      getOAuth3Url(NETWORK),
   })
 
   // Monitoring service doesn't have a getServiceUrl helper, so construct URLs manually
