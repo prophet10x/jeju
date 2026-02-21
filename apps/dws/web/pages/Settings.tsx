@@ -239,7 +239,7 @@ export default function SettingsPage() {
                   >
                     ERC-8004 Agent
                   </div>
-                  {hasAgent ? (
+                  {hasAgent && agentId !== null ? (
                     <div
                       style={{
                         padding: '1rem',
@@ -257,7 +257,14 @@ export default function SettingsPage() {
                       >
                         <div>
                           <div style={{ fontWeight: 500 }}>
-                            Agent ID: {agentId}
+                            {(() => {
+                              try {
+                                const parsed = tokenURI ? JSON.parse(tokenURI) : null
+                                return parsed?.name ? `${parsed.name} (ID: ${agentId})` : `Agent #${agentId}`
+                              } catch {
+                                return `Agent #${agentId}`
+                              }
+                            })()}
                           </div>
                           <div
                             style={{
@@ -266,19 +273,24 @@ export default function SettingsPage() {
                               marginTop: '0.25rem',
                             }}
                           >
-                            {tokenURI?.slice(0, 50)}...
+                            {(() => {
+                              try {
+                                const parsed = tokenURI ? JSON.parse(tokenURI) : null
+                                return parsed?.description || 'Registered agent'
+                              } catch {
+                                return 'Registered agent'
+                              }
+                            })()}
                           </div>
                         </div>
-                        {agentId !== null && (
-                          <a
-                            href={`https://explorer.jejunetwork.org/token/${CONTRACTS.identityRegistry}/instance/${agentId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-ghost btn-sm"
-                          >
-                            <ExternalLink size={14} />
-                          </a>
-                        )}
+                        <a
+                          href={`https://explorer.jejunetwork.org/token/${CONTRACTS.identityRegistry}/instance/${agentId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-ghost btn-sm"
+                        >
+                          <ExternalLink size={14} />
+                        </a>
                       </div>
                     </div>
                   ) : (
