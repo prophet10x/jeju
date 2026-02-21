@@ -41,7 +41,7 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | Contract | Address |
 |----------|---------|
 | JEJU/ELIZAOS Token | `0x5FbDB2315678afecb367f032d93F642f64180aa3` |
-| IdentityRegistry | `0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8` |
+| IdentityRegistry | `0x40918Ba7f132E0aCba2CE4de4c4baF9BD2D7D849` |
 | ComputeRegistry | `0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9` |
 | FeeConfig | `0x1613beb3b2c4f22ee086b2b38c1476a3ce7f78e8` |
 | DAORegistry | `0x851356ae760d987e095750cceb3bc6014560891c` |

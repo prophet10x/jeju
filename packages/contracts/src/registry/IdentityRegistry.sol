@@ -17,10 +17,9 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
     enum StakeTier {
         NONE, // Free registration, no stake
-        SMALL, // .001 ETH (~$3.50)
-        MEDIUM, // .01 ETH (~$35)
-        HIGH // .1 ETH (~$350)
-
+        SMALL, // 1 ELIZAOS (default)
+        MEDIUM, // 10 ELIZAOS (default)
+        HIGH // 100 ELIZAOS (default)
     }
 
     struct AgentRegistration {
@@ -35,9 +34,9 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
         bool isSlashed;
     }
 
-    uint256 public constant STAKE_SMALL = 1 ether;
-    uint256 public constant STAKE_MEDIUM = 10 ether;
-    uint256 public constant STAKE_HIGH = 100 ether;
+    uint256 public stakeSmall = 1 ether;
+    uint256 public stakeMedium = 10 ether;
+    uint256 public stakeHigh = 100 ether;
     uint256 public constant MAX_METADATA_SIZE = 8192;
     uint256 public constant MAX_KEY_LENGTH = 256;
     uint256 public constant MAX_TAGS = 10;
@@ -74,6 +73,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     event ReputationOracleUpdated(address oldOracle, address newOracle);
     event StakeTokenAdded(address indexed token);
     event StakeTokenRemoved(address indexed token);
+    event StakeTiersUpdated(uint256 small, uint256 medium, uint256 high);
     event Heartbeat(uint256 indexed agentId, uint256 timestamp);
 
     error MetadataTooLarge();
@@ -145,6 +145,20 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
         address oldOracle = reputationOracle;
         reputationOracle = newOracle;
         emit ReputationOracleUpdated(oldOracle, newOracle);
+    }
+
+    /**
+     * @notice Update stake tier amounts (governance only)
+     * @param small New amount for SMALL tier
+     * @param medium New amount for MEDIUM tier
+     * @param high New amount for HIGH tier
+     */
+    function setStakeTiers(uint256 small, uint256 medium, uint256 high) external onlyGovernance {
+        require(small > 0 && medium > small && high > medium, "Invalid tier amounts");
+        stakeSmall = small;
+        stakeMedium = medium;
+        stakeHigh = high;
+        emit StakeTiersUpdated(small, medium, high);
     }
 
     function pause() external onlyGovernance {
@@ -435,11 +449,11 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
         emit AgentUriUpdated(agentId, newTokenURI);
     }
 
-    function getStakeAmount(StakeTier tier) public pure returns (uint256 amount) {
+    function getStakeAmount(StakeTier tier) public view returns (uint256 amount) {
         if (tier == StakeTier.NONE) return 0;
-        if (tier == StakeTier.SMALL) return STAKE_SMALL;
-        if (tier == StakeTier.MEDIUM) return STAKE_MEDIUM;
-        if (tier == StakeTier.HIGH) return STAKE_HIGH;
+        if (tier == StakeTier.SMALL) return stakeSmall;
+        if (tier == StakeTier.MEDIUM) return stakeMedium;
+        if (tier == StakeTier.HIGH) return stakeHigh;
         return 0;
     }
 
