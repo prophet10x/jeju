@@ -269,14 +269,16 @@ export default function SettingsPage() {
                             {tokenURI?.slice(0, 50)}...
                           </div>
                         </div>
-                        <a
-                          href={`https://explorer.jejunetwork.org/token/${CONTRACTS.identityRegistry}/instance/${agentId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-ghost btn-sm"
-                        >
-                          <ExternalLink size={14} />
-                        </a>
+                        {agentId !== null && (
+                          <a
+                            href={`https://explorer.jejunetwork.org/token/${CONTRACTS.identityRegistry}/instance/${agentId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-ghost btn-sm"
+                          >
+                            <ExternalLink size={14} />
+                          </a>
+                        )}
                       </div>
                     </div>
                   ) : (
