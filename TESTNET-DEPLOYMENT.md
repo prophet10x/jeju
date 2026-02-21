@@ -121,6 +121,21 @@ All contracts from the following deploy scripts have been deployed:
 - `DeployX402` - X402 payment
 - `DeployUserBlockRegistry` - User block registry
 
+### IdentityRegistry Configuration
+
+- **Governance**: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (deployer)
+- **Supported Stake Tokens**: ETH (address(0)), ELIZAOS (`0x5FbDB...`)
+- **Stake Tiers**: NONE (free), SMALL (0.001), MEDIUM (0.01), HIGH (0.1)
+
+### Not Deployed
+
+| Contract | Status |
+|----------|--------|
+| Agents Vault (`0x8464...`) | Not deployed |
+| Agents RoomRegistry (`0x71C9...`) | Not deployed |
+| Agents TriggerRegistry (`0x948B...`) | Not deployed |
+| Cloud ServiceRegistry (`0xbCF2...`) | Not deployed |
+
 ## Services
 
 | Service | Port | Endpoint |
@@ -130,6 +145,10 @@ All contracts from the following deploy scripts have been deployed:
 | op-node | 7545 | internal |
 | op-batcher | 6545 | internal |
 | Alto Bundler | 4337 | `https://jeju-testnet.fartbag.fun/bundler` |
+| PoW Faucet | 8088 | `https://jeju-testnet.fartbag.fun/faucet/` |
+| Gateway API | 4013 | `https://jeju-testnet.fartbag.fun/gateway/` |
+| DWS Console | 4030 | `http://52.206.203.24/` (AWS) |
+| OAuth3 | 4200 | `http://52.206.203.24:4200/` (AWS, proxied via DWS) |
 
 ## E2E Paymaster Test
 
