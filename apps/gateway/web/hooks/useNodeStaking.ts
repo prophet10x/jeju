@@ -1,4 +1,4 @@
-import type { Address } from 'viem'
+import { type Address, erc20Abi } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 import {
   getNodeStakingAddress,
@@ -36,9 +36,14 @@ export function useNodeStaking() {
 
   const {
     write: register,
+    writeAsync: registerAsync,
     isPending: isRegistering,
     isConfirming: isConfirmingRegister,
     isSuccess: isRegisterSuccess,
+  } = useTypedWriteContract()
+
+  const {
+    writeAsync: approveAsync,
   } = useTypedWriteContract()
 
   const registerNode = async (
@@ -48,6 +53,15 @@ export function useNodeStaking() {
     rpcUrl: string,
     region: Region,
   ) => {
+    // Step 1: Approve tokens to NodeStakingManager
+    await approveAsync({
+      address: stakingToken,
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [stakingManager, stakeAmount],
+    })
+
+    // Step 2: Register node (contract will transferFrom)
     register({
       address: stakingManager,
       abi: NODE_STAKING_MANAGER_ABI,
