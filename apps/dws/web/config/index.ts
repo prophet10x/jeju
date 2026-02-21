@@ -21,12 +21,17 @@ export const NETWORK: NetworkType = getCurrentNetwork()
 
 // Chain configuration from config
 export const CHAIN_ID = getChainId(NETWORK)
-export const RPC_URL = getRpcUrl(NETWORK)
+// Use DWS RPC proxy to avoid CORS issues with direct RPC calls
+export const RPC_URL =
+  typeof window !== 'undefined'
+    ? `${window.location.origin}/rpc/proxy?chainId=${getChainId(NETWORK)}`
+    : getRpcUrl(NETWORK)
 // DWS frontend is always served from the DWS API server itself,
 // so use relative paths instead of absolute URLs from services.json.
 // This works regardless of domain/IP (e.g., 52.206.203.24, dws.testnet.jejunetwork.org, localhost).
 export const DWS_API_URL = ''
-export const OAUTH3_AGENT_URL = getOAuth3Url(NETWORK)
+// OAuth3 is served by DWS itself at /oauth3/*, so use relative path
+export const OAUTH3_AGENT_URL = ''
 
 // Contract addresses from config
 const contracts = getContractsConfig(NETWORK)

@@ -557,9 +557,9 @@ export function getTestnetOAuth3Config(
     namespace: 'default',
     replicas: 3,
     chainId: '420690',
-    rpcUrl: 'https://testnet.jejunetwork.org',
-    dwsUrl: 'https://dws.testnet.jejunetwork.org',
-    jnsGateway: 'https://jns.testnet.jejunetwork.org',
+    rpcUrl: 'https://jeju-testnet.fartbag.fun/',
+    dwsUrl: 'http://localhost:4030',
+    jnsGateway: 'https://jeju-testnet.fartbag.fun/',
     teeMode: 'simulated', // Use simulated TEE for testnet
     mpc: {
       threshold: 2, // 2-of-3 as per user request

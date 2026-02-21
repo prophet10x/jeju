@@ -126,10 +126,10 @@ const LOCALNET_CONTRACTS = getLocalnetContracts()
 
 // Testnet addresses (Jeju Testnet deployment - deployed 2025-12-30)
 const TESTNET_CONTRACTS = {
-  jnsRegistry: '0xD8a5a9b31c3C0232E196d518E89Fd8bF83AcAd43' as Address,
-  jnsResolver: '0xDC11f7E700A4c898AE5CAddB1082cFfa76512aDD' as Address,
+  jnsRegistry: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512' as Address,
+  jnsResolver: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0' as Address,
   appRegistry: '0x0000000000000000000000000000000000000000' as Address, // TODO: Deploy OAuth3 app registry
-  identityRegistry: '0x0000000000000000000000000000000000000000' as Address, // TODO: Deploy identity registry
+  identityRegistry: '0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6' as Address,
   teeVerifier: '0x0000000000000000000000000000000000000000' as Address, // TODO: Deploy TEE verifier
 } as const
 
