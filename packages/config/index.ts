@@ -181,6 +181,11 @@ function detectNetworkFromHostname(): NetworkType | null {
     return 'testnet'
   }
 
+  // Jeju testnet deployment on fartbag.fun
+  if (hostname === 'jeju-testnet.fartbag.fun') {
+    return 'testnet'
+  }
+
   // Production jejunetwork.org domains → mainnet
   if (hostname.endsWith('.jejunetwork.org')) {
     return 'mainnet'
