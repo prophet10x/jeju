@@ -40,14 +40,15 @@ export function configureOAuth3RouterConfig(
   configureOAuth3Router(config)
 }
 
-const OAUTH3_AGENT_URL = oauth3Config.agentUrl ?? getDefaultOAuth3Url()
+// Use a getter so the URL reflects configuration changes made after module load
+const getAgentUrl = () => oauth3Config.agentUrl ?? getDefaultOAuth3Url()
 
 export function createOAuth3Router() {
   return (
     new Elysia({ name: 'oauth3', prefix: '/oauth3' })
       // Health check
       .get('/health', async ({ set }) => {
-        const response = await fetch(`${OAUTH3_AGENT_URL}/health`).catch(
+        const response = await fetch(`${getAgentUrl()}/health`).catch(
           (err: Error) => {
             console.warn(`[OAuth3] Health check failed: ${err.message}`)
             return null
@@ -55,15 +56,15 @@ export function createOAuth3Router() {
         )
         if (!response?.ok) {
           set.status = 503
-          return { status: 'unhealthy', agent: OAUTH3_AGENT_URL }
+          return { status: 'unhealthy', agent: getAgentUrl() }
         }
         const data = await response.json()
-        return { status: 'healthy', agent: OAUTH3_AGENT_URL, ...data }
+        return { status: 'healthy', agent: getAgentUrl(), ...data }
       })
 
       // Get TEE attestation
       .get('/attestation', async ({ set }) => {
-        const response = await fetch(`${OAUTH3_AGENT_URL}/attestation`)
+        const response = await fetch(`${getAgentUrl()}/attestation`)
         if (!response.ok) {
           set.status = response.status as
             | 400
@@ -82,7 +83,7 @@ export function createOAuth3Router() {
       .post(
         '/auth/init',
         async ({ body, set }) => {
-          const response = await fetch(`${OAUTH3_AGENT_URL}/auth/init`, {
+          const response = await fetch(`${getAgentUrl()}/auth/init`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -109,7 +110,7 @@ export function createOAuth3Router() {
       .post(
         '/auth/callback',
         async ({ body, set }) => {
-          const response = await fetch(`${OAUTH3_AGENT_URL}/auth/callback`, {
+          const response = await fetch(`${getAgentUrl()}/auth/callback`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -136,7 +137,7 @@ export function createOAuth3Router() {
       .post(
         '/auth/wallet',
         async ({ body, set }) => {
-          const response = await fetch(`${OAUTH3_AGENT_URL}/auth/wallet`, {
+          const response = await fetch(`${getAgentUrl()}/auth/wallet`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -163,7 +164,7 @@ export function createOAuth3Router() {
       .post(
         '/auth/farcaster',
         async ({ body, set }) => {
-          const response = await fetch(`${OAUTH3_AGENT_URL}/auth/farcaster`, {
+          const response = await fetch(`${getAgentUrl()}/auth/farcaster`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -191,7 +192,7 @@ export function createOAuth3Router() {
         '/session/:sessionId',
         async ({ params, set }) => {
           const response = await fetch(
-            `${OAUTH3_AGENT_URL}/session/${params.sessionId}`,
+            `${getAgentUrl()}/session/${params.sessionId}`,
           )
           const data = await response.json()
           if (!response.ok) {
@@ -218,7 +219,7 @@ export function createOAuth3Router() {
         '/session/:sessionId/refresh',
         async ({ params, set }) => {
           const response = await fetch(
-            `${OAUTH3_AGENT_URL}/session/${params.sessionId}/refresh`,
+            `${getAgentUrl()}/session/${params.sessionId}/refresh`,
             {
               method: 'POST',
             },
@@ -248,7 +249,7 @@ export function createOAuth3Router() {
         '/session/:sessionId',
         async ({ params, set }) => {
           const response = await fetch(
-            `${OAUTH3_AGENT_URL}/session/${params.sessionId}`,
+            `${getAgentUrl()}/session/${params.sessionId}`,
             {
               method: 'DELETE',
             },
@@ -277,7 +278,7 @@ export function createOAuth3Router() {
       .post(
         '/sign',
         async ({ body, set }) => {
-          const response = await fetch(`${OAUTH3_AGENT_URL}/sign`, {
+          const response = await fetch(`${getAgentUrl()}/sign`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -304,7 +305,7 @@ export function createOAuth3Router() {
       .post(
         '/credential/issue',
         async ({ body, set }) => {
-          const response = await fetch(`${OAUTH3_AGENT_URL}/credential/issue`, {
+          const response = await fetch(`${getAgentUrl()}/credential/issue`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -332,7 +333,7 @@ export function createOAuth3Router() {
         '/credential/verify',
         async ({ body, set }) => {
           const response = await fetch(
-            `${OAUTH3_AGENT_URL}/credential/verify`,
+            `${getAgentUrl()}/credential/verify`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -360,7 +361,7 @@ export function createOAuth3Router() {
       // Infrastructure health
       .get('/infrastructure/health', async () => {
         const response = await fetch(
-          `${OAUTH3_AGENT_URL}/infrastructure/health`,
+          `${getAgentUrl()}/infrastructure/health`,
         )
         if (!response.ok) {
           throw new Error('OAuth3 agent unavailable')
