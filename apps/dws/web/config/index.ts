@@ -27,8 +27,10 @@ export const RPC_URL = getRpcUrl(NETWORK)
 // so use relative paths instead of absolute URLs from services.json.
 // This works regardless of domain/IP (e.g., 52.206.203.24, dws.testnet.jejunetwork.org, localhost).
 export const DWS_API_URL = ''
-// OAuth3 is served by DWS itself at /oauth3/*, so use relative path
-export const OAUTH3_AGENT_URL = ''
+// OAuth3 is served by DWS itself at /oauth3/*, so use origin-relative URL
+// (empty string is falsy and treated as "not configured" by the OAuth3 client)
+export const OAUTH3_AGENT_URL =
+  typeof window !== 'undefined' ? `${window.location.origin}/oauth3` : '/oauth3'
 
 // Contract addresses from config
 const contracts = getContractsConfig(NETWORK)
