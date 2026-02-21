@@ -244,12 +244,13 @@ async function build() {
   const cssFileName = cssEntry ? cssEntry.path.split('/').pop() : null
 
   const indexHtml = readFileSync(resolve(APP_DIR, 'index.html'), 'utf-8')
-  let updatedHtml = indexHtml.replace('/web/main.tsx', `/web/${mainFileName}`)
+  const basePath = '/gateway'
+  let updatedHtml = indexHtml.replace('/web/main.tsx', `${basePath}/web/${mainFileName}`)
 
   if (cssFileName) {
     updatedHtml = updatedHtml.replace(
       '</head>',
-      `  <link rel="stylesheet" href="/web/${cssFileName}">\n  </head>`,
+      `  <link rel="stylesheet" href="${basePath}/web/${cssFileName}">\n  </head>`,
     )
   }
 
