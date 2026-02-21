@@ -223,10 +223,9 @@
   "testnet": {
     "chainId": 420690,
     "tokens": {
-      "jeju": "",
+      "jeju": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
       "usdc": "",
-      "weth": "0x4200000000000000000000000000000000000006",
-      "elizaos": "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+      "weth": "0x4200000000000000000000000000000000000006"
     },
     "registry": {
       "identity": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
