@@ -185,7 +185,6 @@ const REGIONS = [
   'Asia',
   'Africa',
   'Oceania',
-  'Global',
 ] as const
 
 type Region = (typeof REGIONS)[number]
@@ -304,7 +303,6 @@ export function createStakingRouter() {
           Asia: 0,
           Africa: 0,
           Oceania: 0,
-          Global: 0,
         }
         REGIONS.forEach((region, index) => {
           regionDistribution[region] = Number(regionCounts[index])
