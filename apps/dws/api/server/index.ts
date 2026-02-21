@@ -732,6 +732,7 @@ app
         headers: {
           'Content-Type': 'text/html',
           'X-DWS-Source': 'local',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
       })
     }

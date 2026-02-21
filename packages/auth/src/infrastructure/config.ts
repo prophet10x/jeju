@@ -163,12 +163,13 @@ export function getContracts(chainId: number) {
   const network = getNetworkType(chainId)
   const contracts = CONTRACTS[network]
 
-  // Fail fast if contracts not deployed
+  // Warn if contracts not deployed (don't crash the app)
   if (contracts.jnsRegistry === ZERO_ADDRESS) {
     if (network === 'mainnet') {
-      throw new Error(
-        'Mainnet contracts not yet deployed. Use testnet or localnet.',
+      console.warn(
+        '[OAuth3] Mainnet contracts not yet deployed. Falling back to testnet contracts.',
       )
+      return CONTRACTS.testnet
     }
     if (network === 'localnet') {
       // Log warning but don't fail - OAuth3 will fall back to centralized mode
