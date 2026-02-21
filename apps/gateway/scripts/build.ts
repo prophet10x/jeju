@@ -62,9 +62,13 @@ async function build() {
       build.onResolve({ filter: /^@noble\/curves$/ }, () => ({
         path: require.resolve('@noble/curves'),
       }))
-      build.onResolve({ filter: /^@noble\/hashes/ }, (args) => ({
-        path: require.resolve(args.path),
-      }))
+      build.onResolve({ filter: /^@noble\/hashes/ }, (args) => {
+        // Root has @noble/hashes v2 but most browser deps need v1
+        // Always use v1 from ox's nested node_modules for compatibility
+        const subpath = args.path.replace('@noble/hashes', '').replace(/^\//, '')
+        const file = subpath ? (subpath.endsWith('.js') ? subpath : `${subpath}.js`) : 'index.js'
+        return { path: resolve(APP_DIR, `../../node_modules/ox/node_modules/@noble/hashes/${file}`) }
+      })
       build.onResolve({ filter: /^@jejunetwork\/shared$/ }, () => ({
         path: resolve(APP_DIR, '../../packages/shared/src/index.ts'),
       }))
