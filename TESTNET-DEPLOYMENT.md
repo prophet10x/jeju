@@ -83,8 +83,10 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | LiquidityPaymaster | `0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf` |
 | CreditManager | `0x49fd2BE640DB2910c2fAb69bB8531Ab6E76127ff` |
 | TokenRegistry | `0x4631BCAbD6dF18D94796344963cB60d44a4136b6` |
-| MultiTokenPaymaster | `0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926` |
-| PaymasterFactory | `0xE3011A37A904aB90C8881a99BD1F6E21401f1522` |
+| MultiTokenPaymaster | `0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c` |
+| PaymasterFactory | `0xB82008565FdC7e44609fA118A4a681E92581e680` |
+| CrossChainPaymaster | `0x38a024C0b412B9d1db8BC398140D00F5Af3093D4` |
+| CrossChainSwapRouter | `0x525C7063E7C20997BaaE9bDa922159152D0e8417` |
 
 **Paymaster Configuration:**
 - Token: JEJU/ELIZAOS (`0x5FbDB...`)

@@ -287,8 +287,8 @@
       "serviceRegistry": "0x46b142DD1E924FAb83eCc3c08e4D46E82f005e0E",
       "creditManager": "0x49fd2BE640DB2910c2fAb69bB8531Ab6E76127ff",
       "liquidityPaymaster": "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf",
-      "multiTokenPaymaster": "0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926",
-      "paymasterFactory": "0xE3011A37A904aB90C8881a99BD1F6E21401f1522"
+      "multiTokenPaymaster": "0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c",
+      "paymasterFactory": "0xB82008565FdC7e44609fA118A4a681E92581e680"
     },
     "commerce": {
       "authCaptureEscrow": "",
@@ -339,7 +339,8 @@
     },
     "eil": {
       "l1StakeManager": "0x5c74c94173F05dA1720953407cbb920F3DF9f887",
-      "crossChainPaymaster": "",
+      "crossChainPaymaster": "0x38a024C0b412B9d1db8BC398140D00F5Af3093D4",
+      "crossChainSwapRouter": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
       "liquidityPaymaster": "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
     },
     "federation": {
