@@ -69,8 +69,8 @@ if (root) {
                   rpcUrl: RPC_URL,
                   teeAgentUrl: OAUTH3_AGENT_URL,
                   network: NETWORK,
-                  // Only use decentralized mode when JNS is properly configured
-                  decentralized: NETWORK !== 'localnet',
+                  // Disable decentralized discovery until JNS app names are registered
+                  decentralized: false,
                 } satisfies OAuth3AppConfig
               }
               autoConnect={true}
