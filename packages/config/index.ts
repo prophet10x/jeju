@@ -554,6 +554,9 @@ export function getServicesConfig(
         getEnvService('INDEXER_URL') ??
         getEnvService('INDEXER_GRAPHQL_URL') ??
         config.indexer.graphql,
+      graphqlCors:
+        getEnvService('INDEXER_GRAPHQL_CORS_URL') ??
+        config.indexer.graphqlCors,
       websocket: getEnvService('INDEXER_WS_URL') ?? config.indexer.websocket,
       rest: getEnvService('INDEXER_REST_URL') ?? config.indexer.rest,
       dws: getEnvService('INDEXER_DWS_URL') ?? config.indexer.dws,
