@@ -119,7 +119,7 @@ async function fetchFaucetStatus(address: string): Promise<FaucetStatus> {
   // Fallback: check registration directly on-chain
   const isRegistered = await checkRegistrationOnChain(address)
   return {
-    eligible: false, // Can't claim without faucet backend
+    eligible: false,
     isRegistered,
     cooldownRemaining: 0,
     nextClaimAt: null,
@@ -127,7 +127,8 @@ async function fetchFaucetStatus(address: string): Promise<FaucetStatus> {
     faucetBalance: '0',
     gasGrantEligible: false,
     gasGrantCooldownRemaining: 0,
-  }
+    _faucetOffline: true, // Signal that the faucet backend is not running
+  } as FaucetStatus
 }
 
 async function fetchFaucetInfo(): Promise<FaucetInfo> {
@@ -809,6 +810,26 @@ export default function FaucetTab() {
             <AlertCircleIcon size={18} style={{ color: 'var(--error)' }} />
             <span style={{ color: 'var(--error)', fontSize: '0.875rem' }}>
               {error}
+            </span>
+          </div>
+        )}
+
+        {isConnected && (status as Record<string, unknown>)?._faucetOffline && (
+          <div
+            style={{
+              padding: '1rem',
+              background: 'var(--surface-hover)',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              marginBottom: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}
+          >
+            <AlertCircleIcon size={18} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              Faucet service is not running. Claims are temporarily unavailable.
             </span>
           </div>
         )}

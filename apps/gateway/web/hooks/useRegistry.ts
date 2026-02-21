@@ -172,6 +172,24 @@ const IDENTITY_REGISTRY_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  // Auto-generated getter for public `agents` mapping
+  {
+    inputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    name: 'agents',
+    outputs: [
+      { internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { internalType: 'address', name: 'owner', type: 'address' },
+      { internalType: 'uint8', name: 'tier', type: 'uint8' },
+      { internalType: 'address', name: 'stakedToken', type: 'address' },
+      { internalType: 'uint256', name: 'stakedAmount', type: 'uint256' },
+      { internalType: 'uint256', name: 'registeredAt', type: 'uint256' },
+      { internalType: 'uint256', name: 'lastActivityAt', type: 'uint256' },
+      { internalType: 'bool', name: 'isBanned', type: 'bool' },
+      { internalType: 'bool', name: 'isSlashed', type: 'bool' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
   {
     inputs: [{ internalType: 'uint256', name: 'agentId', type: 'uint256' }],
     name: 'getMarketplaceInfo',
@@ -455,11 +473,34 @@ interface StakeInfoData {
   withdrawn: boolean
 }
 
+// JEJU token address - used to display "JEJU" instead of raw address
+const JEJU_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3'
+
+function resolveTokenName(tokenAddr: string): string {
+  if (!tokenAddr || tokenAddr === ZERO_ADDRESS) return 'None'
+  if (tokenAddr.toLowerCase() === JEJU_TOKEN.toLowerCase()) return 'JEJU'
+  return `${tokenAddr.slice(0, 6)}...${tokenAddr.slice(-4)}`
+}
+
 export function useRegistryAppDetails(agentId: bigint) {
   const { data: owner, refetch: refetchOwner } = useReadContract({
     address: REGISTRY_ADDRESS,
     abi: IDENTITY_REGISTRY_ABI,
     functionName: 'ownerOf',
+    args: [agentId],
+  })
+
+  const { data: tokenURI, refetch: refetchTokenURI } = useReadContract({
+    address: REGISTRY_ADDRESS,
+    abi: IDENTITY_REGISTRY_ABI,
+    functionName: 'tokenURI',
+    args: [agentId],
+  })
+
+  const { data: agentData, refetch: refetchAgent } = useReadContract({
+    address: REGISTRY_ADDRESS,
+    abi: IDENTITY_REGISTRY_ABI,
+    functionName: 'agents',
     args: [agentId],
   })
 
@@ -479,21 +520,42 @@ export function useRegistryAppDetails(agentId: bigint) {
 
   const isLoading = !owner
 
+  // Parse tokenURI for name/description
+  let parsedName = `Agent #${agentId}`
+  let parsedDescription: string | undefined
+  if (tokenURI) {
+    try {
+      const parsed = JSON.parse(tokenURI)
+      if (parsed.name) parsedName = parsed.name
+      if (parsed.description) parsedDescription = parsed.description
+    } catch { /* not JSON */ }
+  }
+
+  // Extract stake info from agents mapping result
+  // agentData is a tuple: [agentId, owner, tier, stakedToken, stakedAmount, registeredAt, lastActivityAt, isBanned, isSlashed]
+  const tier = agentData ? Number((agentData as readonly unknown[])[2]) : 0
+  const stakedToken = agentData ? String((agentData as readonly unknown[])[3]) : ZERO_ADDRESS
+  const stakedAmount = agentData ? BigInt(String((agentData as readonly unknown[])[4])) : 0n
+  const registeredAt = agentData ? BigInt(String((agentData as readonly unknown[])[5])) : 0n
+  const stakeAmountFormatted = stakedAmount > 0n ? (Number(stakedAmount) / 1e18).toString() : '0'
+
   const app: RegisteredApp | null = owner
     ? {
         agentId,
-        name: `Agent #${agentId}`,
+        name: parsedName,
+        description: parsedDescription,
         owner,
         tags: tags ? [...tags] : [],
         a2aEndpoint,
-        stakeToken: 'ETH',
-        stakeAmount: '0',
-        depositedAt: 0n,
+        stakeToken: resolveTokenName(stakedToken),
+        stakeAmount: stakeAmountFormatted,
+        stakeTier: tier,
+        depositedAt: registeredAt,
       }
     : null
 
   const refetch = async () => {
-    await Promise.all([refetchOwner(), refetchTags(), refetchEndpoint()])
+    await Promise.all([refetchOwner(), refetchTokenURI(), refetchAgent(), refetchTags(), refetchEndpoint()])
   }
 
   return {

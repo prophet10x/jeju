@@ -135,7 +135,16 @@ const registryAbi = parseAbi([
   'function tokenURI(uint256 tokenId) view returns (string)',
   'function getMetadata(uint256 agentId, string key) view returns (bytes)',
   'function balanceOf(address owner) view returns (uint256)',
+  'function agents(uint256) view returns (uint256 agentId, address owner, uint8 tier, address stakedToken, uint256 stakedAmount, uint256 registeredAt, uint256 lastActivityAt, bool isBanned, bool isSlashed)',
 ])
+
+const JEJU_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3'.toLowerCase()
+
+function resolveTokenName(addr: string): string {
+  if (!addr || addr === '0x0000000000000000000000000000000000000000') return 'None'
+  if (addr.toLowerCase() === JEJU_TOKEN) return 'JEJU'
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+}
 
 function getRegistryClient() {
   return createPublicClient({
@@ -160,12 +169,21 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
         args: [BigInt(id)],
       })
 
-      const tokenURI = await client.readContract({
-        address: registryAddr,
-        abi: registryAbi,
-        functionName: 'tokenURI',
-        args: [BigInt(id)],
-      })
+      // Read tokenURI and agent struct in parallel
+      const [tokenURI, agentData] = await Promise.all([
+        client.readContract({
+          address: registryAddr,
+          abi: registryAbi,
+          functionName: 'tokenURI',
+          args: [BigInt(id)],
+        }),
+        client.readContract({
+          address: registryAddr,
+          abi: registryAbi,
+          functionName: 'agents',
+          args: [BigInt(id)],
+        }).catch(() => null),
+      ])
 
       let a2aEndpoint: string | undefined
       try {
@@ -185,16 +203,25 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
       let parsed: { name?: string; description?: string; registeredAt?: string } = {}
       try { parsed = JSON.parse(tokenURI) } catch { /* not JSON */ }
 
+      // agentData tuple: [agentId, owner, tier, stakedToken, stakedAmount, registeredAt, lastActivityAt, isBanned, isSlashed]
+      const tier = agentData ? Number((agentData as readonly unknown[])[2]) : 0
+      const stakedToken = agentData ? String((agentData as readonly unknown[])[3]) : ''
+      const stakedAmount = agentData ? BigInt(String((agentData as readonly unknown[])[4])) : 0n
+      const registeredAtBlock = agentData ? BigInt(String((agentData as readonly unknown[])[5])) : 0n
+      const stakeAmountStr = stakedAmount > 0n ? (Number(stakedAmount) / 1e18).toFixed(3) : '0'
+
       agents.push({
         agentId: String(id),
         name: parsed.name ?? `Agent #${id}`,
         description: parsed.description,
         owner: owner as string,
         tags: [],
-        stakeToken: 'JEJU',
-        stakeAmount: '0',
-        stakeTier: 0,
-        registeredAt: parsed.registeredAt ?? new Date().toISOString(),
+        stakeToken: resolveTokenName(stakedToken),
+        stakeAmount: stakeAmountStr,
+        stakeTier: tier,
+        registeredAt: registeredAtBlock > 0n
+          ? new Date(Number(registeredAtBlock) * 1000).toISOString()
+          : (parsed.registeredAt ?? new Date().toISOString()),
         active: true,
         a2aEndpoint,
         serviceType: a2aEndpoint ? 'agent' : 'app',
@@ -696,7 +723,7 @@ export default function RegisteredAppsList({
                             }}
                           >
                             {' '}
-                            ({app.stakeAmount} ETH)
+                            ({app.stakeAmount} {app.stakeToken || 'JEJU'})
                           </span>
                         )}
                     </span>
