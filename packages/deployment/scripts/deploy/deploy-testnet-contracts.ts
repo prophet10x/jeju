@@ -47,11 +47,17 @@ interface DeploymentResult {
 // Deployment phases in order
 const DEPLOYMENT_PHASES: DeploymentPhase[] = [
   {
+    name: 'entrypoint',
+    description: 'ERC-4337 EntryPoint (required by core)',
+    script: 'script/DeployEntryPoint.s.sol:DeployEntryPoint',
+    dependsOn: [],
+  },
+  {
     name: 'core',
     description:
       'Identity, Reputation, Validation, BanManager, Tokens, Paymasters',
     script: 'script/Deploy.s.sol:Deploy',
-    dependsOn: [],
+    dependsOn: ['entrypoint'],
   },
   {
     name: 'dws',
@@ -233,13 +239,6 @@ const DEPLOYMENT_PHASES: DeploymentPhase[] = [
     description: 'Testnet Cross-Chain contracts',
     script: 'script/DeployTestnetCrossChain.s.sol:DeployTestnetCrossChain',
     dependsOn: ['core'],
-    skipOnMissingScript: true,
-  },
-  {
-    name: 'entrypoint',
-    description: 'ERC-4337 EntryPoint',
-    script: 'script/DeployEntryPoint.s.sol:DeployEntryPoint',
-    dependsOn: [],
     skipOnMissingScript: true,
   },
 ]

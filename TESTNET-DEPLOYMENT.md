@@ -13,6 +13,7 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | Bundler (ERC-4337) | `https://jeju-testnet.fartbag.fun/bundler` |
 | Block Time | 2 seconds |
 | Fork Level | Isthmus + Jovian (all forks at genesis) |
+| DA Type | Blobs (EIP-4844) |
 
 ## Add to Wallet
 
@@ -25,6 +26,13 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 }
 ```
 
+## Deployer
+
+| Role | Address |
+|------|---------|
+| Contract Deployer | `0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c` |
+| Batcher (Sepolia) | `0xa81aEa6814b9bF322E4791aC9F3bb05495437c42` |
+
 ## L1 Contracts (Sepolia)
 
 | Contract | Address |
@@ -34,129 +42,246 @@ Live testnet deployed on OP Stack, connected to Sepolia L1.
 | OptimismPortal2 | `0x9d484A3c375E5faAEe6202fc0622342E128b6326` |
 | SystemConfig | `0xF1D47AF01ea6C17f7E8F3Ad2edee603ab8b189eB` |
 
-## L2 Core Contracts
+## L2 Contracts (Deployed Feb 22 2026)
 
-### Core Contracts (Redeployed Feb 21 2026 with chain ID 420690)
-
-| Contract | Address |
-|----------|---------|
-| JEJU/ELIZAOS Token | `0x5FbDB2315678afecb367f032d93F642f64180aa3` |
-| IdentityRegistry | `0x40918Ba7f132E0aCba2CE4de4c4baF9BD2D7D849` |
-| ComputeRegistry | `0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9` |
-| FeeConfig | `0x1613beb3b2c4f22ee086b2b38c1476a3ce7f78e8` |
-| DAORegistry | `0x851356ae760d987e095750cceb3bc6014560891c` |
-| DAOFunding | `0xf5059a5d33d5853360d16c683c16e67980206f36` |
-| NodeStakingManager | `0x638A246F0Ec8883eF68280293FFE8Cfbabe61B44` |
-| PriceOracle | `0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d` |
-
-### JNS (Jeju Name Service)
+### Core Infrastructure (Deploy.s.sol)
 
 | Contract | Address |
 |----------|---------|
-| JNSRegistry | `0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512` |
-| JNSResolver | `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0` |
-| JNSRegistrar | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` |
-| JNSReverseRegistrar | `0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9` |
+| PriceOracle | `0xb10c232987ddce181b008d64ec5697a88bd126d1` |
+| ServiceRegistry | `0xefc5a8c31cfd2a693e0169790421076916405083` |
+| IdentityRegistry | `0xd69811b544a76bf6c995a4a5263b648fa7b59082` |
+| ReputationRegistry | `0xe10d8b33a678f292e979d34a178b7297e0ca9469` |
+| ValidationRegistry | `0x62fae7515077becff8f7cda15ac13d39e85f8d7e` |
+| BanManager | `0x2117e8d850387338b516e85651d80919f799ad64` |
+| ReputationLabelManager | `0xd5eafc2842b003d1e4c1bc2a950d0eafc5ac4345` |
 
-### DWS (Decentralized Web Services)
+### Tokens
 
 | Contract | Address |
 |----------|---------|
-| StorageManager | `0x3Aa5ebB10DC797CAC828524e59A333d0A371443c` |
-| WorkerRegistry | `0xc6e7DF5E7b4f2A278906862b61205850344D4e7d` |
-| CDNRegistry | `0x59b670e9fA9D0A427751Af201D676719a970857b` |
-| RepoRegistry | `0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1` |
-| PackageRegistry | `0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44` |
+| USDC (NetworkUSDC) | `0x3eb934d56d14fa073ef859c13a7ab9c5f8eeb948` |
+| JEJU Token | `0xb224f7607215139130ea79111358c1908e69f30e` |
+| ELIZAOS Token | `0xf5f918b88fecd8efc5fc9a9dad9e95213e168915` |
+| CreditManager | `0x6cfc5f9b0e5fe29470778b018aaaeb014281ea19` |
 
 ### ERC-4337 Account Abstraction
 
 | Contract | Address |
 |----------|---------|
-| EntryPoint v0.7 (jeju-l2 lib) | `0x0E801D84Fa97b50751Dbf25036d067dCf18858bF` |
-| EntryPoint v0.9 (main repo) | `0x4826533b4897376654bb4d4ad88b7fafd0c98528` |
-| EntryPoint v0.7 (canonical) | `0x0000000071727De22E5E9d8BAf0edAc6f37da032` |
-| SimpleAccountFactory | `0x9d4454B023096f34B160D6B654540c56A1F81688` |
+| EntryPoint v0.7 (canonical genesis) | `0x0000000071727De22E5E9d8BAf0edAc6f37da032` |
+| EntryPoint (new deployment) | `0x8332e76e40805ac9b06f3b11c1f415d608f66db3` |
 
 ### Paymaster Stack
 
 | Contract | Address |
 |----------|---------|
-| ManualPriceOracle | `0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf` |
-| LiquidityPaymaster | `0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf` |
-| CreditManager | `0x49fd2BE640DB2910c2fAb69bB8531Ab6E76127ff` |
-| TokenRegistry | `0x4631BCAbD6dF18D94796344963cB60d44a4136b6` |
-| MultiTokenPaymaster | `0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c` |
-| PaymasterFactory | `0xB82008565FdC7e44609fA118A4a681E92581e680` |
-| CrossChainPaymaster | `0x38a024C0b412B9d1db8BC398140D00F5Af3093D4` |
-| CrossChainSwapRouter | `0x525C7063E7C20997BaaE9bDa922159152D0e8417` |
+| TokenRegistry | `0x6d8a467a29e4da4b53345555ae7d628e741a40a8` |
+| PaymasterFactory | `0xe4abfd2e67240dfffa8433e04df094f3b5206272` |
+| MultiTokenPaymaster | `0xfc86aeccf568e966c404387037195eee2f97f51d` |
+| CrossChainPaymaster | `0xd4c0a4f86870576c7103c20174aa3a36ea107136` |
+| L1StakeManager | `0x81ba38fd34f342f81646f22c8452167c297d8bd6` |
 
-**Paymaster Configuration:**
-- Token: JEJU/ELIZAOS (`0x5FbDB...`)
-- Fee margin: 5% (500 basis points)
-- Oracle prices: ETH=$2500, JEJU/ELIZAOS=$1
-- EntryPoint deposit: 1 ETH
-
-### Additional Deployments
-
-All contracts from the following deploy scripts have been deployed:
-- `DeployDWS` - JNS Registry, Resolver, Registrar, Storage, Worker/CDN/Repo/Package registries
-- `DeployGovernance` - Standard/Critical/Emergency Timelocks
-- `DeployComputeAll` - LedgerManager, InferenceServing
-- `DeployTraining` - ComputeRegistry, MPCKeyRegistry, TrainingCoordinator/Rewards/Registry, NodePerformanceOracle
-- `DeployDA` - DAOperatorRegistry, DABlobRegistry, DAAttestationManager
-- `DeployLiquidity` - Liquidity contracts
-- `DeployContentRegistry` - Content registration
-- `DeployCommerce` - Commerce contracts
-- `DeployDecentralizedRPC` - Decentralized RPC
-- `DeployAppFeeRegistry` - App fee management
-- `DeployDAORegistry` - DAO registry
-- `DeployBoardGovernance` - Board governance
-- `DeployCrucible` - Crucible contracts
-- `DeployProofOfCloud` - Proof of Cloud
-- `DeploySQLitRegistry` - SQLit registry
-- `DeployDWSMarketplace` - DWS marketplace
-- `DeployGitPkg` - Git package registry
-- `DeployFederation` - Federation contracts
-- `DeployELIZAOS` - ElizaOS integration
-- `DeployTEE` - TEE contracts
-- `DeployDecentralization` - Decentralization contracts
-- `DeployX402` - X402 payment
-- `DeployUserBlockRegistry` - User block registry
-
-### IdentityRegistry Configuration
-
-- **Governance**: `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (deployer)
-- **Supported Stake Tokens**: ETH (address(0)), ELIZAOS (`0x5FbDB...`)
-- **Stake Tiers**: NONE (free), SMALL (1 ELIZAOS), MEDIUM (10 ELIZAOS), HIGH (100 ELIZAOS)
-
-### Node Staking
+### OIF (Open Intents Framework)
 
 | Contract | Address |
 |----------|---------|
-| NodeStakingManager | `0x638A246F0Ec8883eF68280293FFE8Cfbabe61B44` |
-| PerformanceOracle | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (deployer) |
+| SolverRegistry | `0x2962566c122941412a8e30beaa62b235f88f912f` |
+| SimpleOracle | `0x3e145f1c100ecbf6ceaa02e1d4cea8a936063b38` |
+| InputSettler | `0x6694b781852a94f885927b114704b83b4222fc21` |
+| OutputSettler | `0x0c349d357a006ae32af7cd56479384f740d74003` |
 
-**Dependencies (set up on deploy):**
-- TokenRegistry (`0x4631...`): JEJU registered via `registerToken`
-- PaymasterFactory (`0xB820...`): JEJU paymaster deployed via `deployPaymaster`
-- PriceOracle (`0xfbC2...`): JEJU price set to $1 via `setPrice`
+### X402 Payment Protocol
 
-**Configuration:**
-- Min stake: $1000 USD equivalent
-- Max nodes per operator: 5
-- Min staking period: 7 days
-- Base reward: $100/month per node
-- Geographic bonus: +50% for underserved regions (Africa, South America)
-- Uptime threshold: 99%+ for full rewards
+| Contract | Address |
+|----------|---------|
+| X402Facilitator | `0x4e5cacedc21c554b16748d1dbdb3ba414f8e4181` |
+| X402IntentBridge | `0x517a57f43c34abb3a49de4aefcc84250f3063712` |
 
-### Not Deployed
+### JNS (Jeju Name Service)
 
-| Contract | Status |
-|----------|--------|
-| Agents Vault (`0x8464...`) | Not deployed |
-| Agents RoomRegistry (`0x71C9...`) | Not deployed |
-| Agents TriggerRegistry (`0x948B...`) | Not deployed |
-| Cloud ServiceRegistry (`0xbCF2...`) | Not deployed |
+| Contract | Address |
+|----------|---------|
+| JNSRegistry | `0x8a791620dd6260079bf849dc5567adc3f2fdc318` |
+| JNSResolver | `0x610178da211fef7d417bc0e6fed39f05609ad788` |
+| JNSRegistrar | `0xb7f8bc63bbcad18155201308c8f3540b07f84f5e` |
+| JNSReverseRegistrar | `0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0` |
+
+### DWS (Decentralized Web Services)
+
+| Contract | Address |
+|----------|---------|
+| StorageManager | `0x3aa5ebb10dc797cac828524e59a333d0a371443c` |
+| WorkerRegistry | `0xc6e7df5e7b4f2a278906862b61205850344d4e7d` |
+| CDNRegistry | `0x59b670e9fa9d0a427751af201d676719a970857b` |
+| RepoRegistry | `0x4ed7c70f96b99c776995fb64377f0d4ab3b0e1c1` |
+| PackageRegistry | `0x322813fd9a801c5507c9de605d63cea4f2ce6c44` |
+| DWSMarketplace | `0x5b73c5498c1e3b4dba84de0f1833c4a029d90519` |
+
+### TEE (Trusted Execution Environment)
+
+| Contract | Address |
+|----------|---------|
+| UnifiedAttestationVerifier | `0x22c41faeb5b70e61c56c04fdb0cd880ebd971ad5` |
+| TEERegistry | `0xb62a9de44c64b354ceb9ce1e53443ee24cbcb4dc` |
+
+### Compute & Serverless Workers
+
+| Contract | Address |
+|----------|---------|
+| ComputeRegistry | `0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9` |
+| LedgerManager | `0xdbd0ff6c9280f4a335eb23d2565c861bf17e2414` |
+| InferenceServing | `0x12fe1fb20900337c295c85af671a88bc7548e08c` |
+
+### Training & AI
+
+| Contract | Address |
+|----------|---------|
+| ComputeRegistry (Training) | `0xf3ed251d634d1ce275f8e8748bcfc4f96520b2f1` |
+| MPCKeyRegistry | `0x544ab0facf5457e0e88d30fd118dfe5191b3f6ec` |
+| TrainingCoordinator | `0x14d0a76667604c189183f251c4b62bdad9658148` |
+| TrainingRewards | `0xf04493f4b4e7c0baf93e23379ffb78b18769d971` |
+| TrainingRegistry | `0x11d523effbad1462e63beedc79fd2fe8fc8f2f07` |
+| NodePerformanceOracle | `0xbb0a3554af6792436609d21bcd703b9ef70ee7aa` |
+
+### Decentralization
+
+| Contract | Address |
+|----------|---------|
+| SequencerRegistry | `0xfff980e4c02497b59bbcc407a4b6cd7fe73c03b6` |
+| ThresholdBatchSubmitter | `0xb391c2241a8fbdd7613c1d0c25395fb687c5959c` |
+| GovernanceTimelock | `0x2d47410261a156cefae5ae5a6ca3f597d7612ba1` |
+| DisputeGameFactory | `0x25094b9e10b47fa8a8094b18695d6a5b2d1c2a97` |
+| ForcedInclusion | `0xdd839e3afd2472e3cbee740396fd3a9ca7441808` |
+| CannonProver | `0xebe9b937a724f6b366fd38359e67acf751928598` |
+| L2OutputOracleAdapter | `0x78e41ae212154fbdf68f7859cabf775a5a7699a9` |
+| OptimismPortalAdapter | `0xc7f6f7b66d26308392dc1dd34abfdbd56903ac40` |
+| PreimageOracle | `0x44ffba0a689de595c7d9501db26a131021cb3108` |
+| MIPS | `0x8446e5e94a02f3aa96dce377df212e10700f1bba` |
+
+### Data Availability
+
+| Contract | Address |
+|----------|---------|
+| DAOperatorRegistry | `0xadf2e94136ebba745bd5151fcdd9657dfdf5db70` |
+| DABlobRegistry | `0xc917bbb012d63300992c94312567e0fa82e99916` |
+| DAAttestationManager | `0x130b23f59119e7c8f1ca0cdf375ebdb6c2781c63` |
+
+### Decentralized RPC
+
+| Contract | Address |
+|----------|---------|
+| MultiChainRPCRegistry | `0x2e2ed0cfd3ad2f1d34481277b3204d807ca2f8c2` |
+| BandwidthRewards | `0xd8a5a9b31c3c0232e196d518e89fd8bf83acad43` |
+| UsageRewardDistributor | `0xdc11f7e700a4c898ae5caddb1082cffa76512add` |
+
+### Federation
+
+| Contract | Address |
+|----------|---------|
+| NetworkRegistry | `0xac7a8a00aae63f2c6220d8c471870228b5c180ab` |
+| RegistryHub | `0x4b87840caee7df61efa29df64a1002402e8b6b50` |
+| RegistrySyncOracle | `0xacd15425d4daab8afcad3268023b890d39aa864f` |
+| SolanaVerifier | `0x675e78fd4f550fc124366eda4b8573814da4dc27` |
+| FederatedIdentity | `0x6620b1dad7c56fc99807d24b379a8c1450227a55` |
+| FederatedLiquidity | `0xf3687c8a8b3a9b3a874b8a091559395432a4fd9d` |
+| FederatedSolver | `0xcaa6da5a9bae5d5597edbc2cb533eccea45d9fd1` |
+
+### DAO & Governance
+
+| Contract | Address |
+|----------|---------|
+| FeeConfig | `0x563a1cb3a1b8fb106916fde7de702bc2e5bd704b` |
+| DAORegistry | `0x8a2fab7e60a3041c5fc142d3f60941859e33612c` |
+| DAOFunding | `0xd09faa0a824605760d48ca04d32add8db47ab8bc` |
+| BoardGovernance | `0x1ee48e51d8266be9b038db37ab55c935ecac9ef1` |
+
+### Commerce
+
+| Contract | Address |
+|----------|---------|
+| AuthCaptureEscrow | `0x86df59517b75aa47e6e19a5e2b07c359c098dc98` |
+
+### Liquidity
+
+| Contract | Address |
+|----------|---------|
+| RiskSleeve | `0x1908ec79e5c8e6b17a9c6c56ead9014555e7210d` |
+
+### Content & Git
+
+| Contract | Address |
+|----------|---------|
+| ContentRegistry | `0x47c9b4bb4680163cff384b184acc1d12ef75295a` |
+| RepoRegistry (GitPkg) | `0x5b73c5498c1e3b4dba84de0f1833c4a029d90519` |
+| PackageRegistry (GitPkg) | `0x7fa9385be102ac3eac297483dd6233d62b3e1496` |
+
+### Crucible
+
+| Contract | Address |
+|----------|---------|
+| AgentVault | `0xa539885c451072af0bca62f570b8ad296823830a` |
+| RoomRegistry | `0xf271726f1d23cc5969445c0c1cdf502836253845` |
+| TriggerRegistry | `0x58a55dc97a3bba3cd16d927e3ed5b3c90f8e1a4c` |
+
+### Proof of Cloud
+
+| Contract | Address |
+|----------|---------|
+| ProofOfCloudValidator | `0xbb1508040daeff7c1d4d6e8b4fe714f519676a13` |
+
+### SQLit
+
+| Contract | Address |
+|----------|---------|
+| SQLitIdentityRegistry | `0x5b73c5498c1e3b4dba84de0f1833c4a029d90519` |
+
+## Not Yet Deployed
+
+These contracts have deploy scripts but failed due to missing dependencies or env vars:
+
+| Contract Suite | Script | Reason |
+|---------------|--------|--------|
+| DWS Infrastructure | `DeployDWSInfra.s.sol` | Deployed on-chain but broadcast not captured (vm.writeFile error) |
+| Governance Timelocks | `DeployGovernance.s.sol` | Deployed on-chain but broadcast not captured (vm.writeFile error) |
+| App Fee Registry | `DeployAppFeeRegistry.s.sol` | Missing `FEE_DISTRIBUTOR` env var |
+| Cross-Chain (Testnet) | `DeployTestnetCrossChain.s.sol` | Contract not found in build |
+
+### Contracts Without Deploy Scripts
+
+The following contract categories exist in source but don't have dedicated deploy scripts yet:
+
+| Category | Source Directory | Key Contracts |
+|----------|-----------------|---------------|
+| Staking | `src/staking/` | NodeStakingManager, AutoSlasher, ServiceStaking |
+| Moderation | `src/moderation/` | VoterSlashing (BanManager deployed above) |
+| AMM/DEX | `src/amm/` | UniswapV4 hooks, TFMM strategies |
+| Perps | `src/perps/` | Perpetual futures contracts |
+| Prediction | `src/prediction/` | Prediction market contracts |
+| VPN | `src/vpn/` | VPN registry and billing |
+| Launchpad | `src/launchpad/` | Token launchpad |
+| Messaging | `src/messaging/` | On-chain messaging |
+| NFTs | `src/nfts/` | NFT contracts |
+| KMS | `src/kms/` | Key management service |
+| OAuth3 | `src/oauth3/` | On-chain OAuth |
+| Games | `src/games/` | Gaming contracts |
+| Email | `src/email/` | Email verification |
+| OTC | `src/otc/` | OTC trading desk |
+| Containers | `src/containers/` | Container registry |
+| Keepalive | `src/keepalive/` | Node keepalive |
+| Rewards | `src/rewards/` | Reward distribution |
+| Security | `src/security/` | Security contracts |
+| MEV | `src/mev/` | MEV protection |
+| Dispute | `src/dispute/` | Dispute resolution (Factory deployed above) |
+| Bandwidth | `src/bandwidth/` | Bandwidth tracking |
+| Escrow | `src/escrow/` | General escrow |
+| Safe | `src/safe/` | Safe multisig integration |
+| Distributor | `src/distributor/` | Token distribution |
+| Funding | `src/funding/` | Funding mechanisms |
+| Treasury | `src/treasury/` | Treasury management |
+| Marketplace | `src/marketplace/` | General marketplace |
+| Models | `src/models/` | ML model contracts |
+| Proxy | `src/proxy/` | Upgradeable proxy patterns |
 
 ## Services
 
@@ -165,74 +290,14 @@ All contracts from the following deploy scripts have been deployed:
 | op-geth (RPC) | 9545 | `https://jeju-testnet.fartbag.fun/` |
 | op-geth (WS) | 9546 | `wss://jeju-testnet.fartbag.fun/ws` |
 | op-node | 7545 | internal |
-| op-batcher | 6545 | internal |
+| op-batcher | 6545 | internal (blob DA) |
 | Alto Bundler | 4337 | `https://jeju-testnet.fartbag.fun/bundler` |
 | PoW Faucet | 8088 | `https://jeju-testnet.fartbag.fun/faucet/` |
 | Gateway API | 4013 | `https://jeju-testnet.fartbag.fun/gateway/` |
-| Faucet API | 4014 | `https://jeju-testnet.fartbag.fun/gateway/api/faucet/` |
 | DWS Console | 4030 | `http://52.206.203.24/` (AWS) |
-| OAuth3 | 4200 | `http://52.206.203.24:4200/` (AWS, proxied via DWS) |
 
-## E2E Paymaster Test
+## Deployment History
 
-The paymaster system has been verified end-to-end. Users can pay gas with JEJU/ELIZAOS tokens:
-
-```bash
-# Run the e2e test
-export DEPLOYER_PRIVATE_KEY=0x...
-node packages/contracts/scripts/e2e-paymaster-elizaos.mjs
-```
-
-**Verified flow:**
-1. Deploy smart wallet via EntryPoint + SimpleAccountFactory
-2. Approve JEJU/ELIZAOS tokens to LiquidityPaymaster
-3. Send paymaster-sponsored transaction (gas paid in JEJU/ELIZAOS, no ETH needed)
-
-## Gateway Portal
-
-The gateway web UI is live at `https://jeju-testnet.fartbag.fun/gateway/` with the following features:
-
-- **Browse**: View registered agents from the IdentityRegistry (reads directly from contract)
-- **Registry**: Register new agents with JEJU token staking (ERC-8004)
-- **Faucet**: Claim 100 JEJU tokens per 12h cooldown (requires agent registration). Gas grants available for unregistered users
-- **Nodes**: Register DWS/compute nodes with token staking, view performance metrics
-
-### Faucet API
-
-Standalone faucet server running on port 4014, proxied via nginx at `/gateway/api/faucet/`.
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/faucet/info` | GET | Faucet configuration and requirements |
-| `/api/faucet/status/:address` | GET | Eligibility, cooldown, balance for an address |
-| `/api/faucet/claim` | POST | Claim JEJU tokens (body: `{ address }`) |
-| `/api/faucet/gas-grant` | POST | Claim gas ETH for registration (body: `{ address }`) |
-
-**Runtime:** `DEPLOYER_PRIVATE_KEY=0x... USE_MEMORY_STATE=true JEJU_TESTNET_RPC_URL=http://127.0.0.1:9545 bun run api/faucet-server.ts`
-
-## Infrastructure Notes
-
-### OP Stack Components
-- **op-geth**: Execution engine (Docker, x86_64 via QEMU on ARM64)
-- **op-node**: Consensus/derivation from Sepolia L1
-- **op-batcher**: Batch submission to Sepolia (with `--throttle.unsafe-da-bytes-lower-threshold=0`)
-- **Alto Bundler**: Pimlico ERC-4337 bundler (native Node.js)
-
-### Known Issues
-- `--rollup.sequencerhttp` must NOT be set on the sequencer's op-geth (causes tx forwarding loop)
-- BasePaymaster in account-abstraction v0.9 requires ERC165-compatible EntryPoint (not canonical v0.7)
-- `forge create --constructor-args` must come AFTER `--private-key` ([foundry#770](https://github.com/foundry-rs/foundry/issues/770))
-- ManualPriceOracle does not implement the IPriceOracle interface; use PriceOracle instead
-- **EntryPoint v0.9 uses EIP-712 typed data hash** — incompatible with Alto bundler's v0.7 hash computation. UserOps must be submitted via direct `handleOps` calls, not through the bundler's `eth_sendUserOperation` RPC. The bundler can still be used for v0.7 EntryPoint operations.
-- SimpleAccount v0.9 `_validateSignature` uses `ECDSA.recover(userOpHash, signature)` without `toEthSignedMessageHash()` — sign with `account.sign({ hash })` not `account.signMessage()`
-- **CrossChainPaymaster** exceeds 24KB max contract code size (26.7KB even with via-ir optimizer). Needs refactoring to deploy.
-
-### Sequencer Architecture
-
-The testnet runs a single sequencer (op-batcher) that submits batches to Sepolia L1. If the sequencer goes down:
-- L2 blocks stop being finalized on L1, but unsafe blocks continue locally via op-geth
-- Users can force-include transactions via the L1 OptimismPortal (ForcedInclusion contract deployed)
-- The sequencer key is required to resume batch submission; no automatic failover exists
-- User funds remain safe on L1 and can be withdrawn via the dispute game mechanism
-
-For production, consider integrating a shared sequencer (Espresso, Astria) for decentralized sequencing and failover.
+- **Feb 22, 2026**: Full redeployment with new deployer key (`0x86d240...`). 97 contracts across 24 deploy scripts. Switched batcher to blob DA.
+- **Feb 21, 2026**: 22,428-block reorg caused by batcher running out of Sepolia ETH. All post-genesis contracts lost.
+- **Feb 21, 2026**: Initial deployment on Sepolia L1.
