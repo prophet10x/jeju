@@ -175,6 +175,7 @@ services:
       - --rpc.addr=0.0.0.0
       - --rpc.port=6545
       - --log.level=info
+      - --data-availability-type=blobs
     restart: unless-stopped
 
   # ============================================================================
