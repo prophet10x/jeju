@@ -115,25 +115,6 @@ contract DeployGovernance is Script {
         console.log("  - SystemConfig: transferOwnership(criticalTimelock)");
         console.log("  - L2OutputOracle: transferOwnership(criticalTimelock)");
 
-        // Save deployment addresses
-        string memory json = string.concat(
-            '{\n',
-            '  "network": "jeju-testnet",\n',
-            '  "chainId": 420690,\n',
-            '  "contracts": {\n',
-            '    "standardTimelock": "', vm.toString(address(standardTimelock)), '",\n',
-            '    "criticalTimelock": "', vm.toString(address(criticalTimelock)), '",\n',
-            '    "emergencyTimelock": "', vm.toString(address(emergencyTimelock)), '"\n',
-            '  },\n',
-            '  "config": {\n',
-            '    "standardDelay": "', vm.toString(minDelay), '",\n',
-            '    "criticalDelay": "', vm.toString(criticalDelay), '",\n',
-            '    "emergencyDelay": "', vm.toString(emergencyDelay), '"\n',
-            '  }\n',
-            '}'
-        );
-        vm.writeFile("deployments/jeju-testnet-governance.json", json);
-        console.log("");
-        console.log("Deployment saved to: deployments/jeju-testnet-governance.json");
+        // Addresses are captured from broadcast files by the orchestrator
     }
 }

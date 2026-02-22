@@ -182,26 +182,6 @@ contract DeployDWSInfra is Script {
         console.log("  3. Configure billing tokens via DWSBilling.setAcceptedToken()");
         console.log("  4. Update DWS Helm chart with contract addresses");
 
-        // Save deployment addresses
-        string memory json = string.concat(
-            '{\n',
-            '  "network": "jeju-testnet",\n',
-            '  "chainId": 420690,\n',
-            '  "contracts": {\n',
-            '    "dwsProviderRegistry": "', vm.toString(address(providerRegistry)), '",\n',
-            '    "dwsBilling": "', vm.toString(address(billing)), '",\n',
-            '    "dwsServiceProvisioning": "', vm.toString(address(serviceProvisioning)), '"\n',
-            '  },\n',
-            '  "plans": {\n',
-            '    "computeStarter": "', vm.toString(computeStarterPlan), '",\n',
-            '    "computePro": "', vm.toString(computeProPlan), '",\n',
-            '    "databaseStarter": "', vm.toString(dbStarterPlan), '",\n',
-            '    "databasePro": "', vm.toString(dbProPlan), '"\n',
-            '  }\n',
-            '}'
-        );
-        vm.writeFile("deployments/jeju-testnet-dws-infra.json", json);
-        console.log("");
-        console.log("Deployment saved to: deployments/jeju-testnet-dws-infra.json");
+        // Addresses are captured from broadcast files by the orchestrator
     }
 }

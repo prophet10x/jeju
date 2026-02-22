@@ -241,6 +241,55 @@ const DEPLOYMENT_PHASES: DeploymentPhase[] = [
     dependsOn: ['core'],
     skipOnMissingScript: true,
   },
+  {
+    name: 'staking',
+    description: 'NodeStakingManager, AutoSlasher, ServiceStaking',
+    script: 'script/DeployStaking.s.sol:DeployStaking',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'vpn',
+    description: 'VPN Registry',
+    script: 'script/DeployVPN.s.sol:DeployVPN',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'escrow',
+    description: 'Trade Escrow',
+    script: 'script/DeployEscrow.s.sol:DeployEscrow',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'containers',
+    description: 'Container Registry',
+    script: 'script/DeployContainers.s.sol:DeployContainers',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'marketplace',
+    description: 'General Marketplace',
+    script: 'script/DeployMarketplace.s.sol:DeployMarketplace',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'fee-distributor',
+    description: 'FeeDistributor + AirdropManager',
+    script: 'script/DeployFeeDistributor.s.sol:DeployFeeDistributor',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'uniswap',
+    description: 'Uniswap V4 (PoolManager, Router, etc)',
+    script: 'script/DeployUniswapV4.s.sol:DeployUniswapV4',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
 ]
 
 class ContractDeployer {
