@@ -471,9 +471,23 @@ class ContractDeployer {
     }
 
     // Build environment variables
+    // Pass deployed contract addresses as env vars for subsequent phases
+    const contractEnv: Record<string, string> = {}
+    for (const [name, addr] of Object.entries(this.deployedContracts)) {
+      // Convert "IdentityRegistry" to "IDENTITY_REGISTRY_ADDRESS"
+      const envKey =
+        name
+          .replace(/([A-Z])/g, '_$1')
+          .toUpperCase()
+          .replace(/^_/, '') + '_ADDRESS'
+      contractEnv[envKey] = addr
+    }
+
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
+      PRIVATE_KEY: this.privateKey,
       DEPLOYER_PRIVATE_KEY: this.privateKey,
+      ...contractEnv,
       ...phase.envVars,
     }
 
