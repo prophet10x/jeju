@@ -186,6 +186,62 @@ const DEPLOYMENT_PHASES: DeploymentPhase[] = [
     dependsOn: ['core'],
     skipOnMissingScript: true,
   },
+  {
+    name: 'board-governance',
+    description: 'Board Governance contracts',
+    script: 'script/DeployBoardGovernance.s.sol:DeployBoardGovernance',
+    dependsOn: ['governance'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'dws-marketplace',
+    description: 'DWS Marketplace (Oracle/Indexer marketplace)',
+    script: 'script/DeployDWSMarketplace.s.sol:DeployDWSMarketplace',
+    dependsOn: ['dws'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'crucible',
+    description: 'Crucible app contracts',
+    script: 'script/DeployCrucible.s.sol:DeployCrucible',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'elizaos',
+    description: 'ELIZAOS token',
+    script: 'script/DeployELIZAOS.s.sol:DeployELIZAOS',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'app-fee-registry',
+    description: 'App Fee Registry',
+    script: 'script/DeployAppFeeRegistry.s.sol:DeployAppFeeRegistry',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'sqlit-identity',
+    description: 'SQLit Identity contracts',
+    script: 'script/DeploySQLitIdentity.s.sol:DeploySQLitIdentity',
+    dependsOn: ['sqlit', 'core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'cross-chain',
+    description: 'Testnet Cross-Chain contracts',
+    script: 'script/DeployTestnetCrossChain.s.sol:DeployTestnetCrossChain',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'entrypoint',
+    description: 'ERC-4337 EntryPoint',
+    script: 'script/DeployEntryPoint.s.sol:DeployEntryPoint',
+    dependsOn: [],
+    skipOnMissingScript: true,
+  },
 ]
 
 class ContractDeployer {
