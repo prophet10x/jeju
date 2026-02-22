@@ -23,7 +23,8 @@ const CONTRACTS_DIR = join(ROOT, 'packages/contracts')
 const CONFIG_DIR = join(ROOT, 'packages/config')
 
 // Jeju Testnet configuration
-const TESTNET_RPC = 'https://testnet-rpc.jejunetwork.org'
+const TESTNET_RPC =
+  process.env.JEJU_TESTNET_RPC_URL || 'https://jeju-testnet.fartbag.fun/'
 const TESTNET_CHAIN_ID = 420690
 
 interface DeploymentPhase {
@@ -46,10 +47,17 @@ interface DeploymentResult {
 // Deployment phases in order
 const DEPLOYMENT_PHASES: DeploymentPhase[] = [
   {
+    name: 'core',
+    description:
+      'Identity, Reputation, Validation, BanManager, Tokens, Paymasters',
+    script: 'script/Deploy.s.sol:Deploy',
+    dependsOn: [],
+  },
+  {
     name: 'dws',
     description: 'JNS + Storage + Workers + CDN + Git + Packages',
     script: 'script/DeployDWS.s.sol:DeployDWS',
-    dependsOn: [],
+    dependsOn: ['core'],
   },
   {
     name: 'tee',
@@ -148,6 +156,34 @@ const DEPLOYMENT_PHASES: DeploymentPhase[] = [
     description: 'Proof of Cloud compute contracts',
     script: 'script/DeployProofOfCloud.s.sol:DeployProofOfCloud',
     dependsOn: ['dws'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'compute',
+    description: 'ComputeRegistry, LedgerManager, InferenceServing',
+    script: 'script/DeployComputeAll.s.sol:DeployComputeAll',
+    dependsOn: ['core'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'dws-infra',
+    description: 'DWS Provider Registry, Billing, Service Provisioning',
+    script: 'script/DeployDWSInfra.s.sol:DeployDWSInfra',
+    dependsOn: ['dws'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'sqlit',
+    description: 'SQLit Registry',
+    script: 'script/DeploySQLitRegistry.s.sol:DeploySQLitRegistry',
+    dependsOn: ['dws'],
+    skipOnMissingScript: true,
+  },
+  {
+    name: 'governance',
+    description: 'Governance contracts',
+    script: 'script/DeployGovernance.s.sol:DeployGovernance',
+    dependsOn: ['core'],
     skipOnMissingScript: true,
   },
 ]
@@ -341,6 +377,12 @@ class ContractDeployer {
   private isPhaseComplete(phaseName: string): boolean {
     // Check if we have contracts from this phase
     const phaseContracts: Record<string, string[]> = {
+      core: [
+        'identityRegistry',
+        'IdentityRegistry',
+        'banManager',
+        'BanManager',
+      ],
       dws: [
         'jnsRegistry',
         'storageManager',
@@ -351,6 +393,7 @@ class ContractDeployer {
       ],
       x402: ['x402Facilitator', 'X402Facilitator'],
       decentralization: ['sequencerRegistry', 'SequencerRegistry'],
+      compute: ['computeRegistry', 'ComputeRegistry'],
     }
 
     const expected = phaseContracts[phaseName] || []
