@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "lastUpdated": "2025-12-29",
+  "lastUpdated": "2026-02-22",
   "description": "All contract addresses for Jeju networks. Env overrides use VITE_/PUBLIC_ + name (e.g., VITE_BAN_MANAGER_ADDRESS)",
   "constants": {
     "entryPoint": "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
@@ -244,7 +244,7 @@
       "evidenceRegistry": ""
     },
     "bazaar": {
-      "marketplace": "",
+      "marketplace": "0xFD471836031dc5108809D173A067e8486B9047A3",
       "predictionMarket": "",
       "predictionOracle": "",
       "simpleCollectible": "",
@@ -260,8 +260,10 @@
       "bountyRegistry": ""
     },
     "nodeStaking": {
-      "manager": "",
-      "performanceOracle": "0xbb0a3554af6792436609d21bcd703b9ef70ee7aa"
+      "manager": "0xCD8a1C3ba11CF5ECfa6267617243239504a98d90",
+      "performanceOracle": "0xbb0a3554af6792436609d21bcd703b9ef70ee7aa",
+      "autoSlasher": "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1",
+      "serviceStaking": "0x2bdCC0de6bE1f7D2ee689a0342D76F52E8EFABa3"
     },
     "jns": {
       "registry": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
@@ -278,8 +280,11 @@
       "marketplace": "0x5b73c5498c1e3b4dba84de0f1833c4a029d90519",
       "managedDatabaseRegistry": "",
       "cacheManager": "",
-      "containerRegistry": "",
-      "cronOrchestrator": ""
+      "containerRegistry": "0xc351628EB244ec633d5f21fBD6621e1a683B1181",
+      "cronOrchestrator": "",
+      "providerRegistry": "0x0e801d84fa97b50751dbf25036d067dcf18858bf",
+      "billing": "0x8f86403a4de0bb5791fa46b8e795c547942fe4cf",
+      "serviceProvisioning": "0x9d4454b023096f34b160d6b654540c56a1f81688"
     },
     "payments": {
       "feeConfig": "0x563a1cb3a1b8fb106916fde7de702bc2e5bd704b",
@@ -328,9 +333,9 @@
     },
     "governance": {
       "governor": "",
-      "timelock": "",
-      "criticalTimelock": "",
-      "emergencyTimelock": "",
+      "timelock": "0x1291be112d480055dafd8a610b7d1e203891c274",
+      "criticalTimelock": "0x5f3f1dbd7b74c6b46e8c44f98792a1daf8d69154",
+      "emergencyTimelock": "0xb7278a61aa25c888815afc32ad3cc52ff24fe575",
       "futarchyGovernor": "",
       "registryGovernance": "",
       "autocrat": "",
@@ -368,9 +373,10 @@
     },
     "fees": {
       "feeConfig": "0x563a1cb3a1b8fb106916fde7de702bc2e5bd704b",
-      "feeDistributor": "",
+      "feeDistributor": "0xcbEAF3BDe82155F56486Fb5a1072cb8baAf547cc",
       "feeGovernance": "",
-      "appFeeRegistry": ""
+      "appFeeRegistry": "0xb0d4afd8879ed9f52b28595d31b441d079b2ca07",
+      "airdropManager": "0x1429859428C0aBc9C2C47C8Ee9FBaf82cFA0F20f"
     },
     "sqlit": {
       "identityRegistry": "0x5b73c5498c1e3b4dba84de0f1833c4a029d90519"
@@ -436,6 +442,12 @@
     "entryPoint": {
       "v07": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
       "deployed": "0x8332e76e40805ac9b06f3b11c1f415d608f66db3"
+    },
+    "vpn": {
+      "registry": "0x7969c5eD335650692Bc04293B07F5BF2e7A673C0"
+    },
+    "escrow": {
+      "tradeEscrow": "0x7bc06c482DEAd17c0e297aFbC32f6e63d3846650"
     }
   },
   "mainnet": {
