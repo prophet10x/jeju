@@ -439,9 +439,10 @@
     "content": {
       "contentRegistry": "0x47c9b4bb4680163cff384b184acc1d12ef75295a"
     },
-    "entryPoint": {
-      "v07": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
-      "deployed": "0x8332e76e40805ac9b06f3b11c1f415d608f66db3"
+    "accountAbstraction": {
+      "entryPointV07": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "entryPointDeployed": "0x922D6956C99E12DFeB3224DEA977D0939758A1Fe",
+      "simpleAccountFactory": "0x5081a39b8A5f0E35a8D959395a630b68B74Dd30f"
     },
     "vpn": {
       "registry": "0x7969c5eD335650692Bc04293B07F5BF2e7A673C0"

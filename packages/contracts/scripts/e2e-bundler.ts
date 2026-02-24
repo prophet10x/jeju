@@ -40,9 +40,9 @@ const RPC_URL = process.env.RPC_URL || 'https://jeju-testnet.fartbag.fun/'
 const CHAIN_ID = parseInt(process.env.CHAIN_ID || '420690')
 
 const ENTRY_POINT = (process.env.ENTRYPOINT ||
-  '0x4826533b4897376654bb4d4ad88b7fafd0c98528') as Address
+  '0x922D6956C99E12DFeB3224DEA977D0939758A1Fe') as Address
 const FACTORY = (process.env.FACTORY ||
-  '0x9d4454B023096f34B160D6B654540c56A1F81688') as Address
+  '0x5081a39b8A5f0E35a8D959395a630b68B74Dd30f') as Address
 
 const DEPLOYER_KEY = process.env.DEPLOYER_PRIVATE_KEY as Hex
 const USER_KEY = (process.env.TEST_USER_KEY ||
