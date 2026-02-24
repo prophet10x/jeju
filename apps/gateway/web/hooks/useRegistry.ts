@@ -474,7 +474,8 @@ interface StakeInfoData {
 }
 
 // JEJU token address - used to display "JEJU" instead of raw address
-const JEJU_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3'
+// Use centralized config - not hardcoded
+const JEJU_TOKEN = CONTRACTS.jeju
 
 function resolveTokenName(tokenAddr: string): string {
   if (!tokenAddr || tokenAddr === ZERO_ADDRESS) return 'None'
