@@ -61,10 +61,14 @@ export function LoginButton({
     if (isLoading || isButtonLoading || disabled) return
 
     setIsButtonLoading(true)
-
-    await login(provider)
-    onSuccess?.()
-    setIsButtonLoading(false)
+    try {
+      await login(provider)
+      onSuccess?.()
+    } catch (err) {
+      console.error(`[LoginButton] ${provider} login failed:`, err)
+    } finally {
+      setIsButtonLoading(false)
+    }
   }, [login, provider, isLoading, isButtonLoading, disabled, onSuccess])
 
   const buttonLabel = children ?? (
