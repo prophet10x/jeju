@@ -230,34 +230,34 @@
     },
     "registry": {
       "identity": "0xd69811b544a76bf6c995a4a5263b648fa7b59082",
-      "app": "",
+      "app": "0x3aAde2dCD2Df6a8cAc689EE797591b2913658659",
       "node": "",
-      "token": "",
+      "token": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
       "reputation": "0xe10d8b33a678f292e979d34a178b7297e0ca9469",
       "validation": "0x62fae7515077becff8f7cda15ac13d39e85f8d7e"
     },
     "moderation": {
       "banManager": "0x2117e8d850387338b516e85651d80919f799ad64",
       "moderationMarketplace": "",
-      "reportingSystem": "",
+      "reportingSystem": "0x40918Ba7f132E0aCba2CE4de4c4baF9BD2D7D849",
       "reputationLabelManager": "0xd5eafc2842b003d1e4c1bc2a950d0eafc5ac4345",
-      "evidenceRegistry": ""
+      "evidenceRegistry": "0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8"
     },
     "bazaar": {
       "marketplace": "0xFD471836031dc5108809D173A067e8486B9047A3",
-      "predictionMarket": "",
-      "predictionOracle": "",
-      "simpleCollectible": "",
-      "tokenFactory": ""
+      "predictionMarket": "0x1f10F3Ba7ACB61b2F50B9d6DdCf91a6f787C0E82",
+      "predictionOracle": "0xE3011A37A904aB90C8881a99BD1F6E21401f1522",
+      "simpleCollectible": "0x457cCf29090fe5A24c19c1bc95F492168C0EaFdb",
+      "tokenFactory": "0x525C7063E7C20997BaaE9bDa922159152D0e8417"
     },
     "perps": {
-      "market": "",
-      "marginManager": "",
-      "insuranceFund": "",
-      "priceOracle": ""
+      "market": "0x2a810409872AfC346F9B5b26571Fd6eC42EA4849",
+      "marginManager": "0xB82008565FdC7e44609fA118A4a681E92581e680",
+      "insuranceFund": "0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c",
+      "priceOracle": "0x38a024C0b412B9d1db8BC398140D00F5Af3093D4"
     },
     "security": {
-      "bountyRegistry": ""
+      "bountyRegistry": "0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926"
     },
     "nodeStaking": {
       "manager": "0xCD8a1C3ba11CF5ECfa6267617243239504a98d90",
@@ -277,11 +277,11 @@
       "cdnRegistry": "0x59b670e9fa9d0a427751af201d676719a970857b",
       "repoRegistry": "0x4ed7c70f96b99c776995fb64377f0d4ab3b0e1c1",
       "packageRegistry": "0x322813fd9a801c5507c9de605d63cea4f2ce6c44",
-      "marketplace": "",
-      "managedDatabaseRegistry": "",
+      "marketplace": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519",
+      "managedDatabaseRegistry": "0x3155755b79aA083bd953911C92705B7aA82a18F9",
       "cacheManager": "",
       "containerRegistry": "0xc351628EB244ec633d5f21fBD6621e1a683B1181",
-      "cronOrchestrator": "",
+      "cronOrchestrator": "0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A",
       "providerRegistry": "0x0e801d84fa97b50751dbf25036d067dcf18858bf",
       "billing": "0x8f86403a4de0bb5791fa46b8e795c547942fe4cf",
       "serviceProvisioning": "0x9d4454b023096f34b160d6b654540c56a1f81688"
@@ -293,20 +293,20 @@
       "priceOracle": "0xb10c232987ddce181b008d64ec5697a88bd126d1",
       "serviceRegistry": "0xefc5a8c31cfd2a693e0169790421076916405083",
       "creditManager": "0x6cfc5f9b0e5fe29470778b018aaaeb014281ea19",
-      "liquidityPaymaster": "",
+      "liquidityPaymaster": "0xF32D39ff9f6Aa7a7A64d7a4F00a54826Ef791a55",
       "multiTokenPaymaster": "0xfc86aeccf568e966c404387037195eee2f97f51d",
       "paymasterFactory": "0xe4abfd2e67240dfffa8433e04df094f3b5206272",
       "tokenRegistry": "0x6d8a467a29e4da4b53345555ae7d628e741a40a8"
     },
     "commerce": {
       "authCaptureEscrow": "0x86df59517b75aa47e6e19a5e2b07c359c098dc98",
-      "commerceOperator": "",
+      "commerceOperator": "0xc0F115A19107322cFBf1cDBC7ea011C19EbDB4F8",
       "nftMarketplace": ""
     },
     "defi": {
-      "poolManager": "",
-      "positionManager": "",
-      "swapRouter": "",
+      "poolManager": "0xD84379CEae14AA33C123Af12424A37803F885889",
+      "positionManager": "0x99dBE4AEa58E518C50a1c04aE9b48C9F6354612f",
+      "swapRouter": "0x2B0d36FACD61B71CC05ab8F3D2355ec3631C0dd5",
       "quoterV4": "",
       "stateView": ""
     },
@@ -314,10 +314,10 @@
       "registry": "0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9",
       "ledgerManager": "0xdbd0ff6c9280f4a335eb23d2565c861bf17e2414",
       "inferenceServing": "0x12fe1fb20900337c295c85af671a88bc7548e08c",
-      "staking": "",
-      "workerRegistry": "",
-      "cronTriggerRegistry": "",
-      "dwsMarketplace": ""
+      "staking": "0xfaAddC93baf78e89DCf37bA67943E1bE8F37Bb8c",
+      "workerRegistry": "0x34B40BA116d5Dec75548a9e9A8f15411461E8c70",
+      "cronTriggerRegistry": "0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A",
+      "dwsMarketplace": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519"
     },
     "sequencer": {
       "registry": "0xfff980e4c02497b59bbcc407a4b6cd7fe73c03b6",
@@ -337,7 +337,7 @@
       "criticalTimelock": "0x5f3f1dbd7b74c6b46e8c44f98792a1daf8d69154",
       "emergencyTimelock": "0xb7278a61aa25c888815afc32ad3cc52ff24fe575",
       "futarchyGovernor": "",
-      "registryGovernance": "",
+      "registryGovernance": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519",
       "autocrat": "",
       "daoRegistry": "0x8a2fab7e60a3041c5fc142d3f60941859e33612c",
       "daoFunding": "0xd09faa0a824605760d48ca04d32add8db47ab8bc",
@@ -352,8 +352,8 @@
     "eil": {
       "l1StakeManager": "0x81ba38fd34f342f81646f22c8452167c297d8bd6",
       "crossChainPaymaster": "0xd4c0a4f86870576c7103c20174aa3a36ea107136",
-      "crossChainSwapRouter": "",
-      "liquidityPaymaster": ""
+      "crossChainSwapRouter": "0x07882Ae1ecB7429a84f1D53048d35c4bB2056877",
+      "liquidityPaymaster": "0xF32D39ff9f6Aa7a7A64d7a4F00a54826Ef791a55"
     },
     "federation": {
       "registryHub": "0x4b87840caee7df61efa29df64a1002402e8b6b50",
@@ -366,10 +366,10 @@
     },
     "liquidity": {
       "riskSleeve": "0x1908ec79e5c8e6b17a9c6c56ead9014555e7210d",
-      "liquidityRouter": "",
-      "multiServiceStakeManager": "",
-      "liquidityVault": "",
-      "federatedLiquidity": ""
+      "liquidityRouter": "0xb9bEECD1A582768711dE1EE7B0A1d582D9d72a6C",
+      "multiServiceStakeManager": "0x276C216D241856199A83bf27b2286659e5b877D3",
+      "liquidityVault": "0x5bf5b11053e734690269C6B9D438F8C9d48F528A",
+      "federatedLiquidity": "0xd6e1afe5cA8D00A2EFC01B89997abE2De47fdfAf"
     },
     "fees": {
       "feeConfig": "0x563a1cb3a1b8fb106916fde7de702bc2e5bd704b",
@@ -379,28 +379,28 @@
       "airdropManager": "0x1429859428C0aBc9C2C47C8Ee9FBaf82cFA0F20f"
     },
     "sqlit": {
-      "identityRegistry": ""
+      "identityRegistry": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519"
     },
     "userBlock": {
-      "registry": ""
+      "registry": "0xA7c59f010700930003b33aB25a7a0679C860f29c"
     },
     "oracle": {
       "feedRegistry": "",
       "reportVerifier": "",
-      "attestationVerifier": "",
+      "attestationVerifier": "0x2E2Ed0Cfd3AD2f1d34481277b3204d807Ca2F8c2",
       "rewardManager": ""
     },
     "chainlink": {
-      "vrfCoordinator": "",
+      "vrfCoordinator": "0x49fd2BE640DB2910c2fAb69bB8531Ab6E76127ff",
       "vrfSubscription": "",
-      "automationRegistry": "",
+      "automationRegistry": "0x4631BCAbD6dF18D94796344963cB60d44a4136b6",
       "automationForwarder": "",
       "linkToken": ""
     },
     "cdn": {
       "registry": "0x59b670e9fa9d0a427751af201d676719a970857b",
-      "billing": "",
-      "nodeRegistry": ""
+      "billing": "0x3347B4d90ebe72BeFb30444C9966B2B990aE9FcB",
+      "nodeRegistry": "0xffa7CA1AEEEbBc30C874d32C7e22F052BbEa0429"
     },
     "tee": {
       "attestationVerifier": "0x22c41faeb5b70e61c56c04fdb0cd880ebd971ad5",
@@ -412,12 +412,12 @@
       "registry": "0x11d523effbad1462e63beedc79fd2fe8fc8f2f07",
       "computeRegistry": "0xf3ed251d634d1ce275f8e8748bcfc4f96520b2f1",
       "mpcKeyRegistry": "0x544ab0facf5457e0e88d30fd118dfe5191b3f6ec",
-      "modelRegistry": "",
-      "teeRegistry": "",
+      "modelRegistry": "0x367761085BF3C12e5DA2Df99AC6E1a824612b8fb",
+      "teeRegistry": "0xD8a5a9b31c3C0232E196d518E89Fd8bF83AcAd43",
       "aiDirector": ""
     },
     "agents": {
-      "agent0Registry": "",
+      "agent0Registry": "0x22753E4264FDDc6181dc7cce468904A80a363E44",
       "vault": "0xa539885c451072af0bca62f570b8ad296823830a",
       "roomRegistry": "0xf271726f1d23cc5969445c0c1cdf502836253845",
       "triggerRegistry": "0x58a55dc97a3bba3cd16d927e3ed5b3c90f8e1a4c"
@@ -432,9 +432,9 @@
       "attestationManager": "0x130b23f59119e7c8f1ca0cdf375ebdb6c2781c63"
     },
     "rpc": {
-      "multiChainRegistry": "",
-      "bandwidthRewards": "",
-      "usageRewardDistributor": ""
+      "multiChainRegistry": "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7",
+      "bandwidthRewards": "0x0355B7B8cb128fA5692729Ab3AAa199C1753f726",
+      "usageRewardDistributor": "0x202CCe504e04bEd6fC0521238dDf04Bc9E8E15aB"
     },
     "content": {
       "contentRegistry": "0x47c9b4bb4680163cff384b184acc1d12ef75295a"
