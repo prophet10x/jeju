@@ -107,6 +107,14 @@ const WELL_KNOWN_ADDRESSES = new Set([
   '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', // Foundry deployer
   '0x70997970c51812dc3a010c7d01b50e0d17dc79c8', // Foundry test account 1
   '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc', // Foundry test account 2
+  // Well-known tokens on public chains (referenced in gateway networks.ts, x402/chains.ts)
+  '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH (Ethereum mainnet)
+  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC (Ethereum mainnet)
+  '0x7b79995e5f793a07bc00c21412e50ecae098e7f9', // WETH (Sepolia)
+  '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', // WETH (Arbitrum)
+  '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // USDC (Arbitrum)
+  '0x0165878a594ca255338adfa4d48449f69242eb8f', // USDC fallback (Jeju mainnet)
+  '0x953f6516e5d2864ce7f13186b45de418ea665eb2', // USDC fallback (Jeju testnet)
 ])
 for (const addr of WELL_KNOWN_ADDRESSES) {
   knownAddresses.add(addr)
