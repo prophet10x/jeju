@@ -277,7 +277,7 @@
       "cdnRegistry": "0x59b670e9fa9d0a427751af201d676719a970857b",
       "repoRegistry": "0x4ed7c70f96b99c776995fb64377f0d4ab3b0e1c1",
       "packageRegistry": "0x322813fd9a801c5507c9de605d63cea4f2ce6c44",
-      "marketplace": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519",
+      "marketplace": "0x6F6f570F45833E249e27022648a26F4076F48f78",
       "managedDatabaseRegistry": "0x3155755b79aA083bd953911C92705B7aA82a18F9",
       "cacheManager": "",
       "containerRegistry": "0xc351628EB244ec633d5f21fBD6621e1a683B1181",
@@ -317,7 +317,7 @@
       "staking": "0xfaAddC93baf78e89DCf37bA67943E1bE8F37Bb8c",
       "workerRegistry": "0x34B40BA116d5Dec75548a9e9A8f15411461E8c70",
       "cronTriggerRegistry": "0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A",
-      "dwsMarketplace": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519"
+      "dwsMarketplace": "0x6F6f570F45833E249e27022648a26F4076F48f78"
     },
     "sequencer": {
       "registry": "0xfff980e4c02497b59bbcc407a4b6cd7fe73c03b6",
@@ -337,7 +337,7 @@
       "criticalTimelock": "0x5f3f1dbd7b74c6b46e8c44f98792a1daf8d69154",
       "emergencyTimelock": "0xb7278a61aa25c888815afc32ad3cc52ff24fe575",
       "futarchyGovernor": "",
-      "registryGovernance": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519",
+      "registryGovernance": "0xB0f05d25e41FbC2b52013099ED9616f1206Ae21B",
       "autocrat": "",
       "daoRegistry": "0x8a2fab7e60a3041c5fc142d3f60941859e33612c",
       "daoFunding": "0xd09faa0a824605760d48ca04d32add8db47ab8bc",
@@ -379,7 +379,7 @@
       "airdropManager": "0x1429859428C0aBc9C2C47C8Ee9FBaf82cFA0F20f"
     },
     "sqlit": {
-      "identityRegistry": "0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519"
+      "identityRegistry": "0xCA8c8688914e0F7096c920146cd0Ad85cD7Ae8b9"
     },
     "userBlock": {
       "registry": "0xA7c59f010700930003b33aB25a7a0679C860f29c"
