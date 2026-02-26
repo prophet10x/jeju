@@ -277,7 +277,7 @@
       "cdnRegistry": "0x59b670e9fa9d0a427751af201d676719a970857b",
       "repoRegistry": "0x4ed7c70f96b99c776995fb64377f0d4ab3b0e1c1",
       "packageRegistry": "0x322813fd9a801c5507c9de605d63cea4f2ce6c44",
-      "marketplace": "0x5b73c5498c1e3b4dba84de0f1833c4a029d90519",
+      "marketplace": "",
       "managedDatabaseRegistry": "",
       "cacheManager": "",
       "containerRegistry": "0xc351628EB244ec633d5f21fBD6621e1a683B1181",
@@ -317,7 +317,7 @@
       "staking": "",
       "workerRegistry": "",
       "cronTriggerRegistry": "",
-      "dwsMarketplace": "0x5b73c5498c1e3b4dba84de0f1833c4a029d90519"
+      "dwsMarketplace": ""
     },
     "sequencer": {
       "registry": "0xfff980e4c02497b59bbcc407a4b6cd7fe73c03b6",
@@ -328,8 +328,8 @@
       "l2OutputOracleAdapter": "0x78e41ae212154fbdf68f7859cabf775a5a7699a9",
       "governanceTimelock": "0x2d47410261a156cefae5ae5a6ca3f597d7612ba1",
       "cannonProver": "0xebe9b937a724f6b366fd38359e67acf751928598",
-      "preimageOracle": "0x44ffba0a689de595c7d9501db26a131021cb3108",
-      "mips": "0x8446e5e94a02f3aa96dce377df212e10700f1bba"
+      "preimageOracle": "",
+      "mips": ""
     },
     "governance": {
       "governor": "",
@@ -379,7 +379,7 @@
       "airdropManager": "0x1429859428C0aBc9C2C47C8Ee9FBaf82cFA0F20f"
     },
     "sqlit": {
-      "identityRegistry": "0x5b73c5498c1e3b4dba84de0f1833c4a029d90519"
+      "identityRegistry": ""
     },
     "userBlock": {
       "registry": ""
@@ -432,9 +432,9 @@
       "attestationManager": "0x130b23f59119e7c8f1ca0cdf375ebdb6c2781c63"
     },
     "rpc": {
-      "multiChainRegistry": "0x2e2ed0cfd3ad2f1d34481277b3204d807ca2f8c2",
-      "bandwidthRewards": "0xd8a5a9b31c3c0232e196d518e89fd8bf83acad43",
-      "usageRewardDistributor": "0xdc11f7e700a4c898ae5caddb1082cffa76512add"
+      "multiChainRegistry": "",
+      "bandwidthRewards": "",
+      "usageRewardDistributor": ""
     },
     "content": {
       "contentRegistry": "0x47c9b4bb4680163cff384b184acc1d12ef75295a"
