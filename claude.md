@@ -101,6 +101,21 @@ All services reading contract addresses may need restart to use new deployed con
 - ⚠️ **indexer** - Tracks blockchain events
 - ❌ **wallet, factory, crucible** - Likely stateless
 
+## Gateway Rebuild After Contract Deployment
+
+**CRITICAL:** The gateway bakes contract addresses from `contracts.json` into its JS bundle at build time. After ANY contract redeployment, the gateway MUST be rebuilt or users will silently send TXs to stale/dead addresses.
+
+After ANY contract redeployment:
+1. Update `packages/config/contracts.json` with new addresses
+2. Rebuild gateway: `JEJU_NETWORK=testnet bun run --cwd apps/gateway build`
+3. Copy dist to Oracle: `scp -r apps/gateway/dist ubuntu@192.9.153.231:~/jeju-repo/apps/gateway/`
+4. Verify: `bun run packages/deployment/scripts/verify-contracts.ts --network testnet --gateway-check`
+
+The verification script checks:
+- Every configured address in contracts.json has bytecode on-chain (`getCode`)
+- `--gateway-check` verifies the built JS bundle contains current contract addresses
+- Exits with error code 1 if any addresses are missing code on-chain
+
 ## Current Work Areas
 
 ### Tauri Desktop Application
