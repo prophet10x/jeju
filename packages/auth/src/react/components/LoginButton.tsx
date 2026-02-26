@@ -66,6 +66,8 @@ export function LoginButton({
       onSuccess?.()
     } catch (err) {
       console.error(`[LoginButton] ${provider} login failed:`, err)
+      // Still close the modal - wallet may be connected even if OAuth3 session failed
+      onSuccess?.()
     } finally {
       setIsButtonLoading(false)
     }
