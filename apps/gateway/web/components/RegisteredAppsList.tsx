@@ -138,11 +138,9 @@ const registryAbi = parseAbi([
   'function agents(uint256) view returns (uint256 agentId, address owner, uint8 tier, address stakedToken, uint256 stakedAmount, uint256 registeredAt, uint256 lastActivityAt, bool isBanned, bool isSlashed)',
 ])
 
-const JEJU_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3'.toLowerCase()
-
 function resolveTokenName(addr: string): string {
   if (!addr || addr === '0x0000000000000000000000000000000000000000') return 'None'
-  if (addr.toLowerCase() === JEJU_TOKEN) return 'JEJU'
+  if (addr.toLowerCase() === CONTRACTS.jeju.toLowerCase()) return 'JEJU'
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
 }
 

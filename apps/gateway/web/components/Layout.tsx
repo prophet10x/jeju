@@ -267,7 +267,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main className="main-content">
         <div className="container">
-          {isConnected && <MultiTokenBalanceDisplay />}
+          {authenticated && <MultiTokenBalanceDisplay />}
           <div className="page-content animate-fade-in">{children}</div>
         </div>
       </main>
