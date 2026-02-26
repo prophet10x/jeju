@@ -17,14 +17,14 @@ export interface TokenInfo {
   decimals: number
 }
 
-/** Token info returned from gateway's getTokenInfo contract call */
+/** Token info returned from TokenRegistry.getTokenInfo() */
 export interface GatewayTokenInfo {
-  token: Address
-  symbol: string
-  name: string
-  decimals: number
-  priceOracle: Address
-  enabled: boolean
+  supported: boolean
+  priceFeed: Address
+  minMargin: bigint
+  maxMargin: bigint
+  registrant: Address
+  registeredAt: bigint
 }
 
 // Built-in token definitions using shared ZERO_ADDRESS
@@ -67,7 +67,7 @@ export function useTokenRegistry(): UseTokenRegistryResult {
   const { data: allTokens, refetch: refetchTokens } = useReadContract({
     address: registryAddress,
     abi: TOKEN_REGISTRY_ABI,
-    functionName: 'getAllTokens',
+    functionName: 'getSupportedTokens',
   })
 
   // registrationFee may not exist in minimal ABI - default to 0

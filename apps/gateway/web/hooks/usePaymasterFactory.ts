@@ -38,8 +38,7 @@ export function usePaymasterFactory(): UsePaymasterFactoryResult {
     {
       address: factoryAddress,
       abi: PAYMASTER_FACTORY_ABI,
-      functionName: 'getDeployedPaymasters' as const,
-      args: ownerAddress ? [ownerAddress] : undefined,
+      functionName: 'getDeployedTokens' as const,
     },
   )
 
@@ -74,29 +73,7 @@ export function usePaymasterFactory(): UsePaymasterFactoryResult {
   }
 }
 
-const GET_DEPLOYMENT_ABI = [
-  {
-    type: 'function',
-    name: 'getDeployment',
-    inputs: [{ name: 'token', type: 'address' }],
-    outputs: [
-      {
-        name: 'deployment',
-        type: 'tuple',
-        components: [
-          { name: 'paymaster', type: 'address' },
-          { name: 'vault', type: 'address' },
-          { name: 'distributor', type: 'address' },
-          { name: 'token', type: 'address' },
-          { name: 'operator', type: 'address' },
-          { name: 'deployedAt', type: 'uint256' },
-          { name: 'feeMargin', type: 'uint256' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-] as const
+// Use the shared PAYMASTER_FACTORY_ABI which includes getDeployment
 
 interface DeploymentResult {
   paymaster: Address
@@ -115,7 +92,7 @@ export function usePaymasterDeployment(
 
   const { data: deploymentData, refetch } = useReadContract({
     address: factoryAddress,
-    abi: GET_DEPLOYMENT_ABI,
+    abi: PAYMASTER_FACTORY_ABI,
     functionName: 'getDeployment',
     args: tokenAddress ? [tokenAddress] : undefined,
   })

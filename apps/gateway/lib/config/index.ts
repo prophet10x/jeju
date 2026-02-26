@@ -106,7 +106,7 @@ export const CONTRACTS = {
 
   // Registry - some may not be deployed on all networks
   identityRegistry: optionalAddr(contracts.registry?.identity),
-  tokenRegistry: optionalAddr(contracts.registry?.token),
+  tokenRegistry: optionalAddr(contracts.payments?.tokenRegistry || contracts.registry?.token),
   reputationRegistry: optionalAddr(contracts.registry?.reputation),
   validationRegistry: optionalAddr(contracts.registry?.validation),
 

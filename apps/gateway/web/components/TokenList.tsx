@@ -1,9 +1,28 @@
+import { erc20Abi } from 'viem'
+import { useReadContract } from 'wagmi'
 import { usePaymasterDeployment } from '../hooks/usePaymasterFactory'
 import { useTokenConfig, useTokenRegistry } from '../hooks/useTokenRegistry'
 
 function TokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const { config } = useTokenConfig(tokenAddress)
   const { deployment } = usePaymasterDeployment(tokenAddress)
+
+  // Fetch ERC20 name/symbol/decimals from the token contract itself
+  const { data: tokenName } = useReadContract({
+    address: tokenAddress,
+    abi: erc20Abi,
+    functionName: 'name',
+  })
+  const { data: tokenSymbol } = useReadContract({
+    address: tokenAddress,
+    abi: erc20Abi,
+    functionName: 'symbol',
+  })
+  const { data: tokenDecimals } = useReadContract({
+    address: tokenAddress,
+    abi: erc20Abi,
+    functionName: 'decimals',
+  })
 
   if (!config) return null
 
@@ -20,7 +39,7 @@ function TokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
       >
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: 'clamp(1rem, 3vw, 1.25rem)', margin: 0 }}>
-            {config.name}
+            {tokenName ?? tokenAddress.slice(0, 10) + '...'}
           </h3>
           <p
             style={{
@@ -29,10 +48,10 @@ function TokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
               margin: '0.25rem 0',
             }}
           >
-            {config.symbol} • {config.decimals} decimals
+            {tokenSymbol ?? '???'} • {tokenDecimals ?? 18} decimals
           </p>
         </div>
-        {config.enabled ? (
+        {config.supported ? (
           <span className="badge badge-success">Active</span>
         ) : (
           <span className="badge badge-error">Inactive</span>
