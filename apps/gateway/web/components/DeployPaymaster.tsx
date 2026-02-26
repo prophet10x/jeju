@@ -97,7 +97,7 @@ export default function DeployPaymaster({
           }}
         >
           <p style={{ color: 'var(--info)', margin: 0 }}>
-            <strong>ℹ️ Token not yet registered</strong>
+            <strong>ℹ️ Token not yet registered in TokenRegistry</strong>
           </p>
           <p
             style={{
@@ -106,13 +106,13 @@ export default function DeployPaymaster({
               marginTop: '0.5rem',
             }}
           >
-            You can deploy a paymaster for {selectedToken.symbol} now, or
-            register it in TokenRegistry first for better protocol integration.
+            You can still deploy a paymaster for {selectedToken.symbol} below.
+            Register it in TokenRegistry later for better protocol integration.
           </p>
         </div>
       )}
 
-      {selectedToken && !deployment && config && (
+      {selectedToken && !deployment && (
         <form onSubmit={handleDeploy} style={{ marginTop: '1.5rem' }}>
           <div style={{ marginBottom: '1rem' }}>
             <label

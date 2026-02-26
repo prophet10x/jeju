@@ -9,13 +9,14 @@ import {
   useRegistry,
   useStakeAmount,
 } from '../hooks/useRegistry'
+import { CONTRACTS } from '../../lib/config'
 
 const InfoIcon = Info as ComponentType<LucideProps>
 const AlertCircleIcon = AlertCircle as ComponentType<LucideProps>
 const CheckCircleIcon = CheckCircle as ComponentType<LucideProps>
 
-// JEJU token address on testnet
-const JEJU_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const
+// JEJU token address from centralized config (network-aware)
+const JEJU_TOKEN = CONTRACTS.jeju
 
 const TIER_OPTIONS = [
   {

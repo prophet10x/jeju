@@ -1,137 +1,30 @@
 import { type Address, getAddress, zeroAddress } from 'viem'
+import { getContractsConfig, getCurrentNetwork } from '@jejunetwork/config'
 
 const ZERO_ADDRESS: Address = zeroAddress
 
-import { NETWORK, type NetworkId } from './networks.js'
-
-interface NetworkContracts {
-  jejuToken: Address
-  identityRegistry: Address
-  banManager: Address
-  moderationMarketplace: Address
-  reportingSystem: Address
-  reputationLabelManager: Address
-  inputSettler: Address
-  outputSettler: Address
-  solverRegistry: Address
-  oifOracle: Address
-  xlpRouter: Address
-  liquidityAggregator: Address
+/** Helper to safely get address from config, returns ZERO_ADDRESS if not set */
+function configAddr(value: string | undefined): Address {
+  if (!value) return ZERO_ADDRESS
+  return getAddress(value)
 }
 
-// Testnet/Localnet deployed addresses (deterministic)
-const TESTNET_CONTRACTS: NetworkContracts = {
-  jejuToken: getAddress('0x5FbDB2315678afecb367f032d93F642f64180aa3'),
-  identityRegistry: getAddress('0x40918Ba7f132E0aCba2CE4de4c4baF9BD2D7D849'),
-  banManager: getAddress('0x5FC8d32690cc91D4c39d9d3abcBD16989F875707'),
-  moderationMarketplace: getAddress(
-    '0x0165878A594ca255338adfa4d48449f69242Eb8F',
-  ),
-  reportingSystem: getAddress('0xa513E6E4b8f2a923D98304ec87F64353C4D5C853'),
-  reputationLabelManager: getAddress(
-    '0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6',
-  ),
-  inputSettler: getAddress('0x8A791620dd6260079BF849Dc5567aDC3F2FdC318'),
-  outputSettler: getAddress('0x610178dA211FEF7D417bC0e6FeD39F05609AD788'),
-  solverRegistry: getAddress('0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0'),
-  oifOracle: getAddress('0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e'),
-  xlpRouter: getAddress('0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82'),
-  liquidityAggregator: getAddress('0x9A676e781A523b5d0C0e43731313A708CB607508'),
-}
+// Load contract addresses from centralized config (contracts.json)
+const contracts = getContractsConfig(getCurrentNetwork())
 
-/**
- * Mainnet contract addresses.
- * These must be populated before mainnet launch.
- * Any code using mainnet contracts will throw at runtime if addresses are not set.
- */
-const MAINNET_CONTRACTS: NetworkContracts = {
-  jejuToken: ZERO_ADDRESS,
-  identityRegistry: ZERO_ADDRESS,
-  banManager: ZERO_ADDRESS,
-  moderationMarketplace: ZERO_ADDRESS,
-  reportingSystem: ZERO_ADDRESS,
-  reputationLabelManager: ZERO_ADDRESS,
-  inputSettler: ZERO_ADDRESS,
-  outputSettler: ZERO_ADDRESS,
-  solverRegistry: ZERO_ADDRESS,
-  oifOracle: ZERO_ADDRESS,
-  xlpRouter: ZERO_ADDRESS,
-  liquidityAggregator: ZERO_ADDRESS,
-}
-
-/**
- * Validates that a contract address is deployed (not zero address) for the current network.
- * Throws an error if using an undeployed contract on mainnet.
- */
-function validateContractDeployed(
-  address: Address,
-  contractName: string,
-): Address {
-  if (NETWORK === 'mainnet' && address === ZERO_ADDRESS) {
-    throw new Error(
-      `Contract ${contractName} is not deployed on mainnet. ` +
-        'Update MAINNET_CONTRACTS in lib/config/contracts.ts with the deployed address.',
-    )
-  }
-  return address
-}
-
-const CONTRACTS_BY_NETWORK: Record<NetworkId, NetworkContracts> = {
-  testnet: TESTNET_CONTRACTS,
-  mainnet: MAINNET_CONTRACTS,
-  localnet: TESTNET_CONTRACTS,
-}
-
-// Export individual addresses for server-side use
-// Each getter validates that the contract is deployed on mainnet
-export const JEJU_TOKEN_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].jejuToken,
-  'jejuToken',
-)
-export const IDENTITY_REGISTRY_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].identityRegistry,
-  'identityRegistry',
-)
-export const BAN_MANAGER_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].banManager,
-  'banManager',
-)
-export const MODERATION_MARKETPLACE_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].moderationMarketplace,
-  'moderationMarketplace',
-)
-export const REPORTING_SYSTEM_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].reportingSystem,
-  'reportingSystem',
-)
-export const REPUTATION_LABEL_MANAGER_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].reputationLabelManager,
-  'reputationLabelManager',
-)
-export const INPUT_SETTLER_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].inputSettler,
-  'inputSettler',
-)
-export const OUTPUT_SETTLER_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].outputSettler,
-  'outputSettler',
-)
-export const SOLVER_REGISTRY_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].solverRegistry,
-  'solverRegistry',
-)
-export const OIF_ORACLE_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].oifOracle,
-  'oifOracle',
-)
-export const XLP_ROUTER_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].xlpRouter,
-  'xlpRouter',
-)
-export const LIQUIDITY_AGGREGATOR_ADDRESS = validateContractDeployed(
-  CONTRACTS_BY_NETWORK[NETWORK].liquidityAggregator,
-  'liquidityAggregator',
-)
+// Export individual addresses sourced from centralized config
+export const JEJU_TOKEN_ADDRESS = configAddr(contracts.tokens?.jeju)
+export const IDENTITY_REGISTRY_ADDRESS = configAddr(contracts.registry?.identity)
+export const BAN_MANAGER_ADDRESS = configAddr(contracts.moderation?.banManager)
+export const MODERATION_MARKETPLACE_ADDRESS = configAddr(contracts.moderation?.moderationMarketplace)
+export const REPORTING_SYSTEM_ADDRESS = configAddr(contracts.moderation?.reportingSystem)
+export const REPUTATION_LABEL_MANAGER_ADDRESS = configAddr(contracts.moderation?.reputationLabelManager)
+export const INPUT_SETTLER_ADDRESS = configAddr(contracts.oif?.inputSettler)
+export const OUTPUT_SETTLER_ADDRESS = configAddr(contracts.oif?.outputSettler)
+export const SOLVER_REGISTRY_ADDRESS = configAddr(contracts.oif?.solverRegistry)
+export const OIF_ORACLE_ADDRESS = configAddr(contracts.oif?.oifOracle)
+export const XLP_ROUTER_ADDRESS = configAddr(contracts.defi?.swapRouter)
+export const LIQUIDITY_AGGREGATOR_ADDRESS = configAddr(contracts.liquidity?.liquidityRouter)
 
 export interface TokenConfig {
   symbol: string
@@ -148,11 +41,11 @@ export interface TokenConfig {
   isPreferred?: boolean
 }
 
-const TESTNET_TOKENS: TokenConfig[] = [
+const TOKENS: TokenConfig[] = [
   {
     symbol: 'JEJU',
     name: 'Network',
-    address: TESTNET_CONTRACTS.jejuToken,
+    address: JEJU_TOKEN_ADDRESS,
     decimals: 18,
     priceUSD: 1.0,
     logoUrl: 'https://assets.jejunetwork.org/jeju-logo.png',
@@ -164,14 +57,8 @@ const TESTNET_TOKENS: TokenConfig[] = [
   },
 ]
 
-const TOKENS_BY_NETWORK: Record<NetworkId, TokenConfig[]> = {
-  testnet: TESTNET_TOKENS,
-  mainnet: [],
-  localnet: TESTNET_TOKENS,
-}
-
 export function getTokenConfigs(): TokenConfig[] {
-  return TOKENS_BY_NETWORK[NETWORK]
+  return TOKENS
 }
 
 export function getTokenBySymbol(symbol: string): TokenConfig | undefined {
