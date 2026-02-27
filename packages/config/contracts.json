@@ -238,7 +238,8 @@
     },
     "moderation": {
       "banManager": "0x2117e8d850387338b516e85651d80919f799ad64",
-      "moderationMarketplace": "",
+      "moderationMarketplace": "0x5FeaeBfB4439F3516c74939A9D04e95AFE82C4ae",
+      "moderationMarketplaceViews": "0x976fcd02f7C4773dd89C309fBF55D5923B4c98a1",
       "reportingSystem": "0x40918Ba7f132E0aCba2CE4de4c4baF9BD2D7D849",
       "reputationLabelManager": "0xd5eafc2842b003d1e4c1bc2a950d0eafc5ac4345",
       "evidenceRegistry": "0x8A93d247134d91e0de6f96547cB0204e5BE8e5D8"
