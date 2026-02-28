@@ -643,7 +643,8 @@ function SystemHealthCard({
   const services = health?.services ?? {}
   const serviceList = Object.entries(services)
   const healthyCount = serviceList.filter(
-    ([, s]) => s.status === 'healthy',
+    ([, s]) =>
+      s.status === 'healthy' || s.status === 'available',
   ).length
   const totalCount = serviceList.length
   const allHealthy = healthyCount === totalCount && totalCount > 0
@@ -679,7 +680,7 @@ function SystemHealthCard({
             <div key={name} className="health-item">
               <span className="health-name">{name}</span>
               <span
-                className={`health-status ${service.status === 'healthy' ? 'status-healthy' : 'status-unhealthy'}`}
+                className={`health-status ${service.status === 'healthy' || service.status === 'available' ? 'status-healthy' : 'status-unhealthy'}`}
               >
                 {service.status}
               </span>
@@ -951,7 +952,8 @@ function SystemStatusCompact({
   const services = health?.services ?? {}
   const serviceList = Object.entries(services)
   const healthyCount = serviceList.filter(
-    ([, s]) => s.status === 'healthy',
+    ([, s]) =>
+      s.status === 'healthy' || s.status === 'available',
   ).length
 
   return (

@@ -613,11 +613,9 @@ app
     const cacheEngine = getSharedEngine()
     const cacheHealthy = cacheEngine !== null
 
-    // Check KMS
-    const kmsUrl = serverConfig.kmsUrl ?? getKMSUrl()
-    const kmsHealth = kmsUrl
-      ? await checkEndpoint(`${kmsUrl}/health`)
-      : { status: 'not-running' as const }
+    // Check KMS (runs in-process, check locally)
+    const kmsLocalUrl = `http://localhost:${PORT}/kms`
+    const kmsHealth = await checkEndpoint(`${kmsLocalUrl}/health`)
 
     // Check all storage backends are healthy
     const storageHealthy = Object.values(backendHealth).some((h) => h === true)
@@ -679,7 +677,7 @@ app
         workers: { status: 'available', description: 'Serverless functions' },
         workerd: { status: 'available', runtime: 'V8 isolates' },
         agents: { status: 'available', description: 'ElizaOS agent runtime' },
-        kms: { ...kmsHealth, endpoint: kmsUrl ?? 'not-configured' },
+        kms: { ...kmsHealth, endpoint: kmsLocalUrl },
         vpn: { status: 'available', description: 'VPN gateway' },
         scraping: { status: 'available', description: 'Web scraping service' },
         rpc: { status: 'available', description: 'JSON-RPC proxy' },
