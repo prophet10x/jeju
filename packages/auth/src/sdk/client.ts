@@ -405,18 +405,21 @@ export class OAuth3Client {
         session = await this.loginWithOAuth(options)
     }
 
-    // Store session in decentralized storage (non-blocking - login succeeds even if storage fails)
+    // Store session in decentralized storage (truly non-blocking - don't await IPFS)
     if (this.storage) {
+      const storage = this.storage
       try {
         const encryptionKey = deriveLocalEncryptionKey(
           session.signingPublicKey,
           `oauth3-session-${session.sessionId}`,
         )
-        this.storage.setEncryptionKey(encryptionKey)
-        await this.storage.storeSession(session)
+        storage.setEncryptionKey(encryptionKey)
       } catch (e) {
-        console.warn('[OAuth3] Session storage failed (non-critical):', (e as Error).message)
+        console.warn('[OAuth3] Session encryption key failed (non-critical):', (e as Error).message)
       }
+      storage.storeSession(session).catch((e: Error) => {
+        console.warn('[OAuth3] Session storage failed (non-critical):', e.message)
+      })
     }
 
     return session
@@ -1123,18 +1126,21 @@ export class OAuth3Client {
     )
     this.setSession(newSession)
 
-    // Update in decentralized storage (non-blocking)
+    // Update in decentralized storage (truly non-blocking - don't await IPFS)
     if (this.storage) {
+      const storage = this.storage
       try {
         const encryptionKey = deriveLocalEncryptionKey(
           newSession.signingPublicKey,
           `oauth3-session-${newSession.sessionId}`,
         )
-        this.storage.setEncryptionKey(encryptionKey)
-        await this.storage.storeSession(newSession)
+        storage.setEncryptionKey(encryptionKey)
       } catch (e) {
-        console.warn('[OAuth3] Session storage update failed (non-critical):', (e as Error).message)
+        console.warn('[OAuth3] Session encryption key failed (non-critical):', (e as Error).message)
       }
+      storage.storeSession(newSession).catch((e: Error) => {
+        console.warn('[OAuth3] Session storage update failed (non-critical):', e.message)
+      })
     }
 
     this.emit('sessionRefresh', { session: newSession })
