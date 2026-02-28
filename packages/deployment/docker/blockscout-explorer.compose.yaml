@@ -1,0 +1,104 @@
+# Blockscout Block Explorer for Jeju Testnet
+#
+# Deployed on Oracle server (192.9.153.231) at ~/blockscout/docker-compose/
+# Accessible at: https://jeju-testnet.fartbag.fun/explorer/
+#
+# Prerequisites:
+#   - Blockscout base configs cloned: git clone https://github.com/blockscout/docker-compose.git ~/blockscout/docker-compose
+#   - op-geth running in Docker on the same host (jeju-l2-network)
+#   - nginx configured to proxy /explorer/ -> localhost:5100
+#
+# Usage:
+#   cd ~/blockscout/docker-compose
+#   cp <this-file> docker-compose-jeju.yml
+#   docker compose -f docker-compose-jeju.yml up -d
+#
+# Note: The backend joins jeju-l2-network to reach op-geth directly
+# by container name (jeju-op-geth) rather than via host.docker.internal.
+
+services:
+  redis-db:
+    extends:
+      file: ./services/redis.yml
+      service: redis-db
+
+  db-init:
+    extends:
+      file: ./services/db.yml
+      service: db-init
+
+  db:
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    extends:
+      file: ./services/db.yml
+      service: db
+
+  backend:
+    depends_on:
+      - db
+      - redis-db
+    extends:
+      file: ./services/backend.yml
+      service: backend
+    links:
+      - db:database
+    networks:
+      - default
+      - jeju-l2-network
+    environment:
+      ETHEREUM_JSONRPC_HTTP_URL: http://jeju-op-geth:9545/
+      ETHEREUM_JSONRPC_TRACE_URL: http://jeju-op-geth:9545/
+      ETHEREUM_JSONRPC_WS_URL: ws://jeju-op-geth:9546/
+      CHAIN_ID: '420690'
+      COIN: ETH
+      INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: 'true'
+      INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: 'true'
+      NFT_MEDIA_HANDLER_ENABLED: 'false'
+
+  frontend:
+    depends_on:
+      - backend
+    extends:
+      file: ./services/frontend.yml
+      service: frontend
+    environment:
+      NEXT_PUBLIC_API_HOST: jeju-testnet.fartbag.fun
+      NEXT_PUBLIC_API_PROTOCOL: https
+      NEXT_PUBLIC_API_BASE_PATH: /explorer
+      NEXT_PUBLIC_APP_HOST: jeju-testnet.fartbag.fun
+      NEXT_PUBLIC_APP_PROTOCOL: https
+      NEXT_PUBLIC_NETWORK_NAME: Jeju Testnet
+      NEXT_PUBLIC_NETWORK_SHORT_NAME: Jeju
+      NEXT_PUBLIC_NETWORK_ID: '420690'
+      NEXT_PUBLIC_NETWORK_CURRENCY_NAME: Ether
+      NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL: ETH
+      NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS: '18'
+      NEXT_PUBLIC_IS_TESTNET: 'true'
+      NEXT_PUBLIC_STATS_API_HOST: ''
+      NEXT_PUBLIC_VISUALIZE_API_HOST: ''
+      NEXT_PUBLIC_HOMEPAGE_CHARTS: '["daily_txs"]'
+      NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL: wss
+
+  proxy:
+    depends_on:
+      - backend
+      - frontend
+    image: nginx
+    container_name: blockscout-proxy
+    restart: always
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    environment:
+      BACK_PROXY_PASS: http://backend:4000
+      FRONT_PROXY_PASS: http://frontend:3000
+    ports:
+      - "5100:80"
+    volumes:
+      - "./proxy/explorer.conf.template:/etc/nginx/templates/default.conf.template"
+
+networks:
+  default:
+  jeju-l2-network:
+    external: true

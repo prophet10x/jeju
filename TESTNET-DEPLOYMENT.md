@@ -295,9 +295,66 @@ The following contract categories exist in source but don't have dedicated deplo
 | PoW Faucet | 8088 | `https://jeju-testnet.fartbag.fun/faucet/` |
 | Gateway API | 4013 | `https://jeju-testnet.fartbag.fun/gateway/` |
 | DWS Console | 4030 | `http://52.206.203.24/` (AWS) |
+| Block Explorer | 5100 | `https://jeju-testnet.fartbag.fun/explorer/` |
+
+## Block Explorer (Blockscout)
+
+[Blockscout](https://github.com/blockscout/blockscout) provides a full-featured block explorer at `/explorer/`.
+
+**Architecture:**
+- **Backend** (Elixir) — indexes blocks/transactions from op-geth via JSON-RPC, stores in PostgreSQL
+- **Frontend** (Next.js) — serves the explorer UI
+- **Proxy** (nginx) — routes between frontend and backend API
+- **External nginx** — serves everything under `/explorer/` subpath with static asset path rewriting
+
+**Server:** Oracle (192.9.153.231), deployed at `~/blockscout/docker-compose/`
+
+**Key configuration:**
+- Backend connects to op-geth via Docker network (`jeju-l2-network`) at `http://jeju-op-geth:9545/`
+- Frontend uses `NEXT_PUBLIC_API_BASE_PATH=/explorer` for API path prefixing
+- WebSocket protocol set to `wss` (site served over HTTPS)
+- NFT media handler disabled (not needed, avoids permission issues)
+- `services/frontend.yml` must NOT have `platform: linux/amd64` (server is ARM64)
+
+**Compose file:** [`packages/deployment/docker/blockscout-explorer.compose.yaml`](packages/deployment/docker/blockscout-explorer.compose.yaml)
+
+**Management:**
+```bash
+ssh ubuntu@192.9.153.231
+cd ~/blockscout/docker-compose
+
+# Start/restart
+docker compose -f docker-compose-jeju.yml up -d
+
+# View logs
+docker compose -f docker-compose-jeju.yml logs -f backend
+docker compose -f docker-compose-jeju.yml logs -f frontend
+
+# Full recreate (after config changes)
+docker compose -f docker-compose-jeju.yml up -d --force-recreate
+```
+
+**nginx config** (`/etc/nginx/sites-enabled/jeju-testnet`):
+```nginx
+location /explorer/ {
+    proxy_pass http://127.0.0.1:5100/;
+    # ... standard proxy headers ...
+    # Only rewrite static asset paths (_next, assets, static, icons)
+    # API/socket paths are handled by NEXT_PUBLIC_API_BASE_PATH
+    sub_filter_once off;
+    sub_filter_types text/html application/javascript text/css;
+    sub_filter '"/_next/' '"/explorer/_next/';
+    sub_filter "'/_next/" "'/explorer/_next/";
+    sub_filter '"/assets/' '"/explorer/assets/';
+    sub_filter '"/static/' '"/explorer/static/';
+    sub_filter '"/icons/' '"/explorer/icons/';
+    proxy_set_header Accept-Encoding "";
+}
+```
 
 ## Deployment History
 
+- **Feb 28, 2026**: Added Blockscout block explorer at `/explorer/`. Deployed via Docker Compose on Oracle server.
 - **Feb 22, 2026**: Full redeployment with new deployer key (`0x86d240...`). 97 contracts across 24 deploy scripts. Switched batcher to blob DA.
 - **Feb 21, 2026**: 22,428-block reorg caused by batcher running out of Sepolia ETH. All post-genesis contracts lost.
 - **Feb 21, 2026**: Initial deployment on Sepolia L1.
