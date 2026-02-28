@@ -141,7 +141,7 @@
       "l2": "https://jeju-testnet.fartbag.fun/",
       "ws": "wss://jeju-testnet.fartbag.fun/ws"
     },
-    "explorer": "https://explorer.testnet.jejunetwork.org",
+    "explorer": "https://jeju-testnet.fartbag.fun/explorer",
     "indexer": {
       "api": "https://jeju-testnet.fartbag.fun/indexer",
       "graphql": "https://jeju-testnet.fartbag.fun/indexer/graphql",

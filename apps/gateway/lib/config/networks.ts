@@ -54,7 +54,7 @@ export const RPC_URLS = {
 // Public block explorers
 export const EXPLORER_URLS = {
   420691: 'https://explorer.jejunetwork.org',
-  420690: 'https://testnet-explorer.jejunetwork.org',
+  420690: 'https://jeju-testnet.fartbag.fun/explorer',
   31337: getLocalnetExplorerUrl(),
   1: 'https://etherscan.io',
   42161: 'https://arbiscan.io',

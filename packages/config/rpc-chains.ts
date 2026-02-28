@@ -50,7 +50,7 @@ export const RPC_CHAINS: Record<number, RpcChainConfig> = {
     shortName: 'JEJU-TEST',
     rpcUrl: getEnv('JEJU_TESTNET_RPC_URL', `${JEJU_RPC_BASE}/jeju-testnet`),
     fallbackRpcs: [],
-    explorerUrl: 'https://testnet-explorer.jejunetwork.org',
+    explorerUrl: 'https://jeju-testnet.fartbag.fun/explorer',
     isTestnet: true,
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   },

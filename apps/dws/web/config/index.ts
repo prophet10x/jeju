@@ -9,6 +9,7 @@ import {
   getContractsConfig,
   getCurrentNetwork,
   getDWSUrl,
+  getExplorerUrl,
   getOAuth3Url,
   getRpcUrl,
   type NetworkType,
@@ -58,6 +59,9 @@ export const TOKENS = {
   usdc: (contracts.tokens?.usdc as Address) || ZERO_ADDRESS,
   weth: (contracts.tokens?.weth as Address) || ZERO_ADDRESS,
 } as const
+
+// Explorer URL from config
+export const EXPLORER_URL = getExplorerUrl(NETWORK)
 
 export const API_ENDPOINTS = {
   health: '/health',

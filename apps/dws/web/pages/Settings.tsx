@@ -15,7 +15,7 @@ import {
 import { useState } from 'react'
 import { useAccount } from 'wagmi'
 import { Skeleton } from '../components/Skeleton'
-import { CONTRACTS, NETWORK } from '../config'
+import { CONTRACTS, EXPLORER_URL, NETWORK } from '../config'
 import { useConfirm, useToast } from '../context/AppContext'
 import { useProviderStats, useRegisterNode } from '../hooks'
 import { useAgentId } from '../hooks/useAgentId'
@@ -284,7 +284,7 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <a
-                          href={`https://explorer.jejunetwork.org/token/${CONTRACTS.identityRegistry}/instance/${agentId}`}
+                          href={`${EXPLORER_URL}/token/${CONTRACTS.identityRegistry}/instance/${agentId}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="btn btn-ghost btn-sm"
