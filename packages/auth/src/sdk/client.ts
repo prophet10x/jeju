@@ -540,6 +540,7 @@ export class OAuth3Client {
         message,
         appId,
       }),
+      signal: AbortSignal.timeout(15000),
     })
 
     if (!response.ok) {
@@ -573,6 +574,7 @@ export class OAuth3Client {
         appId,
         origin,
       }),
+      signal: AbortSignal.timeout(15000),
     })
 
     if (!optionsResponse.ok) {
@@ -659,6 +661,7 @@ export class OAuth3Client {
           type: credential.type,
         },
       }),
+      signal: AbortSignal.timeout(15000),
     })
 
     if (!verifyResponse.ok) {
@@ -712,6 +715,7 @@ export class OAuth3Client {
         message: result.message,
         appId,
       }),
+      signal: AbortSignal.timeout(15000),
     })
 
     if (!response.ok) {
@@ -741,6 +745,7 @@ export class OAuth3Client {
         appId,
         redirectUri: this.config.redirectUri,
       }),
+      signal: AbortSignal.timeout(15000),
     })
 
     if (!initResponse.ok) {

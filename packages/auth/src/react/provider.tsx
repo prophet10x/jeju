@@ -150,9 +150,14 @@ export function OAuth3Provider({
       setIsLoading(true)
       setError(null)
 
-      // Initialize decentralized discovery if enabled
+      // Initialize decentralized discovery if enabled (with timeout to prevent hanging)
       if (config.decentralized !== false) {
-        await client.initialize().catch((err: Error) => {
+        await Promise.race([
+          client.initialize(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Discovery init timed out')), 10000),
+          ),
+        ]).catch((err: Error) => {
           console.debug('[OAuth3Provider] Decentralized init failed (expected for localnet):', err.message)
         })
       }
