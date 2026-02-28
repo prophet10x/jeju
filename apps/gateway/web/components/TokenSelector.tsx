@@ -1,5 +1,6 @@
 import { formatTokenAmount } from '@jejunetwork/shared'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { TokenOption } from '../../lib/tokens'
 import { useTokenBalances } from '../hooks/useTokenBalances'
 
@@ -26,6 +27,8 @@ export default function TokenSelector({
 }: TokenSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const { balances } = useTokenBalances()
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 })
 
   const selected = useMemo(
     () =>
@@ -35,13 +38,32 @@ export default function TokenSelector({
     [tokens, selectedToken],
   )
 
+  useEffect(() => {
+    if (!isOpen || !buttonRef.current) return
+    const updatePos = () => {
+      const rect = buttonRef.current!.getBoundingClientRect()
+      setDropdownPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      })
+    }
+    updatePos()
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    return () => {
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+    }
+  }, [isOpen])
+
   const handleSelect = (token: TokenOption) => {
     onSelect(token)
     setIsOpen(false)
   }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div>
       <label
         htmlFor="token-selector-button"
         style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}
@@ -50,6 +72,7 @@ export default function TokenSelector({
       </label>
 
       <button
+        ref={buttonRef}
         id="token-selector-button"
         type="button"
         className="input"
@@ -106,131 +129,132 @@ export default function TokenSelector({
         <span style={{ color: 'var(--text-muted)' }}>▼</span>
       </button>
 
-      {isOpen && !disabled && (
-        <>
-          <button
-            type="button"
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 40,
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-            }}
-            onClick={() => setIsOpen(false)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                setIsOpen(false)
-              }
-            }}
-            aria-label="Close"
-          />
-          <div
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
-              marginTop: '0.5rem',
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              boxShadow: '0 10px 25px var(--shadow-sm)',
-              maxHeight: '300px',
-              overflowY: 'auto',
-              zIndex: 50,
-            }}
-          >
-            {tokens.map((token) => {
-              const balance = balances[token.symbol]
-              const isSelected = selected?.symbol === token.symbol
+      {isOpen && !disabled &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 40,
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+              onClick={() => setIsOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  setIsOpen(false)
+                }
+              }}
+              aria-label="Close"
+            />
+            <div
+              style={{
+                position: 'fixed',
+                top: dropdownPos.top,
+                left: dropdownPos.left,
+                width: dropdownPos.width,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                boxShadow: '0 10px 25px var(--shadow-sm)',
+                maxHeight: '300px',
+                overflowY: 'auto',
+                zIndex: 50,
+              }}
+            >
+              {tokens.map((token) => {
+                const balance = balances[token.symbol]
+                const isSelected = selected?.symbol === token.symbol
 
-              return (
-                <button
-                  key={token.symbol}
-                  type="button"
-                  onClick={() => handleSelect(token)}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem 1rem',
-                    textAlign: 'left',
-                    border: 'none',
-                    background: isSelected ? 'var(--surface-active)' : 'white',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected)
-                      e.currentTarget.style.background = 'var(--surface-hover)'
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) e.currentTarget.style.background = 'white'
-                  }}
-                >
-                  {token.logoUrl && (
-                    <img
-                      src={token.logoUrl}
-                      alt={token.symbol}
-                      width={32}
-                      height={32}
-                      style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                      }}
-                      onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-                        e.currentTarget.style.display = 'none'
-                      }}
-                    />
-                  )}
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <div style={{ fontWeight: '600' }}>{token.symbol}</div>
-                      {Boolean(showBalances && balance) && (
-                        <div
-                          style={{
-                            fontSize: '0.875rem',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          {formatTokenAmount(balance, token.decimals, 2)}
-                        </div>
-                      )}
+                return (
+                  <button
+                    key={token.symbol}
+                    type="button"
+                    onClick={() => handleSelect(token)}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem 1rem',
+                      textAlign: 'left',
+                      border: 'none',
+                      background: isSelected ? 'var(--surface-active)' : 'var(--surface)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected)
+                        e.currentTarget.style.background = 'var(--surface-hover)'
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = 'var(--surface)'
+                    }}
+                  >
+                    {token.logoUrl && (
+                      <img
+                        src={token.logoUrl}
+                        alt={token.symbol}
+                        width={32}
+                        height={32}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                        }}
+                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ fontWeight: '600' }}>{token.symbol}</div>
+                        {Boolean(showBalances && balance) && (
+                          <div
+                            style={{
+                              fontSize: '0.875rem',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            {formatTokenAmount(balance, token.decimals, 2)}
+                          </div>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--text-muted)',
+                          marginTop: '0.125rem',
+                        }}
+                      >
+                        {token.name}
+                        {token.priceUSD > 0 && (
+                          <span style={{ marginLeft: '0.5rem' }}>
+                            ${token.priceUSD.toFixed(token.priceUSD < 1 ? 4 : 2)}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div
-                      style={{
-                        fontSize: '0.75rem',
-                        color: 'var(--text-muted)',
-                        marginTop: '0.125rem',
-                      }}
-                    >
-                      {token.name}
-                      {token.priceUSD > 0 && (
-                        <span style={{ marginLeft: '0.5rem' }}>
-                          ${token.priceUSD.toFixed(token.priceUSD < 1 ? 4 : 2)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
+                  </button>
+                )
+              })}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   )
 }

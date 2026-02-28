@@ -15,6 +15,8 @@ export interface UsePaymasterFactoryResult {
   ) => Promise<void>
   isPending: boolean
   isSuccess: boolean
+  error: Error | null
+  reset: () => void
   refetchDeployments: () => void
 }
 
@@ -47,6 +49,8 @@ export function usePaymasterFactory(): UsePaymasterFactoryResult {
     isPending,
     isConfirming,
     isSuccess,
+    error,
+    reset,
   } = useTypedWriteContract()
 
   const deployPaymaster = useCallback(
@@ -69,6 +73,8 @@ export function usePaymasterFactory(): UsePaymasterFactoryResult {
     deployPaymaster,
     isPending: isPending || isConfirming,
     isSuccess,
+    error,
+    reset,
     refetchDeployments,
   }
 }

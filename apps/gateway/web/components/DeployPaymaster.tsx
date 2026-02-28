@@ -1,5 +1,5 @@
 import { WalletButton } from '@jejunetwork/ui'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAccount } from 'wagmi'
 import {
   usePaymasterDeployment,
@@ -10,6 +10,8 @@ import { useTokenConfig } from '../hooks/useTokenRegistry'
 import type { TokenOption } from './TokenSelector'
 import TokenSelector from './TokenSelector'
 
+const STUCK_TIMEOUT_MS = 60_000
+
 export default function DeployPaymaster({
   tokenAddress: propTokenAddress,
 }: {
@@ -17,6 +19,7 @@ export default function DeployPaymaster({
 }) {
   const [feeMargin, setFeeMargin] = useState('100')
   const [selectedToken, setSelectedToken] = useState<TokenOption | null>(null)
+  const [showStuckWarning, setShowStuckWarning] = useState(false)
   const { address: userAddress, isConnected } = useAccount()
 
   const { tokens } = useProtocolTokens()
@@ -34,7 +37,18 @@ export default function DeployPaymaster({
     propTokenAddress || (selectedToken?.address as `0x${string}` | undefined)
   const { config } = useTokenConfig(tokenAddress)
   const { deployment } = usePaymasterDeployment(tokenAddress)
-  const { deployPaymaster, isPending, isSuccess } = usePaymasterFactory()
+  const { deployPaymaster, isPending, isSuccess, error, reset } =
+    usePaymasterFactory()
+
+  // Show stuck warning after timeout
+  useEffect(() => {
+    if (!isPending) {
+      setShowStuckWarning(false)
+      return
+    }
+    const timer = setTimeout(() => setShowStuckWarning(true), STUCK_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [isPending])
 
   const handleDeploy = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,6 +56,11 @@ export default function DeployPaymaster({
     if (!tokenAddress || !userAddress) return
 
     await deployPaymaster(tokenAddress, parseInt(feeMargin, 10), userAddress)
+  }
+
+  const handleCancel = () => {
+    reset()
+    setShowStuckWarning(false)
   }
 
   return (
@@ -206,17 +225,70 @@ export default function DeployPaymaster({
             </div>
           )}
 
-          {isConnected ? (
-            <button
-              type="submit"
-              className="button"
-              style={{ width: '100%' }}
-              disabled={isPending}
+          {error && (
+            <div
+              style={{
+                padding: '1rem',
+                background: 'var(--error-soft, rgba(239,68,68,0.1))',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                border: '1px solid var(--error, #ef4444)',
+              }}
             >
-              {isPending
-                ? `Deploying ${selectedToken.symbol} Paymaster...`
-                : `Deploy Paymaster for ${selectedToken.symbol}`}
-            </button>
+              <p style={{ color: 'var(--error, #ef4444)', margin: 0 }}>
+                <strong>Transaction failed:</strong>{' '}
+                {error.message.length > 200
+                  ? `${error.message.slice(0, 200)}...`
+                  : error.message}
+              </p>
+            </div>
+          )}
+
+          {showStuckWarning && isPending && (
+            <div
+              style={{
+                padding: '1rem',
+                background: 'var(--warning-soft)',
+                borderRadius: '8px',
+                marginBottom: '1rem',
+                border: '1px solid var(--warning)',
+              }}
+            >
+              <p style={{ color: 'var(--warning)', margin: 0 }}>
+                <strong>Transaction may be stuck.</strong> This can happen if
+                your wallet has pending transactions (nonce gap) or the network
+                is congested. Try resetting your wallet&apos;s pending
+                transactions or cancelling and retrying.
+              </p>
+            </div>
+          )}
+
+          {isConnected ? (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="submit"
+                className="button"
+                style={{ flex: 1 }}
+                disabled={isPending}
+              >
+                {isPending
+                  ? `Deploying ${selectedToken.symbol} Paymaster...`
+                  : `Deploy Paymaster for ${selectedToken.symbol}`}
+              </button>
+              {isPending && (
+                <button
+                  type="button"
+                  className="button"
+                  style={{
+                    background: 'var(--surface-hover)',
+                    color: 'var(--text-primary)',
+                  }}
+                  onClick={handleCancel}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           ) : (
             <div
               style={{
