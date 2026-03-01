@@ -1722,12 +1722,14 @@ if (import.meta.main) {
       const isIpAddress = /^\d+\.\d+\.\d+\.\d+(:\d+)?$/.test(hostname)
       // Extract hostname without port for comparison
       const hostnameWithoutPort = hostname.split(':')[0]
-      if (
-        !hostname.startsWith('dws.') &&
-        hostnameWithoutPort !== 'dws' &&
-        !isIpAddress &&
-        hostnameWithoutPort !== 'localhost'
-      ) {
+      // Hostnames that should serve the DWS dashboard (not app routing)
+      const DWS_HOSTNAMES = new Set(['dws', 'node1', 'jeju-dws'])
+      const firstLabel = hostnameWithoutPort.split('.')[0]
+      const isDwsHost =
+        isIpAddress ||
+        hostnameWithoutPort === 'localhost' ||
+        DWS_HOSTNAMES.has(firstLabel)
+      if (!isDwsHost) {
         const appName = hostname.split('.')[0]
         const deployedApp = getDeployedApp(appName)
         if (deployedApp?.enabled) {
