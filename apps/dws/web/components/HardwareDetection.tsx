@@ -1,13 +1,11 @@
 /**
  * Hardware Detection Component
  *
- * Displays detected system information in the browser,
- * helping users understand their hardware capabilities for node operation.
+ * Displays server system information fetched from the DWS backend,
+ * helping users understand the server's hardware capabilities for node operation.
  */
 
 import {
-  type DetectedPlatform,
-  detectPlatform,
   getArchLabel,
   getPlatformLabel,
   type ReleaseArch,
@@ -19,27 +17,37 @@ import {
   Cpu,
   HardDrive,
   Monitor,
+  Server,
   Shield,
   Wifi,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { DWS_API_URL } from '../config'
+
+interface ServerSystemInfo {
+  platform: string
+  arch: string
+  hostname: string
+  cpuCores: number
+  cpuModel: string
+  totalMemoryGb: number
+  freeMemoryGb: number
+  uptime: number
+  nodeVersion: string
+  bunVersion?: string
+}
 
 interface HardwareInfo {
-  platform: DetectedPlatform
+  os: string
+  arch: string
   cpuCores: number
+  cpuModel: string
   memoryGb: number
-  gpuRenderer: string | null
-  gpuVendor: string | null
-  isSecureContext: boolean
-  hasWebGPU: boolean
-  browserInfo: {
-    name: string
-    version: string
-  }
-  screenResolution: string
-  devicePixelRatio: number
-  connectionType: string | null
+  freeMemoryGb: number
+  hostname: string
+  uptime: number
+  runtime: string
 }
 
 interface HardwareRequirement {
@@ -50,78 +58,22 @@ interface HardwareRequirement {
   icon: React.ReactNode
 }
 
-function detectHardware(): HardwareInfo {
-  const platform = detectPlatform()
-
-  // CPU cores - navigator.hardwareConcurrency
-  const cpuCores = navigator.hardwareConcurrency ?? 0
-
-  // Memory - navigator.deviceMemory (Chrome only, in GB)
-  const memoryGb = navigator.deviceMemory ?? 0
-
-  // GPU detection via WebGL
-  let gpuRenderer: string | null = null
-  let gpuVendor: string | null = null
-  const canvas = document.createElement('canvas')
-  const gl = canvas.getContext('webgl')
-  if (gl) {
-    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
-    if (debugInfo) {
-      gpuRenderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-      gpuVendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)
-    }
+function mapPlatform(platform: string): ReleasePlatform | 'unknown' {
+  switch (platform) {
+    case 'linux': return 'linux'
+    case 'darwin': return 'macos'
+    case 'win32': return 'windows'
+    default: return 'unknown'
   }
+}
 
-  // WebGPU support
-  const hasWebGPU = 'gpu' in navigator && !!navigator.gpu
-
-  // Secure context check (required for some APIs)
-  const isSecureContext = window.isSecureContext
-
-  // Browser info
-  const ua = navigator.userAgent
-  let browserName = 'Unknown'
-  let browserVersion = ''
-  if (ua.includes('Chrome') && !ua.includes('Edg')) {
-    browserName = 'Chrome'
-    const match = ua.match(/Chrome\/(\d+)/)
-    browserVersion = match?.[1] ?? ''
-  } else if (ua.includes('Firefox')) {
-    browserName = 'Firefox'
-    const match = ua.match(/Firefox\/(\d+)/)
-    browserVersion = match?.[1] ?? ''
-  } else if (ua.includes('Safari') && !ua.includes('Chrome')) {
-    browserName = 'Safari'
-    const match = ua.match(/Version\/(\d+)/)
-    browserVersion = match?.[1] ?? ''
-  } else if (ua.includes('Edg')) {
-    browserName = 'Edge'
-    const match = ua.match(/Edg\/(\d+)/)
-    browserVersion = match?.[1] ?? ''
-  }
-
-  // Screen info
-  const screenResolution = `${window.screen.width}x${window.screen.height}`
-  const devicePixelRatio = window.devicePixelRatio
-
-  // Connection info
-  const connectionType = navigator.connection?.effectiveType ?? null
-
-  return {
-    platform,
-    cpuCores,
-    memoryGb,
-    gpuRenderer,
-    gpuVendor,
-    isSecureContext,
-    hasWebGPU,
-    browserInfo: {
-      name: browserName,
-      version: browserVersion,
-    },
-    screenResolution,
-    devicePixelRatio,
-    connectionType,
+function mapArch(arch: string): ReleaseArch | 'unknown' {
+  switch (arch) {
+    case 'arm64':
+    case 'aarch64': return 'arm64'
+    case 'x64':
+    case 'x86_64': return 'x64'
+    default: return 'unknown'
   }
 }
 
@@ -179,51 +131,31 @@ function evaluateRequirements(hardware: HardwareInfo): HardwareRequirement[] {
     icon: <HardDrive size={18} />,
   })
 
-  // GPU (for GPU compute nodes)
-  const gpuName = hardware.gpuRenderer?.toLowerCase() ?? ''
-  const hasGoodGpu =
-    gpuName.includes('nvidia') ||
-    gpuName.includes('apple') ||
-    gpuName.includes('amd') ||
-    gpuName.includes('radeon')
-  const gpuStatus = hasGoodGpu
-    ? 'pass'
-    : hardware.gpuRenderer
-      ? 'warning'
-      : 'unknown'
+  // CPU Model
   requirements.push({
-    name: 'GPU',
-    minimum: 'NVIDIA/AMD/Apple (for GPU compute)',
-    detected: hardware.gpuRenderer ?? 'Not detected',
-    status: gpuStatus,
+    name: 'CPU Model',
+    minimum: 'Modern x64 or ARM processor',
+    detected: hardware.cpuModel,
+    status: hardware.cpuModel !== 'Unknown' ? 'pass' : 'unknown',
     icon: <Monitor size={18} />,
   })
 
-  // Network connection type
-  const connectionStatus =
-    hardware.connectionType === '4g'
-      ? 'pass'
-      : hardware.connectionType === '3g'
-        ? 'warning'
-        : hardware.connectionType
-          ? 'fail'
-          : 'unknown'
+  // Network (server is always connected)
   requirements.push({
-    name: 'Connection',
+    name: 'Network',
     minimum: '100 Mbps (1 Gbps+ recommended)',
-    detected: hardware.connectionType
-      ? hardware.connectionType.toUpperCase()
-      : 'Not available',
-    status: connectionStatus,
+    detected: 'Connected',
+    status: 'pass',
     icon: <Wifi size={18} />,
   })
 
-  // Secure context (needed for some crypto operations)
+  // Secure context
+  const isSecure = typeof window !== 'undefined' && window.isSecureContext
   requirements.push({
     name: 'Secure Context',
     minimum: 'HTTPS required',
-    detected: hardware.isSecureContext ? 'Yes' : 'No',
-    status: hardware.isSecureContext ? 'pass' : 'fail',
+    detected: isSecure ? 'Yes' : 'No',
+    status: isSecure ? 'pass' : 'fail',
     icon: <Shield size={18} />,
   })
 
@@ -234,19 +166,48 @@ export default function HardwareDetection() {
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [requirements, setRequirements] = useState<HardwareRequirement[]>([])
   const [isExpanded, setIsExpanded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const detected = detectHardware()
-    setHardware(detected)
-    setRequirements(evaluateRequirements(detected))
+    fetch(`${DWS_API_URL}/health/system`)
+      .then((res) => res.json())
+      .then((data: ServerSystemInfo) => {
+        const hw: HardwareInfo = {
+          os: data.platform,
+          arch: data.arch,
+          cpuCores: data.cpuCores,
+          cpuModel: data.cpuModel,
+          memoryGb: data.totalMemoryGb,
+          freeMemoryGb: data.freeMemoryGb,
+          hostname: data.hostname,
+          uptime: data.uptime,
+          runtime: data.bunVersion ? `Bun ${data.bunVersion}` : `Node ${data.nodeVersion}`,
+        }
+        setHardware(hw)
+        setRequirements(evaluateRequirements(hw))
+      })
+      .catch((err) => {
+        setError(err.message)
+      })
   }, [])
+
+  if (error) {
+    return (
+      <div className="card" style={{ padding: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+          <AlertCircle size={18} />
+          <span>Could not fetch server system info</span>
+        </div>
+      </div>
+    )
+  }
 
   if (!hardware) {
     return (
       <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
         <div className="spinner" />
         <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
-          Detecting hardware...
+          Fetching server info...
         </p>
       </div>
     )
@@ -259,11 +220,14 @@ export default function HardwareDetection() {
   const overallStatus =
     failCount > 0 ? 'fail' : warningCount > 0 ? 'warning' : 'pass'
 
+  const osPlatform = mapPlatform(hardware.os)
+  const osArch = mapArch(hardware.arch)
+
   return (
     <div className="card" style={{ marginBottom: '2rem' }}>
       <div className="card-header">
         <h3 className="card-title">
-          <Cpu size={18} /> System Check
+          <Server size={18} /> Server System Check
         </h3>
         <button
           type="button"
@@ -318,29 +282,28 @@ export default function HardwareDetection() {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
-            {hardware.platform.os !== 'unknown' &&
-              getPlatformLabel(hardware.platform.os as ReleasePlatform)}{' '}
-            {hardware.platform.arch !== 'unknown' &&
-              `(${getArchLabel(hardware.platform.arch as ReleaseArch)})`}
+            {osPlatform !== 'unknown' &&
+              getPlatformLabel(osPlatform)}{' '}
+            {osArch !== 'unknown' &&
+              `(${getArchLabel(osArch)})`}
           </div>
           <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
             {passCount} passed
             {warningCount > 0 && `, ${warningCount} warnings`}
             {failCount > 0 && `, ${failCount} issues`}
+            {' · '}{hardware.hostname}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span className="badge badge-secondary">
             {hardware.cpuCores} cores
           </span>
-          {hardware.memoryGb > 0 && (
-            <span className="badge badge-secondary">
-              {hardware.memoryGb} GB RAM
-            </span>
-          )}
-          {hardware.gpuRenderer && (
-            <span className="badge badge-info">GPU</span>
-          )}
+          <span className="badge badge-secondary">
+            {hardware.memoryGb} GB RAM
+          </span>
+          <span className="badge badge-info">
+            {hardware.runtime}
+          </span>
         </div>
       </div>
 
@@ -389,63 +352,7 @@ export default function HardwareDetection() {
             ))}
           </div>
 
-          {/* Additional Info */}
-          {hardware.gpuRenderer && (
-            <div
-              style={{
-                marginTop: '1.5rem',
-                padding: '1rem',
-                background: 'var(--bg-tertiary)',
-                borderRadius: 'var(--radius-md)',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: '0.85rem',
-                  color: 'var(--text-secondary)',
-                  marginBottom: '0.5rem',
-                }}
-              >
-                GPU Information
-              </div>
-              <div
-                style={{
-                  fontSize: '0.9rem',
-                  fontFamily: 'var(--font-mono)',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {hardware.gpuRenderer}
-              </div>
-              {hardware.gpuVendor && (
-                <div
-                  style={{
-                    fontSize: '0.85rem',
-                    color: 'var(--text-secondary)',
-                    marginTop: '0.25rem',
-                  }}
-                >
-                  Vendor: {hardware.gpuVendor}
-                </div>
-              )}
-              {hardware.hasWebGPU && (
-                <div
-                  style={{
-                    marginTop: '0.5rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    color: 'var(--success)',
-                    fontSize: '0.85rem',
-                  }}
-                >
-                  <Check size={14} /> WebGPU supported
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Browser info */}
+          {/* Server details */}
           <div
             style={{
               marginTop: '1rem',
@@ -465,10 +372,22 @@ export default function HardwareDetection() {
                   textTransform: 'uppercase',
                 }}
               >
-                Browser
+                Hostname
+              </div>
+              <div style={{ fontWeight: 500 }}>{hardware.hostname}</div>
+            </div>
+            <div>
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  color: 'var(--text-muted)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Free Memory
               </div>
               <div style={{ fontWeight: 500 }}>
-                {hardware.browserInfo.name} {hardware.browserInfo.version}
+                {hardware.freeMemoryGb} GB / {hardware.memoryGb} GB
               </div>
             </div>
             <div>
@@ -479,24 +398,24 @@ export default function HardwareDetection() {
                   textTransform: 'uppercase',
                 }}
               >
-                Display
+                Server Uptime
               </div>
               <div style={{ fontWeight: 500 }}>
-                {hardware.screenResolution} @{hardware.devicePixelRatio}x
+                {Math.floor(hardware.uptime / 86400)}d {Math.floor((hardware.uptime % 86400) / 3600)}h
               </div>
             </div>
-          </div>
-
-          <div
-            style={{
-              marginTop: '1rem',
-              fontSize: '0.85rem',
-              color: 'var(--text-muted)',
-              textAlign: 'center',
-            }}
-          >
-            Note: Browser detection is limited. The desktop app provides more
-            accurate hardware profiling.
+            <div>
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  color: 'var(--text-muted)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Runtime
+              </div>
+              <div style={{ fontWeight: 500 }}>{hardware.runtime}</div>
+            </div>
           </div>
         </div>
       )}

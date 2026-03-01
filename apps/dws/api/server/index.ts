@@ -717,6 +717,24 @@ app
     }
   })
 
+  // Server system info (for hardware detection in browser)
+  .get('/health/system', () => {
+    const os = require('node:os')
+    const cpus = os.cpus()
+    return {
+      platform: os.platform(),
+      arch: os.arch(),
+      hostname: os.hostname(),
+      cpuCores: cpus.length,
+      cpuModel: cpus[0]?.model ?? 'Unknown',
+      totalMemoryGb: Math.round(os.totalmem() / (1024 ** 3) * 10) / 10,
+      freeMemoryGb: Math.round(os.freemem() / (1024 ** 3) * 10) / 10,
+      uptime: os.uptime(),
+      nodeVersion: process.version,
+      bunVersion: typeof Bun !== 'undefined' ? Bun.version : undefined,
+    }
+  })
+
   // Serve frontend at root
   .get('/', async ({ set }) => {
     const decentralizedResponse =
