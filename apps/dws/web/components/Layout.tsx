@@ -1,5 +1,6 @@
 import { AuthProvider } from '@jejunetwork/auth'
 import { LoginModal, useJejuAuth } from '@jejunetwork/auth/react'
+import { useAccount, useDisconnect } from 'wagmi'
 import {
   BarChart3,
   Bell,
@@ -318,6 +319,12 @@ export default function Layout({ children }: LayoutProps) {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
   const { authenticated, loading, walletAddress, logout } = useJejuAuth()
+  const { isConnected, address: wagmiAddress } = useAccount()
+  const { disconnect } = useDisconnect()
+
+  // Use wagmi wallet as fallback when OAuth3 isn't authenticated
+  const displayAddress = walletAddress ?? (isConnected ? wagmiAddress : null)
+  const isLoggedIn = (authenticated && walletAddress) || isConnected
 
   // Close sidebar when route changes (mobile)
   const prevPathRef = useRef(location.pathname)
@@ -533,13 +540,16 @@ export default function Layout({ children }: LayoutProps) {
               <Bell size={18} />
             </button>
 
-            {authenticated && walletAddress ? (
+            {isLoggedIn && displayAddress ? (
               <button
                 type="button"
                 className="btn btn-ghost"
-                onClick={() => logout()}
+                onClick={() => {
+                  logout()
+                  disconnect()
+                }}
               >
-                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                {displayAddress.slice(0, 6)}...{displayAddress.slice(-4)}
               </button>
             ) : (
               <button
