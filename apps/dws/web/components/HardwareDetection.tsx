@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Check,
   Cpu,
+  Database,
   HardDrive,
   Monitor,
   Server,
@@ -33,6 +34,8 @@ interface ServerSystemInfo {
   cpuModel: string
   totalMemoryGb: number
   freeMemoryGb: number
+  diskTotalGb: number
+  diskFreeGb: number
   uptime: number
   nodeVersion: string
   bunVersion?: string
@@ -45,6 +48,8 @@ interface HardwareInfo {
   cpuModel: string
   memoryGb: number
   freeMemoryGb: number
+  diskTotalGb: number
+  diskFreeGb: number
   hostname: string
   uptime: number
   runtime: string
@@ -128,7 +133,7 @@ function evaluateRequirements(hardware: HardwareInfo): HardwareRequirement[] {
     detected:
       hardware.memoryGb > 0 ? `${hardware.memoryGb} GB` : 'Not available',
     status: memoryStatus,
-    icon: <HardDrive size={18} />,
+    icon: <Database size={18} />,
   })
 
   // CPU Model
@@ -140,6 +145,26 @@ function evaluateRequirements(hardware: HardwareInfo): HardwareRequirement[] {
     icon: <Monitor size={18} />,
   })
 
+  // Disk space
+  const diskStatus =
+    hardware.diskFreeGb >= 50
+      ? 'pass'
+      : hardware.diskFreeGb >= 20
+        ? 'warning'
+        : hardware.diskFreeGb > 0
+          ? 'fail'
+          : 'unknown'
+  requirements.push({
+    name: 'Disk Space',
+    minimum: '20 GB free (50+ GB recommended)',
+    detected:
+      hardware.diskTotalGb > 0
+        ? `${hardware.diskFreeGb} GB free / ${hardware.diskTotalGb} GB`
+        : 'Not available',
+    status: diskStatus,
+    icon: <HardDrive size={18} />,
+  })
+
   // Network (server is always connected)
   requirements.push({
     name: 'Network',
@@ -149,13 +174,13 @@ function evaluateRequirements(hardware: HardwareInfo): HardwareRequirement[] {
     icon: <Wifi size={18} />,
   })
 
-  // Secure context
+  // Secure context — warning (not fail) when accessed via HTTP IP
   const isSecure = typeof window !== 'undefined' && window.isSecureContext
   requirements.push({
     name: 'Secure Context',
-    minimum: 'HTTPS required',
-    detected: isSecure ? 'Yes' : 'No',
-    status: isSecure ? 'pass' : 'fail',
+    minimum: 'HTTPS recommended',
+    detected: isSecure ? 'HTTPS' : 'HTTP',
+    status: isSecure ? 'pass' : 'warning',
     icon: <Shield size={18} />,
   })
 
@@ -179,6 +204,8 @@ export default function HardwareDetection() {
           cpuModel: data.cpuModel,
           memoryGb: data.totalMemoryGb,
           freeMemoryGb: data.freeMemoryGb,
+          diskTotalGb: data.diskTotalGb ?? 0,
+          diskFreeGb: data.diskFreeGb ?? 0,
           hostname: data.hostname,
           uptime: data.uptime,
           runtime: data.bunVersion ? `Bun ${data.bunVersion}` : `Node ${data.nodeVersion}`,
@@ -301,6 +328,11 @@ export default function HardwareDetection() {
           <span className="badge badge-secondary">
             {hardware.memoryGb} GB RAM
           </span>
+          {hardware.diskTotalGb > 0 && (
+            <span className="badge badge-secondary">
+              {hardware.diskFreeGb} GB free
+            </span>
+          )}
           <span className="badge badge-info">
             {hardware.runtime}
           </span>
@@ -390,6 +422,22 @@ export default function HardwareDetection() {
                 {hardware.freeMemoryGb} GB / {hardware.memoryGb} GB
               </div>
             </div>
+            {hardware.diskTotalGb > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Disk Space
+                </div>
+                <div style={{ fontWeight: 500 }}>
+                  {hardware.diskFreeGb} GB free / {hardware.diskTotalGb} GB
+                </div>
+              </div>
+            )}
             <div>
               <div
                 style={{

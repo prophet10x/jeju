@@ -720,7 +720,16 @@ app
   // Server system info (for hardware detection in browser)
   .get('/health/system', () => {
     const os = require('node:os')
+    const fs = require('node:fs')
     const cpus = os.cpus()
+    // Disk space via statfsSync
+    let diskTotalGb = 0
+    let diskFreeGb = 0
+    try {
+      const stats = fs.statfsSync('/')
+      diskTotalGb = Math.round(stats.bsize * stats.blocks / (1024 ** 3) * 10) / 10
+      diskFreeGb = Math.round(stats.bsize * stats.bavail / (1024 ** 3) * 10) / 10
+    } catch {}
     return {
       platform: os.platform(),
       arch: os.arch(),
@@ -729,6 +738,8 @@ app
       cpuModel: cpus[0]?.model ?? 'Unknown',
       totalMemoryGb: Math.round(os.totalmem() / (1024 ** 3) * 10) / 10,
       freeMemoryGb: Math.round(os.freemem() / (1024 ** 3) * 10) / 10,
+      diskTotalGb,
+      diskFreeGb,
       uptime: os.uptime(),
       nodeVersion: process.version,
       bunVersion: typeof Bun !== 'undefined' ? Bun.version : undefined,
