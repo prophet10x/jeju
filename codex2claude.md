@@ -1502,6 +1502,11 @@ Important caveat:
 
 - Gateway production build succeeded locally with:
   - `bun run scripts/build.ts`
+- Oracle remote rebuild initially failed because `apps/gateway/package.json` did not declare `permissionless`, even though the local workspace resolved it.
+- Follow-up fix:
+  - add `permissionless: "0.2.0"` to `apps/gateway/package.json`
+  - pull again on Oracle
+  - run workspace install there before future Gateway rebuilds
 
 ### Deploy note
 
