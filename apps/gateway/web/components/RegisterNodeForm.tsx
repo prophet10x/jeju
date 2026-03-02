@@ -25,6 +25,7 @@ export default function RegisterNodeForm() {
   const [rewardToken, setRewardToken] = useState<TokenOption | null>(null)
   const [rpcUrl, setRpcUrl] = useState('')
   const [region, setRegion] = useState<Region>(Region.NorthAmerica)
+  const [operatorAgentId, setOperatorAgentId] = useState('')
 
   const tokenOptions = tokens.map((t) => ({
     symbol: t.symbol,
@@ -57,11 +58,23 @@ export default function RegisterNodeForm() {
   }, [rewardToken, region])
 
   const minStakeUSD = 1000
+  const parsedOperatorAgentId = useMemo(() => {
+    const trimmed = operatorAgentId.trim()
+    if (!trimmed) return undefined
+
+    try {
+      return BigInt(trimmed)
+    } catch {
+      return null
+    }
+  }, [operatorAgentId])
+
   const isValid =
     stakeValueUSD >= minStakeUSD &&
     rpcUrl.startsWith('http') &&
     stakingToken &&
-    rewardToken
+    rewardToken &&
+    parsedOperatorAgentId !== null
 
   const currentNodes = Number(operatorStats?.totalNodesActive ?? 0n)
   const maxNodes = 5
@@ -78,6 +91,7 @@ export default function RegisterNodeForm() {
       rewardToken.address as `0x${string}`,
       rpcUrl,
       region,
+      parsedOperatorAgentId ?? undefined,
     )
   }
 
@@ -180,6 +194,54 @@ export default function RegisterNodeForm() {
               ).toFixed(2)}{' '}
               {rewardToken.symbol}/month (≈{' '}
               {formatUSD(Number(estimatedMonthlyUSD) / 1e18)}/month)
+            </p>
+          )}
+        </div>
+
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label
+            htmlFor="operator-agent-id"
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '600',
+            }}
+          >
+            Operator Agent ID{' '}
+            <span style={{ color: 'var(--text-secondary)', fontWeight: '400' }}>
+              (recommended)
+            </span>
+          </label>
+          <input
+            id="operator-agent-id"
+            className="input"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="ERC-8004 agent ID"
+            value={operatorAgentId}
+            onChange={(e) => setOperatorAgentId(e.target.value)}
+            disabled={isRegistering || !canAddMore}
+          />
+          <p
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--text-secondary)',
+              marginTop: '0.25rem',
+            }}
+          >
+            Links this node stake to an ERC-8004 operator identity instead of
+            leaving it as a wallet-only registration.
+          </p>
+          {parsedOperatorAgentId === null && (
+            <p
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--error)',
+                marginTop: '0.25rem',
+              }}
+            >
+              Enter a whole-number ERC-8004 agent ID or leave this blank.
             </p>
           )}
         </div>

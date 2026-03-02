@@ -43,6 +43,20 @@ const NODE_STAKING_MANAGER_ABI = [
     stateMutability: 'nonpayable',
   },
   {
+    name: 'registerNodeWithAgent',
+    type: 'function',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+      { name: 'operatorAgentId', type: 'uint256' },
+    ],
+    outputs: [{ name: 'nodeId', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
+  },
+  {
     name: 'deactivateNode',
     type: 'function',
     inputs: [{ name: 'nodeId', type: 'bytes32' }],
@@ -116,6 +130,7 @@ export interface RegisterNodeParams {
   rewardToken: Address
   rpcUrl: string
   region: RegionValue
+  operatorAgentId?: bigint
 }
 
 export interface UseNodeStakingResult {
@@ -243,6 +258,24 @@ export function useNodeStaking(
       if (!stakingManagerAddress) {
         throw new Error('Staking manager address not configured')
       }
+
+      if (params.operatorAgentId !== undefined) {
+        writeRegister({
+          address: stakingManagerAddress,
+          abi: NODE_STAKING_MANAGER_ABI,
+          functionName: 'registerNodeWithAgent',
+          args: [
+            params.stakingToken,
+            params.stakeAmount,
+            params.rewardToken,
+            params.rpcUrl,
+            params.region,
+            params.operatorAgentId,
+          ],
+        })
+        return
+      }
+
       writeRegister({
         address: stakingManagerAddress,
         abi: NODE_STAKING_MANAGER_ABI,

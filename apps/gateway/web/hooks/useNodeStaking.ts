@@ -10,6 +10,24 @@ import {
 } from '../../lib/nodeStaking'
 import { useTypedWriteContract } from './useTypedWriteContract'
 
+const NODE_STAKING_WITH_AGENT_ABI = [
+  ...NODE_STAKING_MANAGER_ABI,
+  {
+    type: 'function',
+    name: 'registerNodeWithAgent',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+      { name: 'operatorAgentId', type: 'uint256' },
+    ],
+    outputs: [{ name: 'nodeId', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
 export function useNodeStaking() {
   const stakingManager = getNodeStakingAddress()
   const { address: userAddress } = useAccount()
@@ -52,6 +70,7 @@ export function useNodeStaking() {
     rewardToken: Address,
     rpcUrl: string,
     region: Region,
+    operatorAgentId?: bigint,
   ) => {
     // Step 1: Approve tokens to NodeStakingManager
     await approveAsync({
@@ -62,6 +81,23 @@ export function useNodeStaking() {
     })
 
     // Step 2: Register node (contract will transferFrom)
+    if (operatorAgentId !== undefined) {
+      register({
+        address: stakingManager,
+        abi: NODE_STAKING_WITH_AGENT_ABI,
+        functionName: 'registerNodeWithAgent',
+        args: [
+          stakingToken,
+          stakeAmount,
+          rewardToken,
+          rpcUrl,
+          region,
+          operatorAgentId,
+        ],
+      })
+      return
+    }
+
     register({
       address: stakingManager,
       abi: NODE_STAKING_MANAGER_ABI,
