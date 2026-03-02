@@ -263,6 +263,36 @@ async function ensureTablesExist(): Promise<void> {
       created_at INTEGER NOT NULL,
       expires_at INTEGER
     )`,
+    `CREATE TABLE IF NOT EXISTS storage_activity (
+      activity_id TEXT PRIMARY KEY,
+      cid TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      owner TEXT,
+      payer TEXT,
+      payment_scheme TEXT NOT NULL DEFAULT 'free',
+      amount_wei TEXT NOT NULL DEFAULT '0',
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      tier TEXT,
+      category TEXT,
+      backend TEXT,
+      created_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS storage_commitments (
+      cid TEXT PRIMARY KEY,
+      owner TEXT,
+      tier TEXT,
+      category TEXT,
+      backend TEXT,
+      size_bytes INTEGER NOT NULL,
+      chunk_size INTEGER NOT NULL,
+      chunk_count INTEGER NOT NULL,
+      stored_sha256 TEXT NOT NULL,
+      commitment TEXT NOT NULL,
+      merkle_root TEXT NOT NULL,
+      audit_timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS git_repos (
       repo_id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
@@ -523,6 +553,10 @@ async function ensureTablesExist(): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_jobs_status ON compute_jobs(status)',
     'CREATE INDEX IF NOT EXISTS idx_jobs_submitter ON compute_jobs(submitted_by)',
     'CREATE INDEX IF NOT EXISTS idx_pins_owner ON storage_pins(owner)',
+    'CREATE INDEX IF NOT EXISTS idx_storage_activity_owner ON storage_activity(owner)',
+    'CREATE INDEX IF NOT EXISTS idx_storage_activity_payer ON storage_activity(payer)',
+    'CREATE INDEX IF NOT EXISTS idx_storage_activity_cid ON storage_activity(cid)',
+    'CREATE INDEX IF NOT EXISTS idx_storage_commitments_owner ON storage_commitments(owner)',
     'CREATE INDEX IF NOT EXISTS idx_repos_owner ON git_repos(owner)',
     'CREATE INDEX IF NOT EXISTS idx_packages_name ON packages(name)',
     'CREATE INDEX IF NOT EXISTS idx_packages_owner ON packages(owner)',
@@ -617,6 +651,38 @@ interface StoragePinRow {
   permanent: number
   created_at: number
   expires_at: number | null
+}
+
+interface StorageActivityRow {
+  activity_id: string
+  cid: string
+  operation: string
+  owner: string | null
+  payer: string | null
+  payment_scheme: string
+  amount_wei: string
+  size_bytes: number
+  tier: string | null
+  category: string | null
+  backend: string | null
+  created_at: number
+}
+
+interface StorageCommitmentRow {
+  cid: string
+  owner: string | null
+  tier: string | null
+  category: string | null
+  backend: string | null
+  size_bytes: number
+  chunk_size: number
+  chunk_count: number
+  stored_sha256: string
+  commitment: string
+  merkle_root: string
+  audit_timestamp: number
+  created_at: number
+  updated_at: number
 }
 
 interface GitRepoRow {
@@ -908,6 +974,269 @@ export const storagePinState = {
       SQLIT_DATABASE_ID,
     )
     return result.rowsAffected > 0
+  },
+}
+
+// Storage Activity Operations
+export const storageActivityState = {
+  async save(activity: {
+    cid: string
+    operation: 'upload' | 'download' | 'permanent-upload'
+    owner?: Address | string
+    payer?: Address | string
+    paymentScheme: 'free' | 'credit' | 'x402'
+    amountWei: bigint
+    sizeBytes: number
+    tier?: string
+    category?: string
+    backend?: string
+  }): Promise<void> {
+    const row: StorageActivityRow = {
+      activity_id: crypto.randomUUID(),
+      cid: activity.cid,
+      operation: activity.operation,
+      owner: activity.owner?.toLowerCase() ?? null,
+      payer: activity.payer?.toLowerCase() ?? null,
+      payment_scheme: activity.paymentScheme,
+      amount_wei: activity.amountWei.toString(),
+      size_bytes: activity.sizeBytes,
+      tier: activity.tier ?? null,
+      category: activity.category ?? null,
+      backend: activity.backend ?? null,
+      created_at: Date.now(),
+    }
+
+    const client = await getSQLitClient()
+    await client.exec(
+      `INSERT INTO storage_activity (activity_id, cid, operation, owner, payer, payment_scheme, amount_wei, size_bytes, tier, category, backend, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.activity_id,
+        row.cid,
+        row.operation,
+        row.owner,
+        row.payer,
+        row.payment_scheme,
+        row.amount_wei,
+        row.size_bytes,
+        row.tier,
+        row.category,
+        row.backend,
+        row.created_at,
+      ],
+      SQLIT_DATABASE_ID,
+    )
+  },
+
+  async listByOwner(owner: Address | string): Promise<StorageActivityRow[]> {
+    const client = await getSQLitClient()
+    const result = await client.query<StorageActivityRow>(
+      'SELECT * FROM storage_activity WHERE owner = ? ORDER BY created_at DESC',
+      [owner.toLowerCase()],
+      SQLIT_DATABASE_ID,
+    )
+    return result.rows
+  },
+
+  async listByCid(cid: string): Promise<StorageActivityRow[]> {
+    const client = await getSQLitClient()
+    const result = await client.query<StorageActivityRow>(
+      'SELECT * FROM storage_activity WHERE cid = ? ORDER BY created_at DESC',
+      [cid],
+      SQLIT_DATABASE_ID,
+    )
+    return result.rows
+  },
+
+  async summarize(params?: {
+    owner?: Address | string
+    since?: number
+  }): Promise<{
+    totalOperations: number
+    paidOperations: number
+    totalBytes: number
+    paidBytes: number
+    uploads: number
+    downloads: number
+    permanentUploads: number
+    totalAmountWei: bigint
+  }> {
+    const client = await getSQLitClient()
+
+    const conditions: string[] = []
+    const values: Array<string | number> = []
+
+    if (params?.owner) {
+      conditions.push('owner = ?')
+      values.push(params.owner.toLowerCase())
+    }
+    if (params?.since) {
+      conditions.push('created_at >= ?')
+      values.push(params.since)
+    }
+
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    const result = await client.query<StorageActivityRow>(
+      `SELECT * FROM storage_activity ${where}`,
+      values,
+      SQLIT_DATABASE_ID,
+    )
+
+    let totalOperations = 0
+    let paidOperations = 0
+    let totalBytes = 0
+    let paidBytes = 0
+    let uploads = 0
+    let downloads = 0
+    let permanentUploads = 0
+    let totalAmountWei = 0n
+
+    for (const row of result.rows) {
+      totalOperations++
+      totalBytes += row.size_bytes
+      totalAmountWei += BigInt(row.amount_wei)
+
+      if (row.operation === 'upload') uploads++
+      else if (row.operation === 'download') downloads++
+      else if (row.operation === 'permanent-upload') permanentUploads++
+
+      if (row.payment_scheme !== 'free') {
+        paidOperations++
+        paidBytes += row.size_bytes
+      }
+    }
+
+    return {
+      totalOperations,
+      paidOperations,
+      totalBytes,
+      paidBytes,
+      uploads,
+      downloads,
+      permanentUploads,
+      totalAmountWei,
+    }
+  },
+}
+
+export const storageCommitmentState = {
+  async save(commitment: {
+    cid: string
+    owner?: Address | string
+    tier?: string
+    category?: string
+    backend?: string
+    sizeBytes: number
+    chunkSize: number
+    chunkCount: number
+    storedSha256: string
+    commitment: string
+    merkleRoot: string
+    auditTimestamp: number
+  }): Promise<void> {
+    const now = Date.now()
+    const row: StorageCommitmentRow = {
+      cid: commitment.cid,
+      owner: commitment.owner?.toLowerCase() ?? null,
+      tier: commitment.tier ?? null,
+      category: commitment.category ?? null,
+      backend: commitment.backend ?? null,
+      size_bytes: commitment.sizeBytes,
+      chunk_size: commitment.chunkSize,
+      chunk_count: commitment.chunkCount,
+      stored_sha256: commitment.storedSha256,
+      commitment: commitment.commitment,
+      merkle_root: commitment.merkleRoot,
+      audit_timestamp: commitment.auditTimestamp,
+      created_at: now,
+      updated_at: now,
+    }
+
+    const client = await getSQLitClient()
+    await client.exec(
+      `INSERT INTO storage_commitments (cid, owner, tier, category, backend, size_bytes, chunk_size, chunk_count, stored_sha256, commitment, merkle_root, audit_timestamp, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(cid) DO UPDATE SET
+       owner = excluded.owner,
+       tier = excluded.tier,
+       category = excluded.category,
+       backend = excluded.backend,
+       size_bytes = excluded.size_bytes,
+       chunk_size = excluded.chunk_size,
+       chunk_count = excluded.chunk_count,
+       stored_sha256 = excluded.stored_sha256,
+       commitment = excluded.commitment,
+       merkle_root = excluded.merkle_root,
+       audit_timestamp = excluded.audit_timestamp,
+       updated_at = excluded.updated_at`,
+      [
+        row.cid,
+        row.owner,
+        row.tier,
+        row.category,
+        row.backend,
+        row.size_bytes,
+        row.chunk_size,
+        row.chunk_count,
+        row.stored_sha256,
+        row.commitment,
+        row.merkle_root,
+        row.audit_timestamp,
+        row.created_at,
+        row.updated_at,
+      ],
+      SQLIT_DATABASE_ID,
+    )
+  },
+
+  async get(cid: string): Promise<StorageCommitmentRow | null> {
+    const client = await getSQLitClient()
+    const result = await client.query<StorageCommitmentRow>(
+      'SELECT * FROM storage_commitments WHERE cid = ?',
+      [cid],
+      SQLIT_DATABASE_ID,
+    )
+    return result.rows[0] ?? null
+  },
+
+  async listByOwner(owner: Address | string): Promise<StorageCommitmentRow[]> {
+    const client = await getSQLitClient()
+    const result = await client.query<StorageCommitmentRow>(
+      'SELECT * FROM storage_commitments WHERE owner = ? ORDER BY updated_at DESC',
+      [owner.toLowerCase()],
+      SQLIT_DATABASE_ID,
+    )
+    return result.rows
+  },
+
+  async list(params?: {
+    owner?: Address | string
+    limit?: number
+    offset?: number
+  }): Promise<StorageCommitmentRow[]> {
+    const client = await getSQLitClient()
+
+    const conditions: string[] = []
+    const values: Array<string | number> = []
+
+    if (params?.owner) {
+      conditions.push('owner = ?')
+      values.push(params.owner.toLowerCase())
+    }
+
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const limit = params?.limit ?? 100
+    const offset = params?.offset ?? 0
+
+    const result = await client.query<StorageCommitmentRow>(
+      `SELECT * FROM storage_commitments ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+      [...values, limit, offset],
+      SQLIT_DATABASE_ID,
+    )
+    return result.rows
   },
 }
 

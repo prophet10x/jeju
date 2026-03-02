@@ -36,11 +36,25 @@ const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
 )
 
 import { extractClientRegion } from '../../shared/utils/common'
+import {
+  storageActivityState,
+  storageCommitmentState,
+  storagePinState,
+} from '../../state'
 import type { BackendManager } from '../../storage/backends'
+import {
+  getAuditChunks,
+  pickRandomChunkIndices,
+} from '../../storage/audit'
 import { getMultiBackendManager } from '../../storage/multi-backend'
+import {
+  type StoragePaymentOperation,
+  processStoragePayment,
+} from '../../storage/payments'
 import type {
   ContentCategory,
   ContentTier,
+  ContentAuditCommitment,
   StorageBackendType,
 } from '../../storage/types'
 
@@ -252,6 +266,242 @@ function getQueryInt(
   return val !== undefined ? parseInt(val, 10) : defaultVal
 }
 
+function requiresStoragePayment(tier?: ContentTier): boolean {
+  return tier !== 'system'
+}
+
+function paymentRequiredResponse(
+  set: { status?: number | string; headers: Record<string, string | number> },
+  requirement: unknown,
+  error?: string,
+) {
+  set.status = 402
+  set.headers['X-Payment-Required'] = 'true'
+  return {
+    x402Version: 1,
+    error: error ?? 'Payment required',
+    accepts: requirement,
+  }
+}
+
+async function maybeChargeStorage(params: {
+  set: { status?: number | string; headers: Record<string, string | number> }
+  paymentHeader?: string | null
+  userAddress?: string | null
+  tier?: ContentTier
+  operation: StoragePaymentOperation
+  sizeBytes: number
+  resource: string
+}): Promise<
+  | {
+      ok: true
+      amountWei: bigint
+      scheme: 'free' | 'credit' | 'x402'
+      payer?: string
+    }
+  | { ok: false; response: unknown }
+> {
+  if (!requiresStoragePayment(params.tier)) {
+    return { ok: true, amountWei: 0n, scheme: 'free', payer: params.userAddress ?? undefined }
+  }
+
+  const payment = await processStoragePayment({
+    paymentHeader: params.paymentHeader ?? undefined,
+    userAddress: params.userAddress ?? undefined,
+    operation: params.operation,
+    sizeBytes: params.sizeBytes,
+    resource: params.resource,
+  })
+
+  if (!payment.allowed) {
+    return {
+      ok: false,
+      response: paymentRequiredResponse(
+        params.set,
+        payment.requirement?.accepts ?? [],
+        payment.error,
+      ),
+    }
+  }
+
+  return {
+    ok: true,
+    amountWei: payment.amountWei,
+    scheme: payment.scheme,
+    payer: payment.payer?.toString(),
+  }
+}
+
+async function resolveStoredContentInfo(
+  storageManager: ReturnType<typeof getMultiBackendManager>,
+  cid: string,
+): Promise<{
+  sizeBytes: number
+  tier?: ContentTier
+  category?: ContentCategory
+  owner?: string
+}> {
+  const metadata = storageManager.getMetadata(cid)
+  if (metadata) {
+    return {
+      sizeBytes: metadata.size,
+      tier: metadata.tier,
+      category: metadata.category,
+      owner: metadata.owner,
+    }
+  }
+
+  const pin = await storagePinState.get(cid)
+  if (pin) {
+    return {
+      sizeBytes: pin.size_bytes,
+      tier: pin.tier as ContentTier,
+      owner: pin.owner,
+    }
+  }
+
+  return { sizeBytes: 0 }
+}
+
+async function persistStoredUpload(params: {
+  storageManager: ReturnType<typeof getMultiBackendManager>
+  cid: string
+  filename: string
+  sizeBytes: number
+  backend?: string
+  tier: ContentTier
+  category: ContentCategory
+  senderAddress?: string | null
+  permanent?: boolean
+  payment: {
+    amountWei: bigint
+    scheme: 'free' | 'credit' | 'x402'
+    payer?: string
+  }
+}): Promise<void> {
+  const metadata = params.storageManager.getMetadata(params.cid)
+
+  if (metadata && params.senderAddress) {
+    metadata.owner = params.senderAddress as Address
+  }
+
+  if (params.senderAddress) {
+    await storagePinState.save({
+      cid: params.cid,
+      name: params.filename,
+      sizeBytes: params.sizeBytes,
+      backend: params.backend ?? 'ipfs',
+      tier: params.tier,
+      owner: params.senderAddress as Address,
+      permanent: params.permanent,
+    })
+  }
+
+  if (metadata?.audit) {
+    await storageCommitmentState.save({
+      cid: params.cid,
+      owner: params.senderAddress ?? metadata.owner,
+      tier: metadata.tier,
+      category: metadata.category,
+      backend: params.backend ?? metadata.addresses.backends[0],
+      sizeBytes: metadata.size,
+      chunkSize: metadata.audit.chunkSize,
+      chunkCount: metadata.audit.chunkCount,
+      storedSha256: metadata.audit.storedSha256,
+      commitment: metadata.audit.commitment,
+      merkleRoot: metadata.audit.merkleRoot,
+      auditTimestamp: metadata.audit.timestamp,
+    })
+  }
+
+  await storageActivityState.save({
+    cid: params.cid,
+    operation: params.permanent ? 'permanent-upload' : 'upload',
+    owner: params.senderAddress ?? metadata?.owner,
+    payer: params.payment.payer,
+    paymentScheme: params.payment.scheme,
+    amountWei: params.payment.amountWei,
+    sizeBytes: params.sizeBytes,
+    tier: params.tier,
+    category: params.category,
+    backend: params.backend,
+  })
+}
+
+async function resolveStoredCommitment(
+  storageManager: ReturnType<typeof getMultiBackendManager>,
+  cid: string,
+): Promise<
+  | {
+      cid: string
+      owner?: string | null
+      tier?: string | null
+      category?: string | null
+      backend?: string | null
+      sizeBytes: number
+      audit: ContentAuditCommitment
+      createdAt: number
+      updatedAt: number
+    }
+  | null
+> {
+  const stored = await storageCommitmentState.get(cid)
+  if (stored) {
+    return {
+      cid: stored.cid,
+      owner: stored.owner,
+      tier: stored.tier,
+      category: stored.category,
+      backend: stored.backend,
+      sizeBytes: stored.size_bytes,
+      createdAt: stored.created_at,
+      updatedAt: stored.updated_at,
+      audit: {
+        commitment: stored.commitment as `0x${string}`,
+        merkleRoot: stored.merkle_root as `0x${string}`,
+        chunkSize: stored.chunk_size,
+        chunkCount: stored.chunk_count,
+        storedSha256: stored.stored_sha256,
+        timestamp: stored.audit_timestamp,
+      },
+    }
+  }
+
+  const metadata = storageManager.getMetadata(cid)
+  if (!metadata?.audit) {
+    return null
+  }
+
+  return {
+    cid,
+    owner: metadata.owner,
+    tier: metadata.tier,
+    category: metadata.category,
+    backend: metadata.addresses.backends[0] ?? null,
+    sizeBytes: metadata.size,
+    createdAt: metadata.createdAt,
+    updatedAt: metadata.updatedAt ?? metadata.createdAt,
+    audit: metadata.audit,
+  }
+}
+
+function parseChunkIndices(indicesParam: string | undefined): number[] | null {
+  if (!indicesParam) {
+    return null
+  }
+
+  const indices = indicesParam
+    .split(',')
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isInteger(value) && value >= 0)
+
+  if (indices.length === 0) {
+    return null
+  }
+
+  return Array.from(new Set(indices)).sort((a, b) => a - b)
+}
+
 export function createStorageRouter(_backend?: BackendManager) {
   // Always use MultiBackendManager - it handles localnet configuration internally
   const storageManager = getMultiBackendManager()
@@ -274,6 +524,24 @@ export function createStorageRouter(_backend?: BackendManager) {
       })
 
       .get('/stats', () => storageManager.getNodeStats())
+
+      .get('/bootstrap-manifest', () => {
+        const items = storageManager.listByTier('system')
+        return {
+          version: '0.1.0',
+          generatedAt: Date.now(),
+          totalItems: items.length,
+          totalSize: items.reduce((sum, item) => sum + item.size, 0),
+          items: items.map((item) => ({
+            cid: item.cid,
+            name: item.name,
+            category: item.category,
+            size: item.size,
+            sha256: item.sha256,
+            backends: item.addresses.backends,
+          })),
+        }
+      })
 
       // Upload with multipart form
       .post('/upload', async ({ request, set }) => {
@@ -304,6 +572,7 @@ export function createStorageRouter(_backend?: BackendManager) {
         const backendsStr = getFormString(formData, 'backends')
         const accessPolicy = getFormString(formData, 'accessPolicy')
         const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
 
         const content = Buffer.from(await file.arrayBuffer())
 
@@ -334,30 +603,50 @@ export function createStorageRouter(_backend?: BackendManager) {
         }
         // ========================================
 
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier: tier as ContentTier,
+          operation: permanent ? 'permanent-upload' : 'upload',
+          sizeBytes: content.length,
+          resource: `/storage/upload`,
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
+
         const preferredBackends = backendsStr?.split(',').filter(Boolean) as
           | StorageBackendType[]
           | undefined
 
-        const result = await storageManager.upload(content, {
-          filename,
-          tier: tier as ContentTier,
-          category: category as ContentCategory,
-          encrypt,
-          preferredBackends,
-          accessPolicy: accessPolicy ?? undefined,
-        })
-
-        if (permanent) {
-          const permanentResult = await storageManager.uploadPermanent(
-            content,
-            {
+        const result = permanent
+          ? await storageManager.uploadPermanent(content, {
               filename,
               tier: tier as ContentTier,
               category: category as ContentCategory,
-            },
-          )
-          return permanentResult
-        }
+            })
+          : await storageManager.upload(content, {
+              filename,
+              tier: tier as ContentTier,
+              category: category as ContentCategory,
+              encrypt,
+              preferredBackends,
+              accessPolicy: accessPolicy ?? undefined,
+            })
+
+        await persistStoredUpload({
+          storageManager,
+          cid: result.cid,
+          filename,
+          sizeBytes: result.size,
+          backend: result.backends[0],
+          tier: tier as ContentTier,
+          category: category as ContentCategory,
+          senderAddress,
+          permanent,
+          payment,
+        })
 
         return result
       })
@@ -368,6 +657,7 @@ export function createStorageRouter(_backend?: BackendManager) {
         const tier = (query.tier as ContentTier) || 'popular'
         const category = (query.category as ContentCategory) || 'data'
         const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
 
         const content = Buffer.from(await request.arrayBuffer())
 
@@ -391,10 +681,35 @@ export function createStorageRouter(_backend?: BackendManager) {
         }
         // ========================================
 
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier,
+          operation: 'upload',
+          sizeBytes: content.length,
+          resource: '/storage/upload/raw',
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
+
         const result = await storageManager.upload(content, {
           filename,
           tier,
           category,
+        })
+
+        await persistStoredUpload({
+          storageManager,
+          cid: result.cid,
+          filename,
+          sizeBytes: result.size,
+          backend: result.backends[0],
+          tier,
+          category,
+          senderAddress,
+          payment,
         })
 
         return result
@@ -404,10 +719,17 @@ export function createStorageRouter(_backend?: BackendManager) {
       .post(
         '/upload/json',
         async ({ body, request, set }) => {
-          const { data, name, tier, category, encrypt } = body
+          const { data, name, tier, category, encrypt } = body as {
+            data: unknown
+            name?: string
+            tier?: string
+            category?: string
+            encrypt?: boolean
+          }
           const content = Buffer.from(JSON.stringify(data))
           const filename = name ?? 'data.json'
           const senderAddress = request.headers.get('x-sender-address')
+          const paymentHeader = request.headers.get('x-payment')
 
           // ========== CONTENT MODERATION ==========
           const moderation = await moderateUpload(
@@ -427,11 +749,41 @@ export function createStorageRouter(_backend?: BackendManager) {
           }
           // ========================================
 
+          const resolvedTier =
+            (tier as ContentTier | undefined) ?? 'popular'
+          const resolvedCategory =
+            (category as ContentCategory | undefined) ?? 'data'
+
+          const payment = await maybeChargeStorage({
+            set,
+            paymentHeader,
+            userAddress: senderAddress,
+            tier: resolvedTier,
+            operation: 'upload',
+            sizeBytes: content.length,
+            resource: '/storage/upload/json',
+          })
+          if (payment.ok === false) {
+            return payment.response
+          }
+
           const result = await storageManager.upload(content, {
             filename,
-            tier: (tier as ContentTier | undefined) ?? 'popular',
-            category: (category as ContentCategory | undefined) ?? 'data',
+            tier: resolvedTier,
+            category: resolvedCategory,
             encrypt,
+          })
+
+          await persistStoredUpload({
+            storageManager,
+            cid: result.cid,
+            filename,
+            sizeBytes: result.size,
+            backend: result.backends[0],
+            tier: resolvedTier,
+            category: resolvedCategory,
+            senderAddress,
+            payment,
           })
 
           return result
@@ -462,6 +814,7 @@ export function createStorageRouter(_backend?: BackendManager) {
         const category = getFormStringOr(formData, 'category', 'data')
         const content = Buffer.from(await file.arrayBuffer())
         const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
 
         // ========== CONTENT MODERATION ==========
         // Permanent uploads require EXTRA strict moderation
@@ -483,10 +836,36 @@ export function createStorageRouter(_backend?: BackendManager) {
         }
         // ========================================
 
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier: tier as ContentTier,
+          operation: 'permanent-upload',
+          sizeBytes: content.length,
+          resource: '/storage/upload/permanent',
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
+
         const result = await storageManager.uploadPermanent(content, {
           filename,
           tier: tier as ContentTier,
           category: category as ContentCategory,
+        })
+
+        await persistStoredUpload({
+          storageManager,
+          cid: result.cid,
+          filename,
+          sizeBytes: result.size,
+          backend: result.backends[0],
+          tier: tier as ContentTier,
+          category: category as ContentCategory,
+          senderAddress,
+          permanent: true,
+          payment,
         })
 
         return result
@@ -501,6 +880,22 @@ export function createStorageRouter(_backend?: BackendManager) {
         )
         const decrypt = query.decrypt === 'true'
         const preferredBackend = query.backend as StorageBackendType | undefined
+        const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
+
+        const contentInfo = await resolveStoredContentInfo(storageManager, cid)
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier: contentInfo.tier,
+          operation: 'download',
+          sizeBytes: contentInfo.sizeBytes,
+          resource: `/storage/download/${cid}`,
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
 
         const result = await storageManager.download(cid, {
           region,
@@ -522,6 +917,19 @@ export function createStorageRouter(_backend?: BackendManager) {
           set.headers['X-Content-Tier'] = metadata.tier
         }
 
+        await storageActivityState.save({
+          cid,
+          operation: 'download',
+          owner: contentInfo.owner ?? metadata.owner,
+          payer: payment.payer ?? senderAddress ?? undefined,
+          paymentScheme: payment.scheme,
+          amountWei: payment.amountWei,
+          sizeBytes: result.content.length,
+          tier: metadata.tier,
+          category: metadata.category,
+          backend: result.backend,
+        })
+
         return new Response(new Uint8Array(result.content))
       })
 
@@ -529,6 +937,22 @@ export function createStorageRouter(_backend?: BackendManager) {
       .get('/download/:cid/json', async ({ params, request, set }) => {
         const cid = params.cid
         const region = request.headers.get('x-region') ?? 'unknown'
+        const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
+
+        const contentInfo = await resolveStoredContentInfo(storageManager, cid)
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier: contentInfo.tier,
+          operation: 'download',
+          sizeBytes: contentInfo.sizeBytes,
+          resource: `/storage/download/${cid}/json`,
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
 
         const result = await storageManager.download(cid, { region })
 
@@ -536,6 +960,19 @@ export function createStorageRouter(_backend?: BackendManager) {
           set.status = 404
           return { error: 'Not found' }
         }
+
+        await storageActivityState.save({
+          cid,
+          operation: 'download',
+          owner: contentInfo.owner ?? result.metadata.owner,
+          payer: payment.payer ?? senderAddress ?? undefined,
+          paymentScheme: payment.scheme,
+          amountWei: payment.amountWei,
+          sizeBytes: result.content.length,
+          tier: result.metadata.tier,
+          category: result.metadata.category,
+          backend: result.backend,
+        })
 
         return JsonValueSchema.parse(
           JSON.parse(result.content.toString('utf-8')),
@@ -553,6 +990,173 @@ export function createStorageRouter(_backend?: BackendManager) {
         }
 
         return metadata
+      })
+
+      .get('/activity/summary', async ({ query }) => {
+        const owner =
+          typeof query.owner === 'string' ? query.owner : undefined
+        const sinceHours = getQueryInt(
+          query as Record<string, string | undefined>,
+          'sinceHours',
+          24 * 30,
+        )
+        const since = Date.now() - sinceHours * 60 * 60 * 1000
+        const summary = await storageActivityState.summarize({ owner, since })
+
+        return {
+          owner: owner ?? null,
+          since,
+          sinceHours,
+          ...summary,
+          totalAmountWei: summary.totalAmountWei.toString(),
+        }
+      })
+
+      .get('/audit', async ({ query }) => {
+        const owner =
+          typeof query.owner === 'string' ? query.owner : undefined
+        const limit = getQueryInt(
+          query as Record<string, string | undefined>,
+          'limit',
+          100,
+        )
+        const offset = getQueryInt(
+          query as Record<string, string | undefined>,
+          'offset',
+          0,
+        )
+
+        const items = await storageCommitmentState.list({ owner, limit, offset })
+
+        return {
+          items: items.map((item) => ({
+            cid: item.cid,
+            owner: item.owner,
+            tier: item.tier,
+            category: item.category,
+            backend: item.backend,
+            sizeBytes: item.size_bytes,
+            createdAt: item.created_at,
+            updatedAt: item.updated_at,
+            audit: {
+              commitment: item.commitment,
+              merkleRoot: item.merkle_root,
+              chunkSize: item.chunk_size,
+              chunkCount: item.chunk_count,
+              storedSha256: item.stored_sha256,
+              timestamp: item.audit_timestamp,
+            },
+          })),
+          limit,
+          offset,
+        }
+      })
+
+      .get('/audit/:cid', async ({ params, set }) => {
+        const commitment = await resolveStoredCommitment(
+          storageManager,
+          params.cid,
+        )
+
+        if (!commitment) {
+          set.status = 404
+          return { error: 'Audit commitment not found' }
+        }
+
+        return commitment
+      })
+
+      .get('/audit/:cid/challenge', async ({ params, query, set }) => {
+        const commitment = await resolveStoredCommitment(
+          storageManager,
+          params.cid,
+        )
+
+        if (!commitment) {
+          set.status = 404
+          return { error: 'Audit commitment not found' }
+        }
+
+        const requestedCount = getQueryInt(
+          query as Record<string, string | undefined>,
+          'count',
+          3,
+        )
+        const maxCount = Math.max(1, Math.min(16, commitment.audit.chunkCount))
+        const sampleCount = Math.max(1, Math.min(requestedCount, maxCount))
+        const issuedAt = Date.now()
+
+        return {
+          cid: params.cid,
+          issuedAt,
+          expiresAt: issuedAt + 5 * 60 * 1000,
+          sampleCount,
+          chunkIndices: pickRandomChunkIndices(
+            commitment.audit.chunkCount,
+            sampleCount,
+          ),
+          audit: commitment.audit,
+        }
+      })
+
+      .get('/audit/:cid/prove', async ({ params, query, set }) => {
+        const commitment = await resolveStoredCommitment(
+          storageManager,
+          params.cid,
+        )
+
+        if (!commitment) {
+          set.status = 404
+          return { error: 'Audit commitment not found' }
+        }
+
+        const chunkIndices = parseChunkIndices(
+          typeof query.indices === 'string' ? query.indices : undefined,
+        )
+        if (!chunkIndices) {
+          set.status = 400
+          return { error: 'Provide comma-separated chunk indices' }
+        }
+
+        if (
+          chunkIndices.some((index) => index >= commitment.audit.chunkCount)
+        ) {
+          set.status = 400
+          return { error: 'Chunk index out of range' }
+        }
+
+        const result = await storageManager.download(params.cid)
+        const proof = getAuditChunks(
+          new Uint8Array(result.content),
+          chunkIndices,
+          commitment.audit.chunkSize,
+        )
+
+        if (
+          proof.audit.commitment.toLowerCase() !==
+            commitment.audit.commitment.toLowerCase() ||
+          proof.audit.merkleRoot.toLowerCase() !==
+            commitment.audit.merkleRoot.toLowerCase() ||
+          proof.audit.storedSha256.toLowerCase() !==
+            commitment.audit.storedSha256.toLowerCase()
+        ) {
+          set.status = 409
+          return { error: 'Stored content no longer matches the commitment' }
+        }
+
+        return {
+          cid: params.cid,
+          backend: result.backend,
+          latencyMs: result.latencyMs,
+          chunkSize: commitment.audit.chunkSize,
+          chunkCount: commitment.audit.chunkCount,
+          chunks: proof.chunks.map((chunk) => ({
+            index: chunk.index,
+            data: Buffer.from(chunk.data).toString('base64'),
+            proof: chunk.proof,
+          })),
+          audit: commitment.audit,
+        }
       })
 
       // List content
@@ -683,6 +1287,7 @@ export function createStorageRouter(_backend?: BackendManager) {
         const filename = file.name || 'file'
         const content = Buffer.from(await file.arrayBuffer())
         const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
 
         // ========== CONTENT MODERATION ==========
         const moderation = await moderateUpload(
@@ -697,9 +1302,34 @@ export function createStorageRouter(_backend?: BackendManager) {
         }
         // ========================================
 
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier: 'popular',
+          operation: 'upload',
+          sizeBytes: content.length,
+          resource: '/storage/api/v0/add',
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
+
         const result = await storageManager.upload(content, {
           filename,
           tier: 'popular',
+        })
+
+        await persistStoredUpload({
+          storageManager,
+          cid: result.cid,
+          filename,
+          sizeBytes: result.size,
+          backend: result.backends[0],
+          tier: 'popular',
+          category: 'data',
+          senderAddress,
+          payment,
         })
 
         return {
@@ -739,6 +1369,22 @@ export function createStorageRouter(_backend?: BackendManager) {
       .get('/ipfs/:cid', async ({ params, request, set }) => {
         const cid = params.cid
         const region = request.headers.get('x-region') ?? 'unknown'
+        const senderAddress = request.headers.get('x-sender-address')
+        const paymentHeader = request.headers.get('x-payment')
+
+        const contentInfo = await resolveStoredContentInfo(storageManager, cid)
+        const payment = await maybeChargeStorage({
+          set,
+          paymentHeader,
+          userAddress: senderAddress,
+          tier: contentInfo.tier,
+          operation: 'download',
+          sizeBytes: contentInfo.sizeBytes,
+          resource: `/storage/ipfs/${cid}`,
+        })
+        if (payment.ok === false) {
+          return payment.response
+        }
 
         const result = await storageManager.download(cid, { region })
 
@@ -753,6 +1399,19 @@ export function createStorageRouter(_backend?: BackendManager) {
         set.headers['Content-Type'] = contentType
         set.headers['X-Ipfs-Path'] = `/ipfs/${cid}`
         set.headers['X-Backend'] = result.backend
+
+        await storageActivityState.save({
+          cid,
+          operation: 'download',
+          owner: contentInfo.owner ?? result.metadata.owner,
+          payer: payment.payer ?? senderAddress ?? undefined,
+          paymentScheme: payment.scheme,
+          amountWei: payment.amountWei,
+          sizeBytes: result.content.length,
+          tier: result.metadata.tier,
+          category: result.metadata.category,
+          backend: result.backend,
+        })
 
         return new Response(new Uint8Array(result.content))
       })

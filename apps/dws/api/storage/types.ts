@@ -2,7 +2,7 @@
  * Storage Types - Multi-backend decentralized storage
  */
 
-import type { Address } from 'viem'
+import type { Address, Hex } from 'viem'
 
 // Backend Types
 
@@ -40,6 +40,15 @@ export interface ContentAddress {
   httpUrls?: string[] // HTTP fallback URLs
 }
 
+export interface ContentAuditCommitment {
+  commitment: Hex
+  merkleRoot: Hex
+  chunkSize: number
+  chunkCount: number
+  storedSha256: string
+  timestamp: number
+}
+
 export interface ContentMetadata {
   cid: string
   size: number
@@ -60,6 +69,7 @@ export interface ContentMetadata {
   encrypted?: boolean
   encryptionKeyId?: string
   accessPolicy?: string // KMS policy ID
+  audit?: ContentAuditCommitment
 
   // Stats
   accessCount: number

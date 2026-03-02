@@ -22,6 +22,7 @@ import {
   KmsEncryptResponseSchema,
 } from '../types'
 import { type ArweaveBackend, getArweaveBackend } from './arweave-backend'
+import { createStorageAuditCommitment } from './audit'
 import { type FilecoinBackend, getFilecoinBackend } from './filecoin-backend'
 import type {
   ContentAddress,
@@ -392,6 +393,8 @@ export class MultiBackendManager {
 
     addresses.cid = primaryCid
 
+    const { audit } = createStorageAuditCommitment(new Uint8Array(uploadContent))
+
     // Register content metadata
     const metadata: ContentMetadata = {
       cid: primaryCid,
@@ -406,6 +409,7 @@ export class MultiBackendManager {
       encrypted: tier === 'private',
       encryptionKeyId,
       accessPolicy: options.accessPolicy,
+      audit,
       accessCount: 0,
     }
 
@@ -833,6 +837,8 @@ export class MultiBackendManager {
   }
 
   private createBasicMetadata(cid: string, content: Buffer): ContentMetadata {
+    const { audit } = createStorageAuditCommitment(new Uint8Array(content))
+
     return {
       cid,
       size: content.length,
@@ -842,6 +848,7 @@ export class MultiBackendManager {
       createdAt: Date.now(),
       sha256: bytesToHex(hash256(new Uint8Array(content))).slice(2),
       addresses: { cid, backends: [] },
+      audit,
       accessCount: 1,
     }
   }

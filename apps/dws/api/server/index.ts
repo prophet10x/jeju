@@ -131,6 +131,7 @@ import {
 import { createMCPRouter } from './routes/mcp'
 import { createModerationRouter } from './routes/moderation'
 import { createNitroDatabaseRouter } from './routes/nitro-database'
+import { createNodeRegistrationRouter } from './routes/node-registration'
 import { createOAuth3Router } from './routes/oauth3'
 import { createOCIRegistryRouter } from './routes/oci-registry'
 import { createPkgRouter } from './routes/pkg'
@@ -885,6 +886,7 @@ app.use(createRPCRouter())
 app.use(createEdgeRouter())
 app.use(createFaucetRouter()) // Testnet-only faucet
 app.use(createStakingRouter()) // Node staking and earnings
+app.use(createNodeRegistrationRouter())
 app.use(createPricesRouter())
 app.use(createModerationRouter())
 app.use(releasesRoutes)
@@ -1431,6 +1433,9 @@ if (import.meta.main) {
   const { configureX402PaymentsConfig } = await import(
     '../rpc/services/x402-payments'
   )
+  const { configureStoragePaymentsConfig } = await import(
+    '../storage/payments'
+  )
 
   // Inject configs from serverConfig and process.env (for backward compatibility)
   configureCDNRouterConfig({
@@ -1528,6 +1533,18 @@ if (import.meta.main) {
     paymentRecipient:
       typeof process !== 'undefined'
         ? (process.env.RPC_PAYMENT_RECIPIENT as Address | undefined)
+        : undefined,
+    x402Enabled:
+      typeof process !== 'undefined'
+        ? process.env.X402_ENABLED !== 'false'
+        : undefined,
+  })
+
+  configureStoragePaymentsConfig({
+    paymentRecipient:
+      typeof process !== 'undefined'
+        ? ((process.env.STORAGE_PAYMENT_RECIPIENT ||
+            process.env.RPC_PAYMENT_RECIPIENT) as Address | undefined)
         : undefined,
     x402Enabled:
       typeof process !== 'undefined'
