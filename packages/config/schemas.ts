@@ -106,6 +106,7 @@ export type ContractCategory =
   | 'registry'
   | 'moderation'
   | 'nodeStaking'
+  | 'accountAbstraction'
   | 'jns'
   | 'oauth3'
   | 'dws'
@@ -147,6 +148,7 @@ const NetworkContractsSchema = z.object({
   registry: ContractCategorySchema,
   moderation: ContractCategorySchema,
   nodeStaking: ContractCategorySchema,
+  accountAbstraction: ContractCategorySchema.optional(),
   jns: ContractCategorySchema,
   oauth3: ContractCategorySchema.optional(),
   dws: ContractCategorySchema.optional(),

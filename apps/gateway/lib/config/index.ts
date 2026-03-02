@@ -6,6 +6,8 @@
 
 import {
   getChainId,
+  getBundlerUrl,
+  getConstant,
   getContractsConfig,
   getCurrentNetwork,
   getRpcUrl,
@@ -32,6 +34,10 @@ export function getServices() {
 export const CHAIN_ID = getChainId(NETWORK)
 export const RPC_URL = getRpcUrl(NETWORK)
 export const WS_URL = getWsUrl(NETWORK)
+export const BUNDLER_URL =
+  typeof window !== 'undefined'
+    ? new URL('/bundler', window.location.origin).toString()
+    : getBundlerUrl(NETWORK)
 
 // Service URLs from config
 const services = getServicesConfig(NETWORK)
@@ -102,7 +108,7 @@ export const CONTRACTS = {
   // Tokens - some may not be deployed on all networks
   jeju: optionalAddr(contracts.tokens?.jeju),
   usdc: optionalAddr(contracts.tokens?.usdc),
-  weth: getAddress('0x4200000000000000000000000000000000000006'),
+  weth: optionalAddr(contracts.tokens?.weth || getConstant('weth')),
 
   // Registry - some may not be deployed on all networks
   identityRegistry: optionalAddr(contracts.registry?.identity),
@@ -134,8 +140,21 @@ export const CONTRACTS = {
 
   // Payments - optional
   paymasterFactory: optionalAddr(contracts.payments?.paymasterFactory),
+  liquidityPaymaster: optionalAddr(contracts.payments?.liquidityPaymaster),
+  multiTokenPaymaster: optionalAddr(contracts.payments?.multiTokenPaymaster),
   priceOracle: optionalAddr(contracts.payments?.priceOracle),
-  entryPoint: getAddress('0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789'),
+  serviceRegistry: optionalAddr(contracts.payments?.serviceRegistry),
+  creditManager: optionalAddr(contracts.payments?.creditManager),
+  feeConfig: optionalAddr(contracts.payments?.feeConfig),
+  entryPoint: optionalAddr(
+    contracts.accountAbstraction?.entryPointV07 || getConstant('entryPointV07'),
+  ),
+  entryPointV07: optionalAddr(
+    contracts.accountAbstraction?.entryPointV07 || getConstant('entryPointV07'),
+  ),
+  simpleAccountFactory: optionalAddr(
+    contracts.accountAbstraction?.simpleAccountFactory,
+  ),
   x402Facilitator: optionalAddr(contracts.payments?.x402Facilitator),
 
   // Compute - optional

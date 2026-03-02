@@ -1,5 +1,6 @@
-import { type Address, erc20Abi } from 'viem'
+import { type Address, encodeFunctionData, erc20Abi } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
+import { CONTRACTS } from '../../lib/config'
 import {
   getNodeStakingAddress,
   NODE_STAKING_MANAGER_ABI,
@@ -8,6 +9,7 @@ import {
   type PerformanceMetrics,
   type Region,
 } from '../../lib/nodeStaking'
+import { useGaslessSmartAccount } from './useGaslessSmartAccount'
 import { useTypedWriteContract } from './useTypedWriteContract'
 
 const NODE_STAKING_WITH_AGENT_ABI = [
@@ -31,6 +33,7 @@ const NODE_STAKING_WITH_AGENT_ABI = [
 export function useNodeStaking() {
   const stakingManager = getNodeStakingAddress()
   const { address: userAddress } = useAccount()
+  const gasless = useGaslessSmartAccount()
 
   const { data: operatorNodeIds, refetch: refetchNodes } = useReadContract({
     address: stakingManager,
@@ -54,7 +57,6 @@ export function useNodeStaking() {
 
   const {
     write: register,
-    writeAsync: registerAsync,
     isPending: isRegistering,
     isConfirming: isConfirmingRegister,
     isSuccess: isRegisterSuccess,
@@ -71,7 +73,62 @@ export function useNodeStaking() {
     rpcUrl: string,
     region: Region,
     operatorAgentId?: bigint,
+    options?: { gasless?: boolean },
   ) => {
+    if (options?.gasless) {
+      if (stakingToken !== CONTRACTS.jeju) {
+        throw new Error(
+          'Gasless node registration currently supports JEJU staking only.',
+        )
+      }
+
+      const calls = [
+        {
+          to: stakingToken,
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [stakingManager, stakeAmount],
+          }),
+        },
+        {
+          to: stakingManager,
+          data:
+            operatorAgentId !== undefined
+              ? encodeFunctionData({
+                  abi: NODE_STAKING_WITH_AGENT_ABI,
+                  functionName: 'registerNodeWithAgent',
+                  args: [
+                    stakingToken,
+                    stakeAmount,
+                    rewardToken,
+                    rpcUrl,
+                    region,
+                    operatorAgentId,
+                  ],
+                })
+              : encodeFunctionData({
+                  abi: NODE_STAKING_MANAGER_ABI,
+                  functionName: 'registerNode',
+                  args: [
+                    stakingToken,
+                    stakeAmount,
+                    rewardToken,
+                    rpcUrl,
+                    region,
+                  ],
+                }),
+        },
+      ]
+
+      await gasless.executeGaslessCalls({
+        serviceName: 'Jeju Node Registration',
+        calls,
+        requiredJejuBalance: stakeAmount,
+      })
+      return
+    }
+
     // Step 1: Approve tokens to NodeStakingManager
     await approveAsync({
       address: stakingToken,
@@ -130,11 +187,12 @@ export function useNodeStaking() {
     networkStats: networkStats as [bigint, bigint, bigint] | undefined,
     registerNode,
     deregisterNode,
-    isRegistering: isRegistering || isConfirmingRegister,
+    isRegistering: isRegistering || isConfirmingRegister || gasless.isExecuting,
     isDeregistering: isDeregistering || isConfirmingDeregister,
-    isRegisterSuccess,
+    isRegisterSuccess: isRegisterSuccess || Boolean(gasless.lastTransactionReceipt),
     isDeregisterSuccess,
     refetchNodes,
+    gasless,
   }
 }
 

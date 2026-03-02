@@ -1,9 +1,11 @@
 import { ZERO_ADDRESS } from '@jejunetwork/types'
 import { useState } from 'react'
-import type { Address } from 'viem'
+import { type Address, encodeFunctionData } from 'viem'
 import { useReadContract, useWaitForTransactionReceipt } from 'wagmi'
 import { CONTRACTS } from '../../lib/config'
 import { IERC20_ABI } from '../lib/constants'
+import type { GaslessCall } from './useGaslessSmartAccount'
+import { useGaslessSmartAccount } from './useGaslessSmartAccount'
 import { useTypedWriteContract } from './useTypedWriteContract'
 
 export const IDENTITY_REGISTRY_ADDRESS = CONTRACTS.identityRegistry
@@ -296,6 +298,10 @@ export interface RegisterAppParams {
   stakeAmount: bigint
 }
 
+interface RegisterAppOptions {
+  gasless?: boolean
+}
+
 /** Encode a string as ABI bytes for MetadataEntry */
 function encodeStringMetadata(value: string): `0x${string}` {
   const encoder = new TextEncoder()
@@ -307,9 +313,11 @@ export function useRegistry() {
   const [lastTx, setLastTx] = useState<`0x${string}` | undefined>()
   const { data: txReceipt } = useWaitForTransactionReceipt({ hash: lastTx })
   const { writeAsync } = useTypedWriteContract()
+  const gasless = useGaslessSmartAccount()
 
   async function registerApp(
     params: RegisterAppParams,
+    options: RegisterAppOptions = {},
   ): Promise<{ success: boolean; error?: string; agentId?: bigint }> {
     const { tokenURI, a2aEndpoint, tier, stakeToken, stakeAmount } = params
 
@@ -320,6 +328,52 @@ export function useRegistry() {
         key: 'a2aEndpoint',
         value: encodeStringMetadata(a2aEndpoint),
       })
+    }
+
+    if (options.gasless) {
+      if (tier !== StakeTier.NONE && stakeToken !== CONTRACTS.jeju) {
+        return {
+          success: false,
+          error: 'Gasless registry registration currently supports JEJU staking only.',
+        }
+      }
+
+      const calls: GaslessCall[] = []
+
+      if (tier !== StakeTier.NONE) {
+        calls.push({
+          to: stakeToken,
+          data: encodeFunctionData({
+            abi: IERC20_ABI,
+            functionName: 'approve',
+            args: [REGISTRY_ADDRESS, stakeAmount],
+          }),
+        })
+      }
+
+      calls.push({
+        to: REGISTRY_ADDRESS,
+        data:
+          tier === StakeTier.NONE
+            ? encodeFunctionData({
+                abi: IDENTITY_REGISTRY_ABI,
+                functionName: 'register',
+                args: [tokenURI, metadata],
+              })
+            : encodeFunctionData({
+                abi: IDENTITY_REGISTRY_ABI,
+                functionName: 'registerWithStake',
+                args: [tokenURI, metadata, tier, stakeToken],
+              }),
+      })
+
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: 'Jeju Agent Registration',
+        calls,
+        requiredJejuBalance: tier === StakeTier.NONE ? 0n : stakeAmount,
+      })
+      setLastTx(hash)
+      return { success: true }
     }
 
     if (tier === StakeTier.NONE) {
@@ -368,7 +422,12 @@ export function useRegistry() {
     return { success: true }
   }
 
-  return { registerApp, withdrawStake, lastTransaction: txReceipt }
+  return {
+    registerApp,
+    withdrawStake,
+    lastTransaction: txReceipt ?? gasless.lastTransactionReceipt,
+    gasless,
+  }
 }
 
 export function useStakeAmount(tier: StakeTierValue) {
@@ -462,15 +521,8 @@ interface RegisteredApp {
   x402Support?: boolean
   stakeToken: string
   stakeAmount: string
+  stakeTier?: number
   depositedAt: bigint
-}
-
-/** Stake info returned from the agents mapping */
-interface StakeInfoData {
-  token: string
-  amount: bigint
-  depositedAt: bigint
-  withdrawn: boolean
 }
 
 // JEJU token address - used to display "JEJU" instead of raw address

@@ -79,7 +79,7 @@ const AVAILABLE_TAGS = [
 
 export default function RegisterAppForm() {
   const { address } = useAccount()
-  const { registerApp } = useRegistry()
+  const { registerApp, gasless } = useRegistry()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -91,8 +91,15 @@ export default function RegisterAppForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [useGasless, setUseGasless] = useState(true)
 
   const stakeAmount = useStakeAmount(selectedTier)
+  const gaslessReadiness =
+    selectedTier === StakeTier.NONE || stakeAmount !== undefined
+      ? gasless.getReadiness(
+          selectedTier === StakeTier.NONE ? 0n : (stakeAmount ?? 0n),
+        )
+      : null
 
   const handleTagToggle = (tag: string) => {
     setSelectedTags((prev) =>
@@ -130,6 +137,13 @@ export default function RegisterAppForm() {
       return
     }
 
+    if (useGasless && gaslessReadiness && !gaslessReadiness.isReady) {
+      setError(
+        'Your smart account is not ready yet. Fund it with JEJU or preload JEJU credit first.',
+      )
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -149,7 +163,7 @@ export default function RegisterAppForm() {
             ? '0x0000000000000000000000000000000000000000'
             : JEJU_TOKEN,
         stakeAmount: stakeAmount ?? 0n,
-      })
+      }, { gasless: useGasless })
 
       setIsSubmitting(false)
 
@@ -207,10 +221,136 @@ export default function RegisterAppForm() {
         </div>
       </div>
 
-      <div className="card">
+        <div className="card">
         <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>
           Register Identity
         </h2>
+
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--surface-hover)',
+            borderRadius: '8px',
+            marginBottom: '1.5rem',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                JEJU gasless smart account
+              </p>
+              <p
+                style={{
+                  margin: '0.25rem 0 0 0',
+                  fontSize: '0.875rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Stake and pay L2 gas from your SimpleAccount instead of your
+                connected wallet.
+              </p>
+            </div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontWeight: 600,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={useGasless}
+                onChange={(e) => setUseGasless(e.target.checked)}
+              />
+              Use JEJU gasless flow
+            </label>
+          </div>
+
+          <div
+            style={{
+              marginTop: '1rem',
+              fontSize: '0.875rem',
+              display: 'grid',
+              gap: '0.5rem',
+            }}
+          >
+            <div>
+              <strong>Smart account:</strong>{' '}
+              {gasless.isLoadingSmartAccount
+                ? 'Deriving...'
+                : gasless.smartAccountAddress ?? 'Unavailable'}
+            </div>
+            <div>
+              <strong>JEJU balance:</strong>{' '}
+              {gasless.smartAccountJejuBalance !== undefined
+                ? `${formatUnits(gasless.smartAccountJejuBalance, 18)} JEJU`
+                : 'Loading...'}
+            </div>
+            <div>
+              <strong>JEJU credit:</strong>{' '}
+              {gasless.smartAccountJejuCredit !== undefined
+                ? `${formatUnits(gasless.smartAccountJejuCredit, 18)} JEJU`
+                : 'Loading...'}
+            </div>
+            <div>
+              <strong>Paymaster allowance:</strong>{' '}
+              {gasless.smartAccountPaymasterAllowance !== undefined
+                ? `${formatUnits(gasless.smartAccountPaymasterAllowance, 18)} JEJU`
+                : 'Loading...'}
+            </div>
+            {gaslessReadiness && (
+              <div
+                style={{
+                  marginTop: '0.25rem',
+                  padding: '0.75rem',
+                  borderRadius: '8px',
+                  background: gaslessReadiness.isReady
+                    ? 'var(--success-soft)'
+                    : 'var(--warning-soft)',
+                  border: `1px solid ${
+                    gaslessReadiness.isReady
+                      ? 'var(--success)'
+                      : 'var(--warning)'
+                  }`,
+                }}
+              >
+                {gaslessReadiness.isReady ? (
+                  <p style={{ margin: 0, color: 'var(--success)' }}>
+                    Ready for JEJU gasless registration via{' '}
+                    {gaslessReadiness.readyViaCredit
+                      ? 'existing credit'
+                      : 'existing paymaster allowance'}
+                    .
+                  </p>
+                ) : (
+                  <div style={{ color: 'var(--warning)' }}>
+                    <p style={{ margin: 0 }}>
+                      Fund this smart account with JEJU first, or preload JEJU
+                      credit for it before using the gasless path.
+                    </p>
+                    <p style={{ margin: '0.5rem 0 0 0' }}>
+                      Recommended JEJU on smart account:{' '}
+                      {formatUnits(
+                        gaslessReadiness.recommendedJejuBalance,
+                        18,
+                      )}{' '}
+                      JEJU
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         {error && (
           <div
@@ -440,7 +580,10 @@ export default function RegisterAppForm() {
             type="submit"
             className="button"
             disabled={
-              isSubmitting || !name.trim() || selectedTags.length === 0
+              isSubmitting ||
+              !name.trim() ||
+              selectedTags.length === 0 ||
+              (useGasless && Boolean(gaslessReadiness && !gaslessReadiness.isReady))
             }
             style={{
               width: '100%',
@@ -451,9 +594,13 @@ export default function RegisterAppForm() {
           >
             {isSubmitting
               ? 'Registering...'
-              : selectedTier === StakeTier.NONE
-                ? 'Register (Free)'
-                : 'Register & Stake'}
+              : useGasless
+                ? selectedTier === StakeTier.NONE
+                  ? 'Register (JEJU gasless)'
+                  : 'Register & Stake (JEJU gasless)'
+                : selectedTier === StakeTier.NONE
+                  ? 'Register (Free)'
+                  : 'Register & Stake'}
           </button>
           <p
             style={{

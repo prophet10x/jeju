@@ -1048,6 +1048,18 @@ export function getFrontendContracts(network?: NetworkType) {
     priceOracle: getContract('payments', 'priceOracle', net),
     x402Facilitator: getContract('payments', 'x402Facilitator', net),
 
+    // Account abstraction
+    simpleAccountFactory: tryGetContract(
+      'accountAbstraction',
+      'simpleAccountFactory',
+      net,
+    ),
+    entryPointDeployed: tryGetContract(
+      'accountAbstraction',
+      'entryPointDeployed',
+      net,
+    ),
+
     // DeFi
     poolManager: getContract('defi', 'poolManager', net),
     swapRouter: getContract('defi', 'swapRouter', net),
