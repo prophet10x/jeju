@@ -278,7 +278,7 @@ export default function NodeOperatorDashboard() {
             <h3 className="card-title">
               <HardDrive size={18} /> Your Nodes
             </h3>
-            <a href="/settings" className="btn btn-sm btn-primary">
+            <a href="/provider/node/register" className="btn btn-sm btn-primary">
               <Server size={14} /> Register Node
             </a>
           </div>
@@ -289,7 +289,7 @@ export default function NodeOperatorDashboard() {
               <h4>No nodes registered</h4>
               <p>Register a node to start earning rewards</p>
               <a
-                href="/settings"
+                href="/provider/node/register"
                 className="btn btn-primary"
                 style={{ marginTop: '1rem' }}
               >

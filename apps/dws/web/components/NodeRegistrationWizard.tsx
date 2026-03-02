@@ -39,12 +39,17 @@ import {
   Server,
   Shield,
   Wallet,
-  Wifi,
   Zap,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { formatEther } from 'viem'
+import { type Address, formatEther } from 'viem'
+import {
+  useSignMessage,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from 'wagmi'
 import { CONTRACTS } from '../config'
+import { useAgentId } from '../hooks/useAgentId'
 
 type WizardStep =
   | 'connect'
@@ -100,8 +105,45 @@ function formatStakeAmount(wei: bigint): string {
   return `${value.toFixed(2)} JEJU`
 }
 
+const IDENTITY_REGISTRY_ABI = [
+  {
+    name: 'setAgentWallet',
+    type: 'function',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'wallet', type: 'address' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+interface NodeProofChallenge {
+  challengeId: string
+  expiresAt: number
+  endpoint: string
+  endpointOrigin: string
+  proofUrl: string
+  nodeWalletAddress: Address
+  currentAgentWallet: Address | null
+  delegatedWalletContractReady: boolean
+  requiresDelegatedWalletUpdate: boolean
+  operatorMessage: string
+  nodeMessage: string
+}
+
+interface NodeProofVerification {
+  verified: boolean
+  challengeId: string
+  nodeWalletAddress: Address
+  endpointOrigin: string
+  proofUrl: string
+  verifiedAt: number
+}
+
 export default function NodeRegistrationWizard() {
   const { address, isConnected, isConnecting, connect } = useWallet()
+  const { hasAgent, agentId, isLoading: isAgentLoading } = useAgentId()
 
   // Get staking manager address from config
   const stakingManagerAddress =
@@ -130,15 +172,59 @@ export default function NodeRegistrationWizard() {
     Region.NorthAmerica,
   )
   const [nodeRpcUrl, setNodeRpcUrl] = useState('')
+  const [nodeName, setNodeName] = useState('')
+  const [zone, setZone] = useState('')
+  const [cpuCores, setCpuCores] = useState('')
+  const [memoryGb, setMemoryGb] = useState('')
+  const [diskGb, setDiskGb] = useState('')
+  const [customStakeAmount, setCustomStakeAmount] = useState('')
+  const [proofChallenge, setProofChallenge] = useState<NodeProofChallenge | null>(
+    null,
+  )
+  const [proofVerification, setProofVerification] =
+    useState<NodeProofVerification | null>(null)
+  const [isPreparingProof, setIsPreparingProof] = useState(false)
+  const [isVerifyingProof, setIsVerifyingProof] = useState(false)
+
+  const {
+    writeContract: writeSetAgentWallet,
+    data: setAgentWalletHash,
+    isPending: isSetAgentWalletPending,
+  } = useWriteContract()
+  const {
+    isLoading: isSetAgentWalletConfirming,
+    isSuccess: isSetAgentWalletSuccess,
+  } = useWaitForTransactionReceipt({ hash: setAgentWalletHash })
+  const { signMessageAsync, isPending: isSigningOperatorMessage } =
+    useSignMessage()
 
   const selectedServices = services.filter((s) => s.selected)
+  const selectedAgentId = agentId !== null ? BigInt(agentId) : undefined
+  const nodeWalletAuthorized =
+    proofChallenge !== null &&
+    proofChallenge.currentAgentWallet !== null &&
+    proofChallenge.currentAgentWallet.toLowerCase() ===
+      proofChallenge.nodeWalletAddress.toLowerCase()
+  const isOwnershipVerified =
+    proofVerification !== null &&
+    proofVerification.challengeId === proofChallenge?.challengeId
 
-  // Calculate required stake from contract's minStakeUSD
-  const requiredStake = useMemo(() => {
+  // Calculate minimum required stake from contract's minStakeUSD
+  const minimumStake = useMemo(() => {
     if (!minStakeUSD) return BigInt(0)
-    // Multiply by number of services selected
     return minStakeUSD * BigInt(Math.max(selectedServices.length, 1))
   }, [minStakeUSD, selectedServices.length])
+
+  // Actual stake: custom amount if set and >= minimum, otherwise minimum
+  const requiredStake = useMemo(() => {
+    if (customStakeAmount) {
+      try {
+        const customWei = BigInt(Math.floor(parseFloat(customStakeAmount) * 1e18))
+        if (customWei >= minimumStake) return customWei
+      } catch { /* fall through to minimum */ }
+    }
+    return minimumStake
+  }, [customStakeAmount, minimumStake])
 
   // Calculate estimated reward from contract's baseRewardPerMonthUSD
   const estimatedMonthlyReward = useMemo(() => {
@@ -159,15 +245,40 @@ export default function NodeRegistrationWizard() {
   const handleNextStep = useCallback(() => {
     setError(null)
     if (step === 'connect' && isConnected) {
+      if (isAgentLoading) {
+        setError('Checking your ERC-8004 operator identity. Please wait.')
+        return
+      }
+      if (!hasAgent || selectedAgentId === undefined) {
+        setError(
+          'Node registration now requires an ERC-8004 operator identity. Create or connect an agent identity first.',
+        )
+        return
+      }
       setStep('services')
     } else if (step === 'services' && selectedServices.length > 0) {
       setStep('stake')
     } else if (step === 'stake') {
+      if (!isOwnershipVerified) {
+        setError(
+          'Verify delegated node ownership at the claimed endpoint before continuing.',
+        )
+        return
+      }
       setStep('approve')
     } else if (step === 'approve' && isApprovalSuccess) {
       setStep('confirm')
     }
-  }, [step, isConnected, selectedServices.length, isApprovalSuccess])
+  }, [
+    step,
+    hasAgent,
+    isAgentLoading,
+    isApprovalSuccess,
+    isConnected,
+    isOwnershipVerified,
+    selectedAgentId,
+    selectedServices.length,
+  ])
 
   const handlePrevStep = useCallback(() => {
     setError(null)
@@ -204,6 +315,12 @@ export default function NodeRegistrationWizard() {
       setError('Please enter your node RPC URL')
       return
     }
+    if (selectedAgentId === undefined) {
+      setError(
+        'An ERC-8004 operator identity is required before you can register a node.',
+      )
+      return
+    }
     setError(null)
     registerNode({
       stakingToken: DEFAULT_STAKING_TOKEN,
@@ -211,14 +328,155 @@ export default function NodeRegistrationWizard() {
       rewardToken: DEFAULT_REWARD_TOKEN,
       rpcUrl: nodeRpcUrl,
       region: selectedRegion,
+      operatorAgentId: selectedAgentId,
     })
   }, [
     stakingManagerAddress,
     nodeRpcUrl,
+    selectedAgentId,
     requiredStake,
     selectedRegion,
     registerNode,
   ])
+
+  const prepareOwnershipProof = useCallback(async () => {
+    if (!address || selectedAgentId === undefined) {
+      setError('Connect the operator wallet and select an agent first.')
+      return
+    }
+    if (!nodeRpcUrl) {
+      setError('Enter the node endpoint URL before preparing proof.')
+      return
+    }
+
+    setError(null)
+    setIsPreparingProof(true)
+    setProofVerification(null)
+
+    try {
+      const response = await fetch('/node-registration/challenge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          endpoint: nodeRpcUrl,
+          operatorAddress: address,
+          operatorAgentId: Number(selectedAgentId),
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | NodeProofChallenge
+        | { error?: string }
+
+      if (!response.ok || 'error' in payload) {
+        throw new Error(payload.error ?? 'Failed to prepare node proof')
+      }
+
+      setProofChallenge(payload)
+    } catch (err) {
+      setProofChallenge(null)
+      setError(err instanceof Error ? err.message : 'Failed to prepare proof')
+    } finally {
+      setIsPreparingProof(false)
+    }
+  }, [address, nodeRpcUrl, selectedAgentId])
+
+  const authorizeNodeWallet = useCallback(() => {
+    if (!proofChallenge || selectedAgentId === undefined) {
+      setError('Prepare the node proof challenge first.')
+      return
+    }
+    if (CONTRACTS.identityRegistry === ZERO_ADDRESS) {
+      setError('Identity registry not configured for this network.')
+      return
+    }
+
+    setError(null)
+    writeSetAgentWallet({
+      address: CONTRACTS.identityRegistry,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'setAgentWallet',
+      args: [selectedAgentId, proofChallenge.nodeWalletAddress],
+    })
+  }, [proofChallenge, selectedAgentId, writeSetAgentWallet])
+
+  const verifyOwnershipProof = useCallback(async () => {
+    if (!proofChallenge) {
+      setError('Prepare the node proof challenge first.')
+      return
+    }
+
+    setError(null)
+    setIsVerifyingProof(true)
+
+    try {
+      const operatorSignature = await signMessageAsync({
+        message: proofChallenge.operatorMessage,
+      })
+
+      const response = await fetch('/node-registration/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          challengeId: proofChallenge.challengeId,
+          operatorSignature,
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | NodeProofVerification
+        | { error?: string }
+
+      if (!response.ok || 'error' in payload) {
+        throw new Error(payload.error ?? 'Failed to verify node proof')
+      }
+
+      setProofVerification(payload)
+      setProofChallenge((current) =>
+        current
+          ? {
+              ...current,
+              currentAgentWallet: payload.nodeWalletAddress,
+              requiresDelegatedWalletUpdate: false,
+            }
+          : current,
+      )
+    } catch (err) {
+      setProofVerification(null)
+      setError(err instanceof Error ? err.message : 'Failed to verify proof')
+    } finally {
+      setIsVerifyingProof(false)
+    }
+  }, [proofChallenge, signMessageAsync])
+
+  useEffect(() => {
+    setProofChallenge(null)
+    setProofVerification(null)
+  }, [nodeRpcUrl, selectedAgentId])
+
+  useEffect(() => {
+    if (!isSetAgentWalletSuccess) return
+
+    setProofChallenge((current) => {
+      if (!current) return current
+      if (
+        current.currentAgentWallet?.toLowerCase() ===
+        current.nodeWalletAddress.toLowerCase()
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        currentAgentWallet: current.nodeWalletAddress,
+        requiresDelegatedWalletUpdate: false,
+      }
+    })
+  }, [isSetAgentWalletSuccess])
 
   // Auto-advance when approval succeeds
   useEffect(() => {
@@ -410,6 +668,19 @@ export default function NodeRegistrationWizard() {
           >
             {address?.slice(0, 6)}...{address?.slice(-4)}
           </div>
+          <div
+            style={{
+              marginTop: '0.75rem',
+              fontSize: '0.9rem',
+              color: hasAgent ? 'var(--success)' : 'var(--warning)',
+            }}
+          >
+            {isAgentLoading
+              ? 'Checking ERC-8004 operator identity...'
+              : hasAgent && agentId !== null
+                ? `Linked ERC-8004 operator identity: Agent #${agentId}`
+                : 'No ERC-8004 operator identity found for this wallet yet.'}
+          </div>
         </div>
       ) : (
         <button
@@ -439,10 +710,27 @@ export default function NodeRegistrationWizard() {
             type="button"
             className="btn btn-primary"
             onClick={handleNextStep}
+            disabled={isAgentLoading || !hasAgent}
             style={{ padding: '0.875rem 2rem' }}
           >
             Continue <ArrowRight size={16} />
           </button>
+        </div>
+      )}
+
+      {isConnected && !isAgentLoading && !hasAgent && (
+        <div
+          style={{
+            marginTop: '1rem',
+            padding: '1rem',
+            background: 'var(--warning-soft)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--warning)',
+          }}
+        >
+          Node registration now expects an ERC-8004 operator identity. Create
+          an agent identity first, then come back to stake and register the
+          node.
         </div>
       )}
     </div>
@@ -551,194 +839,580 @@ export default function NodeRegistrationWizard() {
     </div>
   )
 
-  const renderStakeStep = () => (
-    <div>
-      <h3 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>
-        Stake Requirement
-      </h3>
-      <p
-        style={{
-          color: 'var(--text-secondary)',
-          textAlign: 'center',
-          marginBottom: '1.5rem',
-        }}
-      >
-        You need to stake JEJU tokens to register. Stake is returned when you
-        deregister.
-      </p>
+  const renderStakeStep = () => {
+    const inputStyle = {
+      width: '100%',
+      padding: '0.75rem',
+      borderRadius: 'var(--radius-md)',
+      border: '1px solid var(--border)',
+      background: 'var(--bg-secondary)',
+      color: 'var(--text-primary)',
+    }
 
-      <div
-        style={{
-          padding: '1.5rem',
-          background: 'var(--bg-tertiary)',
-          borderRadius: 'var(--radius-md)',
-          marginBottom: '1.5rem',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: '1rem',
-          }}
-        >
-          <span style={{ color: 'var(--text-secondary)' }}>
-            Selected Services
-          </span>
-          <span style={{ fontWeight: 600 }}>{selectedServices.length}</span>
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: '1rem',
-          }}
-        >
-          <span style={{ color: 'var(--text-secondary)' }}>
-            Min Stake per Service
-          </span>
-          <span style={{ fontWeight: 600 }}>
-            {minStakeUSD ? formatStakeAmount(minStakeUSD) : 'Loading...'}
-          </span>
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            paddingTop: '1rem',
-            borderTop: '2px solid var(--border)',
-            fontWeight: 700,
-          }}
-        >
-          <span>Total Required</span>
-          <span style={{ color: 'var(--accent)' }}>
-            {formatStakeAmount(requiredStake)}
-          </span>
-        </div>
-      </div>
-
-      <div
-        style={{
-          padding: '1rem',
-          background: 'var(--info-soft)',
-          borderRadius: 'var(--radius-md)',
-          marginBottom: '1.5rem',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '0.75rem',
-        }}
-      >
-        <Coins size={18} style={{ color: 'var(--info)', marginTop: '2px' }} />
-        <div style={{ fontSize: '0.9rem' }}>
-          <strong>Estimated Monthly Earnings:</strong> {estimatedMonthlyReward}
-          /mo
-          <br />
-          <span style={{ color: 'var(--text-secondary)' }}>
-            Based on contract parameters and your selected services.
-          </span>
-        </div>
-      </div>
-
-      {/* Node RPC URL input */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label
-          htmlFor="node-rpc-url"
-          style={{
-            display: 'block',
-            marginBottom: '0.5rem',
-            fontWeight: 500,
-          }}
-        >
-          Node RPC URL
-        </label>
-        <input
-          id="node-rpc-url"
-          type="text"
-          value={nodeRpcUrl}
-          onChange={(e) => setNodeRpcUrl(e.target.value)}
-          placeholder="https://your-node.example.com:8545"
-          style={{
-            width: '100%',
-            padding: '0.75rem',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border)',
-            background: 'var(--bg-secondary)',
-            color: 'var(--text-primary)',
-          }}
-        />
+    return (
+      <div>
+        <h3 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>
+          Node Configuration & Stake
+        </h3>
         <p
           style={{
-            fontSize: '0.85rem',
-            color: 'var(--text-muted)',
-            marginTop: '0.5rem',
+            color: 'var(--text-secondary)',
+            textAlign: 'center',
+            marginBottom: '1.5rem',
           }}
         >
-          The public URL where your node will accept requests.
+          Configure your node details and stake JEJU tokens. Stake is returned
+          when you deregister.
         </p>
-      </div>
 
-      {/* Region selector */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label
-          htmlFor="region-select"
+        {/* Node Name */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label
+            htmlFor="node-name"
+            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+          >
+            Node Name{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+              (optional)
+            </span>
+          </label>
+          <input
+            id="node-name"
+            type="text"
+            value={nodeName}
+            onChange={(e) => setNodeName(e.target.value)}
+            placeholder="my-node-1"
+            style={inputStyle}
+          />
+          <p
+            style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-muted)',
+              marginTop: '0.5rem',
+            }}
+          >
+            A friendly name to identify this node. Useful for multi-node
+            operators.
+          </p>
+        </div>
+
+        {/* Node RPC URL input */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label
+            htmlFor="node-rpc-url"
+            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+          >
+            Node RPC URL
+          </label>
+          <input
+            id="node-rpc-url"
+            type="text"
+            value={nodeRpcUrl}
+            onChange={(e) => setNodeRpcUrl(e.target.value)}
+            placeholder="https://your-node.example.com:8545"
+            style={inputStyle}
+          />
+          <p
+            style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-muted)',
+              marginTop: '0.5rem',
+            }}
+          >
+            The public URL where your node will accept requests.
+          </p>
+        </div>
+
+        <div
           style={{
-            display: 'block',
-            marginBottom: '0.5rem',
-            fontWeight: 500,
-          }}
-        >
-          Region
-        </label>
-        <select
-          id="region-select"
-          value={selectedRegion}
-          onChange={(e) =>
-            setSelectedRegion(Number(e.target.value) as RegionValue)
-          }
-          style={{
-            width: '100%',
-            padding: '0.75rem',
+            padding: '1rem',
+            background: 'var(--bg-tertiary)',
             borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border)',
-            background: 'var(--bg-secondary)',
-            color: 'var(--text-primary)',
+            marginBottom: '1.5rem',
+            border: isOwnershipVerified
+              ? '1px solid var(--success)'
+              : '1px solid var(--border)',
           }}
         >
-          <option value={Region.NorthAmerica}>North America</option>
-          <option value={Region.SouthAmerica}>South America</option>
-          <option value={Region.Europe}>Europe</option>
-          <option value={Region.Asia}>Asia</option>
-          <option value={Region.Africa}>Africa</option>
-          <option value={Region.Oceania}>Oceania</option>
-          <option value={Region.Global}>Global</option>
-        </select>
-      </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              marginBottom: '0.75rem',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600 }}>Ownership Proof</div>
+              <div
+                style={{
+                  fontSize: '0.85rem',
+                  color: 'var(--text-secondary)',
+                  marginTop: '0.25rem',
+                }}
+              >
+                Bind this endpoint to a delegated node wallet before staking.
+              </div>
+            </div>
+            {isOwnershipVerified && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  color: 'var(--success)',
+                  fontWeight: 600,
+                }}
+              >
+                <Check size={16} />
+                Verified
+              </div>
+            )}
+          </div>
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: '1rem',
-        }}
-      >
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={handlePrevStep}
+          {proofChallenge ? (
+            <div
+              style={{
+                display: 'grid',
+                gap: '0.75rem',
+                marginBottom: '1rem',
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Delegated Node Wallet
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+                  {proofChallenge.nodeWalletAddress}
+                </div>
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Proof Document
+                </div>
+                <a
+                  href={proofChallenge.proofUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: '0.9rem' }}
+                >
+                  {proofChallenge.proofUrl}
+                </a>
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Agent Delegated Wallet
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+                  {proofChallenge.currentAgentWallet ?? 'Not set'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p
+              style={{
+                fontSize: '0.9rem',
+                color: 'var(--text-secondary)',
+                marginBottom: '1rem',
+              }}
+            >
+              Prepare a challenge to discover the node wallet and bind it to
+              your ERC-8004 operator identity.
+            </p>
+          )}
+
+          {proofChallenge && !proofChallenge.delegatedWalletContractReady && (
+            <div
+              style={{
+                padding: '0.875rem',
+                background: 'var(--warning-soft)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--warning)',
+                marginBottom: '1rem',
+                fontSize: '0.9rem',
+              }}
+            >
+              This deployment does not expose delegated wallet methods on the
+              current identity registry yet. The proof flow is wired locally,
+              but the contract upgrade must be deployed before registration can
+              be completed against this network.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void prepareOwnershipProof()}
+              disabled={!nodeRpcUrl || isPreparingProof}
+            >
+              {isPreparingProof ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Preparing...
+                </>
+              ) : (
+                'Prepare Proof'
+              )}
+            </button>
+
+            {proofChallenge &&
+              proofChallenge.delegatedWalletContractReady &&
+              !nodeWalletAuthorized && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={authorizeNodeWallet}
+                  disabled={
+                    isSetAgentWalletPending || isSetAgentWalletConfirming
+                  }
+                >
+                  {isSetAgentWalletPending || isSetAgentWalletConfirming ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Authorizing...
+                    </>
+                  ) : (
+                    'Authorize Node Wallet'
+                  )}
+                </button>
+              )}
+
+            {proofChallenge &&
+              proofChallenge.delegatedWalletContractReady &&
+              nodeWalletAuthorized &&
+              !isOwnershipVerified && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void verifyOwnershipProof()}
+                  disabled={isVerifyingProof || isSigningOperatorMessage}
+                >
+                  {isVerifyingProof || isSigningOperatorMessage ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    'Verify Endpoint Ownership'
+                  )}
+                </button>
+              )}
+          </div>
+        </div>
+
+        {/* Region and Zone */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '1rem',
+            marginBottom: '1.5rem',
+          }}
         >
-          Back
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleNextStep}
-          disabled={!nodeRpcUrl}
+          <div>
+            <label
+              htmlFor="region-select"
+              style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+            >
+              Region
+            </label>
+            <select
+              id="region-select"
+              value={selectedRegion}
+              onChange={(e) =>
+                setSelectedRegion(Number(e.target.value) as RegionValue)
+              }
+              style={inputStyle}
+            >
+              <option value={Region.NorthAmerica}>North America</option>
+              <option value={Region.SouthAmerica}>South America</option>
+              <option value={Region.Europe}>Europe</option>
+              <option value={Region.Asia}>Asia</option>
+              <option value={Region.Africa}>Africa</option>
+              <option value={Region.Oceania}>Oceania</option>
+              <option value={Region.Global}>Global</option>
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="node-zone"
+              style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+            >
+              Zone{' '}
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                (optional)
+              </span>
+            </label>
+            <input
+              id="node-zone"
+              type="text"
+              value={zone}
+              onChange={(e) => setZone(e.target.value)}
+              placeholder="us-east-1"
+              style={inputStyle}
+            />
+          </div>
+        </div>
+
+        {/* Hardware Specs */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <div
+            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+          >
+            Hardware Specs{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+              (optional)
+            </span>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              gap: '1rem',
+            }}
+          >
+            <div>
+              <label
+                htmlFor="cpu-cores"
+                style={{
+                  display: 'block',
+                  marginBottom: '0.25rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                CPU Cores
+              </label>
+              <input
+                id="cpu-cores"
+                type="number"
+                min="1"
+                value={cpuCores}
+                onChange={(e) => setCpuCores(e.target.value)}
+                placeholder="4"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="memory-gb"
+                style={{
+                  display: 'block',
+                  marginBottom: '0.25rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Memory (GB)
+              </label>
+              <input
+                id="memory-gb"
+                type="number"
+                min="1"
+                value={memoryGb}
+                onChange={(e) => setMemoryGb(e.target.value)}
+                placeholder="8"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="disk-gb"
+                style={{
+                  display: 'block',
+                  marginBottom: '0.25rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Disk (GB)
+              </label>
+              <input
+                id="disk-gb"
+                type="number"
+                min="1"
+                value={diskGb}
+                onChange={(e) => setDiskGb(e.target.value)}
+                placeholder="100"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Stake Summary */}
+        <div
+          style={{
+            padding: '1.5rem',
+            background: 'var(--bg-tertiary)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '1.5rem',
+          }}
         >
-          Continue <ArrowRight size={16} />
-        </button>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginBottom: '1rem',
+            }}
+          >
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Selected Services
+            </span>
+            <span style={{ fontWeight: 600 }}>{selectedServices.length}</span>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginBottom: '1rem',
+            }}
+          >
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Min Stake per Service
+            </span>
+            <span style={{ fontWeight: 600 }}>
+              {minStakeUSD ? formatStakeAmount(minStakeUSD) : 'Loading...'}
+            </span>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              paddingTop: '1rem',
+              borderTop: '2px solid var(--border)',
+              marginBottom: '1rem',
+            }}
+          >
+            <span style={{ fontWeight: 700 }}>Minimum Required</span>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+              {formatStakeAmount(minimumStake)}
+            </span>
+          </div>
+
+          {/* Adjustable stake input */}
+          <div>
+            <label
+              htmlFor="stake-amount"
+              style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+            >
+              Stake Amount (JEJU)
+            </label>
+            <input
+              id="stake-amount"
+              type="number"
+              min={minStakeUSD ? Number(formatEther(minimumStake)) : 0}
+              step="any"
+              value={customStakeAmount}
+              onChange={(e) => setCustomStakeAmount(e.target.value)}
+              placeholder={
+                minStakeUSD
+                  ? Number(formatEther(minimumStake)).toString()
+                  : '0'
+              }
+              style={inputStyle}
+            />
+            <p
+              style={{
+                fontSize: '0.85rem',
+                color: 'var(--text-muted)',
+                marginTop: '0.5rem',
+              }}
+            >
+              Stake more than the minimum for higher reward priority. Leave
+              blank to use the minimum.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              paddingTop: '1rem',
+              borderTop: '2px solid var(--border)',
+              fontWeight: 700,
+              marginTop: '1rem',
+            }}
+          >
+            <span>Your Stake</span>
+            <span style={{ color: 'var(--accent)' }}>
+              {formatStakeAmount(requiredStake)}
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--info-soft)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.75rem',
+          }}
+        >
+          <Coins
+            size={18}
+            style={{ color: 'var(--info)', marginTop: '2px' }}
+          />
+          <div style={{ fontSize: '0.9rem' }}>
+            <strong>Estimated Monthly Earnings:</strong>{' '}
+            {estimatedMonthlyReward}
+            /mo
+            <br />
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Based on contract parameters and your selected services.
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '1rem',
+          }}
+        >
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handlePrevStep}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleNextStep}
+            disabled={!nodeRpcUrl || !isOwnershipVerified}
+          >
+            Continue <ArrowRight size={16} />
+          </button>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const renderApproveStep = () => (
     <div>
@@ -928,14 +1602,32 @@ export default function NodeRegistrationWizard() {
           </div>
         </div>
 
+        {selectedAgentId !== undefined && (
+          <div style={{ marginBottom: '1rem' }}>
+            <div
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                marginBottom: '0.25rem',
+              }}
+            >
+              Linked Operator Identity
+            </div>
+            <div style={{ fontSize: '0.9rem' }}>Agent #{selectedAgentId.toString()}</div>
+          </div>
+        )}
+
+        {nodeName && (
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+              Node Name
+            </div>
+            <div style={{ fontSize: '0.9rem' }}>{nodeName}</div>
+          </div>
+        )}
+
         <div style={{ marginBottom: '1rem' }}>
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--text-muted)',
-              marginBottom: '0.25rem',
-            }}
-          >
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
             Services
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -948,13 +1640,7 @@ export default function NodeRegistrationWizard() {
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--text-muted)',
-              marginBottom: '0.25rem',
-            }}
-          >
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
             Node RPC URL
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
@@ -962,23 +1648,68 @@ export default function NodeRegistrationWizard() {
           </div>
         </div>
 
+        {proofVerification && (
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+              Delegated Node Wallet
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+              {proofVerification.nodeWalletAddress}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Region</div>
+            <div style={{ fontSize: '0.9rem' }}>
+              {[
+                [Region.NorthAmerica, 'North America'],
+                [Region.SouthAmerica, 'South America'],
+                [Region.Europe, 'Europe'],
+                [Region.Asia, 'Asia'],
+                [Region.Africa, 'Africa'],
+                [Region.Oceania, 'Oceania'],
+                [Region.Global, 'Global'],
+              ].find(([v]) => v === selectedRegion)?.[1] ?? 'Unknown'}
+            </div>
+          </div>
+          {zone && (
+            <div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Zone</div>
+              <div style={{ fontSize: '0.9rem' }}>{zone}</div>
+            </div>
+          )}
+        </div>
+
+        {(cpuCores || memoryGb || diskGb) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+            {cpuCores && (
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>CPU Cores</div>
+                <div style={{ fontSize: '0.9rem' }}>{cpuCores}</div>
+              </div>
+            )}
+            {memoryGb && (
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Memory</div>
+                <div style={{ fontSize: '0.9rem' }}>{memoryGb} GB</div>
+              </div>
+            )}
+            {diskGb && (
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Disk</div>
+                <div style={{ fontSize: '0.9rem' }}>{diskGb} GB</div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div>
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--text-muted)',
-              marginBottom: '0.25rem',
-            }}
-          >
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
             Total Stake
           </div>
-          <div
-            style={{
-              fontSize: '1.25rem',
-              fontWeight: 700,
-              color: 'var(--accent)',
-            }}
-          >
+          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>
             {formatStakeAmount(requiredStake)}
           </div>
         </div>
@@ -1112,7 +1843,7 @@ export default function NodeRegistrationWizard() {
           <Server size={18} />
           View My Nodes
         </a>
-        <a href="#downloads" className="btn btn-secondary">
+        <a href="/provider/node#downloads" className="btn btn-secondary">
           Download App
         </a>
       </div>

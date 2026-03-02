@@ -10,23 +10,21 @@ import {
   Shield,
   Trash2,
   User,
-  X,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAccount } from 'wagmi'
 import { Skeleton } from '../components/Skeleton'
 import { CONTRACTS, EXPLORER_URL, NETWORK } from '../config'
 import { useConfirm, useToast } from '../context/AppContext'
-import { useProviderStats, useRegisterNode } from '../hooks'
+import { useProviderStats } from '../hooks'
 import { useAgentId } from '../hooks/useAgentId'
 import { useBanStatus } from '../hooks/useBanStatus'
 
 export default function SettingsPage() {
-  const { address, isConnected } = useAccount()
+  const { address } = useAccount()
   const { hasAgent, agentId, tokenURI } = useAgentId()
   const { isBanned, banRecord } = useBanStatus()
   const { data: providerStats, isLoading: nodesLoading } = useProviderStats()
-  const registerNode = useRegisterNode()
   const { showSuccess, showError } = useToast()
   const confirm = useConfirm()
 
@@ -34,56 +32,12 @@ export default function SettingsPage() {
     'profile' | 'security' | 'notifications' | 'nodes'
   >('profile')
   const [copied, setCopied] = useState<string | null>(null)
-  const [showNodeModal, setShowNodeModal] = useState(false)
-  const [nodeFormData, setNodeFormData] = useState({
-    nodeId: '',
-    endpoint: '',
-    region: 'us-east',
-    zone: 'us-east-1',
-    totalCpu: '4',
-    totalMemoryMb: '8192',
-    totalStorageMb: '102400',
-  })
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
     setCopied(id)
     showSuccess('Copied', 'Copied to clipboard')
     setTimeout(() => setCopied(null), 2000)
-  }
-
-  const handleRegisterNode = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      await registerNode.mutateAsync({
-        nodeId: nodeFormData.nodeId,
-        endpoint: nodeFormData.endpoint,
-        region: nodeFormData.region,
-        zone: nodeFormData.zone,
-        totalCpu: parseInt(nodeFormData.totalCpu, 10),
-        totalMemoryMb: parseInt(nodeFormData.totalMemoryMb, 10),
-        totalStorageMb: parseInt(nodeFormData.totalStorageMb, 10),
-      })
-      showSuccess(
-        'Node registered',
-        `Successfully registered "${nodeFormData.nodeId}"`,
-      )
-      setShowNodeModal(false)
-      setNodeFormData({
-        nodeId: '',
-        endpoint: '',
-        region: 'us-east',
-        zone: 'us-east-1',
-        totalCpu: '4',
-        totalMemoryMb: '8192',
-        totalStorageMb: '102400',
-      })
-    } catch (error) {
-      showError(
-        'Registration failed',
-        error instanceof Error ? error.message : 'Failed to register node',
-      )
-    }
   }
 
   const handleDeregisterNode = async (nodeId: string) => {
@@ -556,14 +510,12 @@ export default function SettingsPage() {
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>
                   Provider Nodes
                 </h3>
-                <button
-                  type="button"
+                <a
+                  href="/provider/node/register"
                   className="btn btn-primary btn-sm"
-                  onClick={() => setShowNodeModal(true)}
-                  disabled={!isConnected}
                 >
                   <Plus size={14} /> Register Node
-                </button>
+                </a>
               </div>
 
               {nodesLoading ? (
@@ -576,14 +528,12 @@ export default function SettingsPage() {
                   <Server size={48} />
                   <h3>No nodes registered</h3>
                   <p>Register a node to start earning rewards</p>
-                  <button
-                    type="button"
+                  <a
+                    href="/provider/node/register"
                     className="btn btn-primary"
-                    onClick={() => setShowNodeModal(true)}
-                    disabled={!isConnected}
                   >
                     <Plus size={16} /> Register Node
-                  </button>
+                  </a>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: '1rem' }}>
@@ -729,196 +679,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {showNodeModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            className="modal-backdrop"
-            onClick={() => setShowNodeModal(false)}
-            tabIndex={-1}
-            aria-label="Close"
-          />
-          <div className="modal" style={{ maxWidth: '550px' }}>
-            <div className="modal-header">
-              <h3 className="modal-title">Register Compute Node</h3>
-              <button
-                type="button"
-                className="btn btn-ghost btn-icon"
-                onClick={() => setShowNodeModal(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleRegisterNode}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label htmlFor="node-id" className="form-label">
-                    Node ID *
-                  </label>
-                  <input
-                    id="node-id"
-                    className="input"
-                    placeholder="my-compute-node-1"
-                    value={nodeFormData.nodeId}
-                    onChange={(e) =>
-                      setNodeFormData({
-                        ...nodeFormData,
-                        nodeId: e.target.value,
-                      })
-                    }
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="endpoint-url" className="form-label">
-                    Endpoint URL *
-                  </label>
-                  <input
-                    id="endpoint-url"
-                    className="input"
-                    placeholder="https://node.example.com:8080"
-                    value={nodeFormData.endpoint}
-                    onChange={(e) =>
-                      setNodeFormData({
-                        ...nodeFormData,
-                        endpoint: e.target.value,
-                      })
-                    }
-                    required
-                  />
-                </div>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: '1rem',
-                  }}
-                >
-                  <div className="form-group">
-                    <label htmlFor="node-region" className="form-label">
-                      Region
-                    </label>
-                    <select
-                      id="node-region"
-                      className="input"
-                      value={nodeFormData.region}
-                      onChange={(e) =>
-                        setNodeFormData({
-                          ...nodeFormData,
-                          region: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="us-east">US East</option>
-                      <option value="us-west">US West</option>
-                      <option value="eu-west">EU West</option>
-                      <option value="eu-central">EU Central</option>
-                      <option value="asia-east">Asia East</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="node-zone" className="form-label">
-                      Zone
-                    </label>
-                    <input
-                      id="node-zone"
-                      className="input"
-                      value={nodeFormData.zone}
-                      onChange={(e) =>
-                        setNodeFormData({
-                          ...nodeFormData,
-                          zone: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '1rem',
-                  }}
-                >
-                  <div className="form-group">
-                    <label htmlFor="node-cpu" className="form-label">
-                      CPU Cores
-                    </label>
-                    <input
-                      id="node-cpu"
-                      className="input"
-                      type="number"
-                      value={nodeFormData.totalCpu}
-                      onChange={(e) =>
-                        setNodeFormData({
-                          ...nodeFormData,
-                          totalCpu: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="node-memory" className="form-label">
-                      Memory (MB)
-                    </label>
-                    <input
-                      id="node-memory"
-                      className="input"
-                      type="number"
-                      value={nodeFormData.totalMemoryMb}
-                      onChange={(e) =>
-                        setNodeFormData({
-                          ...nodeFormData,
-                          totalMemoryMb: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="node-storage" className="form-label">
-                      Storage (MB)
-                    </label>
-                    <input
-                      id="node-storage"
-                      className="input"
-                      type="number"
-                      value={nodeFormData.totalStorageMb}
-                      onChange={(e) =>
-                        setNodeFormData({
-                          ...nodeFormData,
-                          totalStorageMb: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowNodeModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={registerNode.isPending}
-                >
-                  {registerNode.isPending ? (
-                    'Registering...'
-                  ) : (
-                    <>
-                      <Server size={16} /> Register
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -26,6 +26,7 @@ import VPNProxyPage from './pages/network/VPNProxy'
 import BrokerSDKPage from './pages/provider/BrokerSDK'
 import EarningsPage from './pages/provider/Earnings'
 import MyNodesPage from './pages/provider/MyNodes'
+import RegisterNodePage from './pages/provider/RegisterNode'
 import RunNodePage from './pages/provider/RunNode'
 import SettingsPage from './pages/Settings'
 import KeysPage from './pages/security/Keys'
@@ -101,6 +102,7 @@ export default function App() {
 
         {/* Provider / Earn Section */}
         <Route path="/provider/node" element={<RunNodePage />} />
+        <Route path="/provider/node/register" element={<RegisterNodePage />} />
         <Route path="/provider/nodes" element={<MyNodesPage />} />
         <Route path="/provider/earnings" element={<EarningsPage />} />
         <Route path="/provider/broker" element={<BrokerSDKPage />} />

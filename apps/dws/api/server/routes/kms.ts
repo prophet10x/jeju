@@ -12,7 +12,7 @@ import { decryptAesGcm, encryptAesGcm, randomUUID } from '@jejunetwork/shared'
 import { expectValid } from '@jejunetwork/types'
 import { Elysia } from 'elysia'
 import type { Address, Hex } from 'viem'
-import { keccak256, toBytes, toHex } from 'viem'
+import { hashMessage, keccak256, toBytes, toHex } from 'viem'
 import { z } from 'zod'
 import {
   createKmsKeyRequestSchema,
@@ -146,6 +146,123 @@ const signingSessions = new Map<
 >()
 
 const serviceKeyIndex = new Map<string, string>()
+
+export interface ServiceKeyInfo {
+  keyId: string
+  address: Address
+  publicKey: Hex
+}
+
+function getOrCreateServiceOwner(serviceId: string): Address {
+  const hash = keccak256(toBytes(serviceId))
+  return parseAddress(`0x${hash.slice(-40)}`) as Address
+}
+
+function getOrCreateServiceKeyRecord(
+  serviceId: string,
+  metadata: Record<string, string> = {},
+): StoredKey {
+  const existingKeyId = serviceKeyIndex.get(serviceId)
+  if (existingKeyId) {
+    const existingKey = keys.get(existingKeyId)
+    if (existingKey) {
+      return existingKey
+    }
+    serviceKeyIndex.delete(serviceId)
+  }
+
+  const threshold = MPC_CONFIG.defaultThreshold
+  const totalParties = MPC_CONFIG.defaultParties
+  const keyId = randomUUID()
+
+  const serviceOwner = getOrCreateServiceOwner(serviceId)
+
+  return {
+    keyId,
+    owner: serviceOwner,
+    publicKey: '0x',
+    address: '0x0000000000000000000000000000000000000000',
+    threshold,
+    totalParties,
+    createdAt: Date.now(),
+    version: 1,
+    metadata: {
+      ...metadata,
+      serviceId,
+    },
+  }
+}
+
+export async function getOrCreateServiceKey(
+  serviceId: string,
+  metadata: Record<string, string> = {},
+): Promise<ServiceKeyInfo> {
+  const existingKeyId = serviceKeyIndex.get(serviceId)
+  if (existingKeyId) {
+    const existingKey = keys.get(existingKeyId)
+    if (existingKey) {
+      return {
+        keyId: existingKey.keyId,
+        address: existingKey.address,
+        publicKey: existingKey.publicKey,
+      }
+    }
+    serviceKeyIndex.delete(serviceId)
+  }
+
+  const baseKey = getOrCreateServiceKeyRecord(serviceId, metadata)
+  const coordinator = new FROSTCoordinator(
+    baseKey.keyId,
+    baseKey.threshold,
+    baseKey.totalParties,
+    {
+      network: NETWORK,
+      acknowledgeInsecureCentralized: NETWORK !== 'mainnet',
+    },
+  )
+  const cluster = await coordinator.initializeCluster()
+
+  const key: StoredKey = {
+    ...baseKey,
+    publicKey: cluster.groupPublicKey,
+    address: cluster.groupAddress,
+  }
+
+  frostCoordinators.set(key.keyId, coordinator)
+  keys.set(key.keyId, key)
+  serviceKeyIndex.set(serviceId, key.keyId)
+
+  return {
+    keyId: key.keyId,
+    address: key.address,
+    publicKey: key.publicKey,
+  }
+}
+
+export async function signMessageWithServiceKey(
+  serviceId: string,
+  message: string,
+): Promise<{ keyId: string; address: Address; signature: Hex }> {
+  const key = await getOrCreateServiceKey(serviceId)
+  const coordinator = frostCoordinators.get(key.keyId)
+
+  if (!coordinator) {
+    throw new Error(`FROST coordinator not found for service key: ${serviceId}`)
+  }
+
+  const messageHash = hashMessage(message)
+  const frostSig = await coordinator.sign(messageHash)
+  const signature =
+    `${frostSig.r}${frostSig.s.slice(2)}${frostSig.v
+      .toString(16)
+      .padStart(2, '0')}` as Hex
+
+  return {
+    keyId: key.keyId,
+    address: key.address,
+    signature,
+  }
+}
 
 const serviceKeyRequestSchema = z.object({
   serviceId: z.string().min(1),

@@ -13,7 +13,6 @@ import {
   Box,
   Check,
   Cloud,
-  Code,
   Cpu,
   Database,
   DollarSign,
@@ -40,7 +39,6 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import HardwareDetection from '../../components/HardwareDetection'
-import NodeRegistrationWizard from '../../components/NodeRegistrationWizard'
 import { useNetworkStats } from '../../hooks/useStaking'
 
 const SERVICES = [
@@ -790,8 +788,34 @@ export default function RunNodePage() {
       {/* Hardware Detection */}
       <HardwareDetection />
 
-      {/* Node Registration Wizard */}
-      <NodeRegistrationWizard />
+      <div className="card" style={{ marginBottom: '2rem' }}>
+        <div className="card-header">
+          <h3 className="card-title">
+            <Server size={18} /> Ready to Register?
+          </h3>
+        </div>
+        <div
+          style={{
+            padding: '1.5rem',
+            display: 'grid',
+            gap: '1rem',
+          }}
+        >
+          <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+            The registration flow now lives on its own page so you can complete
+            staking, service selection, and wallet actions without mixing them
+            into the setup guide.
+          </p>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <a href="/provider/node/register" className="btn btn-primary">
+              Register Node <ArrowRight size={16} />
+            </a>
+            <a href="/provider/nodes" className="btn btn-secondary">
+              View My Nodes
+            </a>
+          </div>
+        </div>
+      </div>
 
       {/* Downloads Section */}
       <div id="downloads" className="card" style={{ marginBottom: '2rem' }}>

@@ -297,11 +297,11 @@ export default function EarningsPage() {
               <h4>No nodes registered</h4>
               <p>Register a node to start earning rewards</p>
               <a
-                href="/provider/node"
+                href="/provider/node/register"
                 className="btn btn-primary"
                 style={{ marginTop: '1rem' }}
               >
-                <Download size={16} /> Run a Node
+                <Download size={16} /> Register Node
               </a>
             </div>
           ) : (
