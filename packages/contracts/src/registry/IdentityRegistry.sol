@@ -48,6 +48,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
     /// @notice Mapping from agentId to metadata key to metadata value
     mapping(uint256 => mapping(string => bytes)) private _metadata;
+    mapping(uint256 => address) private _agentWallets;
 
     /// @notice Tags per agent (for discovery)
     mapping(uint256 => string[]) private _agentTags;
@@ -90,6 +91,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     error CannotDowngradeTier();
     error InvalidStakeTier();
     error AgentNotFound();
+    error InvalidAgentWallet();
 
     modifier onlyGovernance() {
         if (msg.sender != governance) revert OnlyGovernance();
@@ -449,6 +451,53 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
         emit AgentUriUpdated(agentId, newTokenURI);
     }
 
+    /**
+     * @notice Set the delegated operational wallet for an agent
+     * @param agentId The agent ID
+     * @param wallet The delegated wallet address
+     */
+    function setAgentWallet(uint256 agentId, address wallet) external notBanned(agentId) {
+        address owner = ownerOf(agentId);
+        require(
+            msg.sender == owner || isApprovedForAll(owner, msg.sender) || getApproved(agentId) == msg.sender,
+            "Not authorized"
+        );
+        if (wallet == address(0)) revert InvalidAgentWallet();
+
+        _agentWallets[agentId] = wallet;
+        agents[agentId].lastActivityAt = block.timestamp;
+
+        emit AgentWalletSet(agentId, wallet);
+    }
+
+    /**
+     * @notice Get the delegated operational wallet for an agent
+     * @param agentId The agent ID
+     * @return wallet The delegated wallet address
+     */
+    function getAgentWallet(uint256 agentId) external view returns (address wallet) {
+        require(_ownerOf(agentId) != address(0), "Agent does not exist");
+        return _agentWallets[agentId];
+    }
+
+    /**
+     * @notice Remove the delegated operational wallet for an agent
+     * @param agentId The agent ID
+     */
+    function unsetAgentWallet(uint256 agentId) external {
+        address owner = ownerOf(agentId);
+        require(
+            msg.sender == owner || isApprovedForAll(owner, msg.sender) || getApproved(agentId) == msg.sender,
+            "Not authorized"
+        );
+
+        address wallet = _agentWallets[agentId];
+        delete _agentWallets[agentId];
+        agents[agentId].lastActivityAt = block.timestamp;
+
+        emit AgentWalletUnset(agentId, wallet);
+    }
+
     function getStakeAmount(StakeTier tier) public view returns (uint256 amount) {
         if (tier == StakeTier.NONE) return 0;
         if (tier == StakeTier.SMALL) return stakeSmall;
@@ -639,7 +688,20 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
         if (agents[tokenId].isBanned && to != address(0)) {
             revert AgentIsBanned();
         }
-        return super._update(to, tokenId, auth);
+        address from = super._update(to, tokenId, auth);
+
+        if (to == address(0)) {
+            delete _agentWallets[tokenId];
+            delete agents[tokenId].owner;
+        } else {
+            agents[tokenId].owner = to;
+
+            if (from != address(0) && from != to) {
+                delete _agentWallets[tokenId];
+            }
+        }
+
+        return from;
     }
 
     /**
@@ -647,7 +709,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
      * @return Version string in semver format
      */
     function version() external pure returns (string memory) {
-        return "2.1.0-marketplace";
+        return "2.2.0-marketplace";
     }
 
     /**
@@ -921,7 +983,10 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
      */
     function heartbeat(uint256 agentId) external notBanned(agentId) {
         require(_ownerOf(agentId) != address(0), "Agent does not exist");
-        require(msg.sender == agents[agentId].owner, "Only agent owner can send heartbeat");
+        require(
+            msg.sender == agents[agentId].owner || msg.sender == _agentWallets[agentId],
+            "Only agent owner or delegated wallet can send heartbeat"
+        );
 
         agents[agentId].lastActivityAt = block.timestamp;
         emit Heartbeat(agentId, block.timestamp);

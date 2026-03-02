@@ -93,7 +93,7 @@ contract RegistryIntegrationTest is Test {
     }
 
     function testVersions() public view {
-        assertEq(identityRegistry.version(), "2.1.0-marketplace");
+        assertEq(identityRegistry.version(), "2.2.0-marketplace");
         assertEq(reputationRegistry.version(), "1.0.0");
         assertEq(validationRegistry.version(), "1.0.0");
     }

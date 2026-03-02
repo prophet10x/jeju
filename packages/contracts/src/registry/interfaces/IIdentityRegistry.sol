@@ -46,6 +46,8 @@ interface IIdentityRegistry is IERC721, IERC721Metadata {
      * @param value The metadata value
      */
     event MetadataSet(uint256 indexed agentId, string indexed indexedKey, string key, bytes value);
+    event AgentWalletSet(uint256 indexed agentId, address indexed wallet);
+    event AgentWalletUnset(uint256 indexed agentId, address indexed wallet);
 
     // ============ Registration Functions ============
 
@@ -99,6 +101,28 @@ interface IIdentityRegistry is IERC721, IERC721Metadata {
      * @param newTokenURI The new token URI pointing to registration file
      */
     function setAgentUri(uint256 agentId, string calldata newTokenURI) external;
+
+    /**
+     * @notice Set the delegated operational wallet for an agent
+     * @dev Only the owner or approved operator can update the delegated wallet
+     * @param agentId The agent ID
+     * @param wallet The delegated wallet address
+     */
+    function setAgentWallet(uint256 agentId, address wallet) external;
+
+    /**
+     * @notice Get the delegated operational wallet for an agent
+     * @param agentId The agent ID
+     * @return wallet The delegated wallet address
+     */
+    function getAgentWallet(uint256 agentId) external view returns (address wallet);
+
+    /**
+     * @notice Remove the delegated operational wallet for an agent
+     * @dev Only the owner or approved operator can clear the delegated wallet
+     * @param agentId The agent ID
+     */
+    function unsetAgentWallet(uint256 agentId) external;
 
     // ============ View Functions ============
 

@@ -101,6 +101,14 @@ contract MockIdentityRegistry is IIdentityRegistry {
 
     function setAgentUri(uint256, string calldata) external pure {}
 
+    function setAgentWallet(uint256, address) external pure {}
+
+    function getAgentWallet(uint256) external pure returns (address) {
+        return address(0);
+    }
+
+    function unsetAgentWallet(uint256) external pure {}
+
     function updateTags(uint256, string[] calldata) external pure {}
 
     function getAgentsByTag(string calldata) external pure returns (uint256[] memory) {
