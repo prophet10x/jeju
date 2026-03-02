@@ -724,7 +724,7 @@ export function useCreateKey() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (params: { threshold?: number; totalParties?: number }) =>
+    mutationFn: (params: { name?: string; threshold?: number; totalParties?: number }) =>
       postApi<KMSKey>('/kms/keys', params, { address }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kms-keys'] })

@@ -20,6 +20,7 @@ export default function KeysPage() {
   const [showModal, setShowModal] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [formData, setFormData] = useState({
+    name: '',
     threshold: '2',
     totalParties: '3',
   })
@@ -27,11 +28,12 @@ export default function KeysPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     await createKey.mutateAsync({
+      name: formData.name || 'threshold-key',
       threshold: parseInt(formData.threshold, 10),
       totalParties: parseInt(formData.totalParties, 10),
     })
     setShowModal(false)
-    setFormData({ threshold: '2', totalParties: '3' })
+    setFormData({ name: '', threshold: '2', totalParties: '3' })
   }
 
   const handleCopy = (text: string, id: string) => {
@@ -282,6 +284,22 @@ export default function KeysPage() {
             </div>
             <form onSubmit={handleCreate}>
               <div className="modal-body">
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label htmlFor="key-name" className="form-label">
+                    Key Name
+                  </label>
+                  <input
+                    id="key-name"
+                    className="input"
+                    type="text"
+                    placeholder="e.g. storage-reporter"
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                  />
+                  <div className="form-hint">A label to identify this key</div>
+                </div>
                 <div
                   style={{
                     display: 'grid',
@@ -301,7 +319,6 @@ export default function KeysPage() {
                         setFormData({ ...formData, threshold: e.target.value })
                       }
                     >
-                      <option value="1">1</option>
                       <option value="2">2</option>
                       <option value="3">3</option>
                       <option value="4">4</option>
