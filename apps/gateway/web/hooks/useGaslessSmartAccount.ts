@@ -314,6 +314,18 @@ export function useGaslessSmartAccount() {
           client: publicClient,
           bundlerTransport: http(BUNDLER_URL),
           paymaster: {
+            getPaymasterStubData: async () => {
+              const paymasterData = getMultiTokenPaymasterData({
+                paymaster: CONTRACTS.multiTokenPaymaster,
+                serviceName,
+                paymentToken: PAYMENT_TOKEN_JEJU,
+                overpayment: readiness.readyViaCredit
+                  ? undefined
+                  : requiredPaymentAmount,
+              })
+
+              return toPaymasterV07Data(paymasterData)
+            },
             getPaymasterData: async () => {
               const paymasterData = getMultiTokenPaymasterData({
                 paymaster: CONTRACTS.multiTokenPaymaster,
