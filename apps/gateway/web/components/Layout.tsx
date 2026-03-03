@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import MultiTokenBalanceDisplay from './MultiTokenBalanceDisplay'
 import { ThemeToggle } from './ThemeProvider'
 import WalletManagementMenu from './WalletManagementMenu'
 
@@ -260,7 +259,6 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main className="main-content">
         <div className="container">
-          {authenticated && <MultiTokenBalanceDisplay />}
           <div className="page-content animate-fade-in">{children}</div>
         </div>
       </main>

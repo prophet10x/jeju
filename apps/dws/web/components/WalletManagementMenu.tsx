@@ -15,9 +15,11 @@ import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 
 function formatToken(value?: bigint) {
   if (value === undefined) return '0 JEJU'
-  return `${Number(formatEther(value)).toLocaleString(undefined, {
+  const amount = Number(formatEther(value))
+  const formatted = amount.toLocaleString(undefined, {
     maximumFractionDigits: 4,
-  })} JEJU`
+  })
+  return `${formatted} JEJU ($${formatted})`
 }
 
 function formatNative(value?: bigint) {
