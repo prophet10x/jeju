@@ -43,7 +43,7 @@ export function useGaslessBootstrap(
 
       try {
         const response = await fetch(
-          params.endpoint ?? '/api/gasless/bootstrap',
+          params.endpoint ?? './api/gasless/bootstrap',
           {
             method: 'POST',
             headers: {
@@ -58,9 +58,10 @@ export function useGaslessBootstrap(
           },
         )
 
-        const payload = (await response.json()) as
-          | GaslessBootstrapResponse
-          | { success?: false; error?: string }
+        const rawBody = await response.text()
+        const payload = (
+          rawBody ? JSON.parse(rawBody) : { success: false, error: 'Empty response from bootstrap endpoint' }
+        ) as GaslessBootstrapResponse | { success?: false; error?: string }
 
         if (!response.ok || !payload.success) {
           throw new Error(payload.error ?? 'Failed to prepare smart account')
