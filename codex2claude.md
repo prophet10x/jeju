@@ -1517,3 +1517,49 @@ Important caveat:
   2. pull on Oracle
   3. rebuild/restart Gateway
   4. test `/gateway/registry` and `/gateway/nodes`
+
+## 2026-03-03 live deploy follow-up
+
+- GitHub auth on the Mac is fixed and pushes to `prophet10x/jeju` are working.
+- Gateway smart-account bootstrap commits pushed to `origin/codex/storage-audit-registration`:
+  - `bff19b338 Add Gateway JEJU smart-account bootstrap flow`
+  - `8fb18bae6 Declare Gateway permissionless dependency`
+
+### Oracle Cloud live state
+
+- Oracle repo `~/jeju-repo` was pulled to `8fb18bae6`.
+- Gateway was rebuilt on Oracle with:
+  - `JEJU_NETWORK=testnet /home/ubuntu/.bun/bin/bun run scripts/build.ts`
+- Gateway worker was restarted successfully with the required runtime env:
+  - `JEJU_NETWORK=testnet`
+  - `JEJU_TESTNET_RPC_URL=http://127.0.0.1:9545`
+  - `USE_MEMORY_STATE=true`
+- Verified live worker health on Oracle:
+  - `http://127.0.0.1:4013/health` => `status: ok`, `network: testnet`
+- Verified public bundle now contains:
+  - `JEJU gasless smart account`
+  - `JEJU gasless node registration`
+- Public Gateway pages are serving the rebuilt bundle:
+  - `/gateway/registry`
+  - `/gateway/nodes`
+
+### AWS live state
+
+- AWS repo `~/jeju` was pulled to `8fb18bae6`.
+- DWS was rebuilt and the stale old process was finally stopped.
+- Fresh live DWS process is now serving on port `4030` with a new uptime.
+- Verified live health:
+  - `http://127.0.0.1:4030/health` => healthy
+- Verified KMS create-key works server-side for user wallet `0x845eD1333733a1572c7cf6788f58fC6f7C1cDc7F`:
+  - `POST /kms/keys` with `x-jeju-address` now returns `201 Created`
+- This means the earlier `/security/keys` failure was from the stale old DWS process, not the current route implementation.
+- DWS SPA is serving the freshly built bundle and includes the dedicated registration route:
+  - `/provider/node/register`
+
+### Remaining live caveats
+
+- `/gateway/registry` and `/gateway/nodes` now serve the updated frontend, but true first-time gasless JEJU staking still depends on smart-account bootstrap state:
+  - enough JEJU on the smart account for stake
+  - enough JEJU credit or prior paymaster allowance
+- No Oracle Cloud L2/contract redeploy was done in this follow-up block.
+- Advanced oracle consensus contract work remains local and uncommitted on separate files only.
