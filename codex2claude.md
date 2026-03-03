@@ -1563,3 +1563,23 @@ Important caveat:
   - enough JEJU credit or prior paymaster allowance
 - No Oracle Cloud L2/contract redeploy was done in this follow-up block.
 - Advanced oracle consensus contract work remains local and uncommitted on separate files only.
+
+## 2026-03-03 AWS DWS KMS crash fix
+
+- DWS `/security/keys` crash root cause:
+  - `GET /kms/keys` returned list entries without `publicKey`
+  - `apps/dws/web/pages/security/Keys.tsx` called `key.publicKey.slice(...)`
+  - browser error was:
+    - `Cannot read properties of undefined (reading 'slice')`
+- Fix shipped in commit:
+  - `7b72fb45e Fix DWS KMS key list rendering`
+- Code changes:
+  - `apps/dws/api/server/routes/kms.ts`
+    - include `publicKey` in `GET /kms/keys`
+  - `apps/dws/web/pages/security/Keys.tsx`
+    - guard against missing `publicKey` and show `Unavailable` instead of crashing
+- AWS was pulled to `7b72fb45e`, rebuilt, and restarted successfully.
+- Important behavior note:
+  - KMS key metadata in DWS is still in-memory only
+  - after DWS restarts, `GET /kms/keys` may be empty again
+  - this is expected with the current implementation and means the user may need to create the key again after a restart
