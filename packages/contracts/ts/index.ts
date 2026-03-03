@@ -29,9 +29,11 @@ export {
   type LiquidityPaymasterConfig,
   type MultiTokenPaymasterConfig,
   type PaymasterData,
+  type PaymasterV07Data,
   parsePaymasterAddress,
   SponsoredPaymasterAbi as SponsoredPaymasterMinimalAbi,
   type SponsoredPaymasterConfig,
+  toPaymasterV07Data,
 } from './aa'
 // ERC20 typed ABI fragments (for common operations)
 // PascalCase ABI aliases for backward compatibility

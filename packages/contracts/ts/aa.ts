@@ -21,6 +21,13 @@ export interface PaymasterData {
   postOpGasLimit: bigint
 }
 
+export interface PaymasterV07Data {
+  paymaster: Address
+  paymasterVerificationGasLimit: bigint
+  paymasterPostOpGasLimit: bigint
+  paymasterData: Hex
+}
+
 export interface SponsoredPaymasterConfig {
   paymaster: Address
   verificationGasLimit?: bigint
@@ -126,6 +133,20 @@ export function parsePaymasterAddress(
     return undefined
   }
   return paymasterAndData.slice(0, 42) as Address
+}
+
+export function toPaymasterV07Data(
+  paymasterData: PaymasterData,
+): PaymasterV07Data {
+  return {
+    paymaster: paymasterData.paymaster,
+    paymasterVerificationGasLimit: paymasterData.verificationGasLimit,
+    paymasterPostOpGasLimit: paymasterData.postOpGasLimit,
+    paymasterData:
+      paymasterData.paymasterAndData.length > 106
+        ? (`0x${paymasterData.paymasterAndData.slice(106)}` as Hex)
+        : ('0x' as Hex),
+  }
 }
 
 export function isSponsoredPaymaster(paymasterAndData: Hex): boolean {

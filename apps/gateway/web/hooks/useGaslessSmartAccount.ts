@@ -1,4 +1,7 @@
-import { getMultiTokenPaymasterData } from '@jejunetwork/contracts'
+import {
+  getMultiTokenPaymasterData,
+  toPaymasterV07Data,
+} from '@jejunetwork/contracts'
 import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   getConfiguredAddress,
@@ -321,9 +324,7 @@ export function useGaslessSmartAccount() {
                   : requiredPaymentAmount,
               })
 
-              return {
-                paymasterAndData: paymasterData.paymasterAndData,
-              }
+              return toPaymasterV07Data(paymasterData)
             },
           },
         })
