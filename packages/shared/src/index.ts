@@ -244,6 +244,24 @@ export {
   requireEnv,
   setEnv,
 } from './env'
+export {
+  DEFAULT_GASLESS_BOOTSTRAP_CREDIT_JEJU,
+  DEFAULT_GASLESS_BOOTSTRAP_EXTRA_JEJU,
+  DEFAULT_GASLESS_BOOTSTRAP_MAX_STAKE_JEJU,
+  DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  GaslessBootstrapRequestSchema,
+  GASLESS_BOOTSTRAP_PURPOSES,
+  getConfiguredAddress,
+  getGaslessReadiness,
+  isConfiguredAddress,
+  predictSimpleAccountAddress,
+  SIMPLE_ACCOUNT_FACTORY_ABI,
+  type GaslessBootstrapPurpose,
+  type GaslessBootstrapRequest,
+  type GaslessBootstrapResponse,
+  type GaslessReadiness,
+  type GaslessReadinessInput,
+} from './gasless'
 // Errors
 export {
   AuthenticationError,

@@ -11,6 +11,7 @@ import {
   Region,
 } from '../../lib/nodeStaking'
 import { CONTRACTS } from '../../lib/config'
+import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import { useNodeStaking } from '../hooks/useNodeStaking'
 import { useProtocolTokens } from '../hooks/useProtocolTokens'
 import type { TokenOption } from './TokenSelector'
@@ -25,6 +26,7 @@ export default function RegisterNodeForm() {
     operatorStats,
     gasless,
   } = useNodeStaking()
+  const gaslessBootstrap = useGaslessBootstrap({ gasless })
 
   const [stakingToken, setStakingToken] = useState<TokenOption | null>(null)
   const [stakeAmount, setStakeAmount] = useState('')
@@ -102,6 +104,7 @@ export default function RegisterNodeForm() {
     e.preventDefault()
     if (!stakingToken || !rewardToken) return
     if (useGasless && !gaslessSupportsSelectedToken) return
+    if (useGasless && gasless.smartAccountDerivationError) return
     if (useGasless && !gaslessReadiness.isReady) return
 
     await registerNode(
@@ -201,6 +204,12 @@ export default function RegisterNodeForm() {
                 ? 'Deriving...'
                 : gasless.smartAccountAddress ?? 'Unavailable'}
             </div>
+            {gasless.smartAccountDerivationError && (
+              <div style={{ color: 'var(--error)' }}>
+                <strong>Derivation error:</strong>{' '}
+                {gasless.smartAccountDerivationError}
+              </div>
+            )}
             <div>
               <strong>JEJU balance:</strong>{' '}
               {gasless.smartAccountJejuBalance !== undefined
@@ -251,9 +260,8 @@ export default function RegisterNodeForm() {
                 ) : (
                   <div style={{ color: 'var(--warning)' }}>
                     <p style={{ margin: 0 }}>
-                      Fund this smart account with enough JEJU for the node
-                      stake, or preload JEJU credit before using the gasless
-                      path.
+                      Prepare this smart account with enough JEJU for the node
+                      stake plus JEJU credit before using the gasless path.
                     </p>
                     <p style={{ margin: '0.5rem 0 0 0' }}>
                       Recommended JEJU on smart account:{' '}
@@ -263,6 +271,40 @@ export default function RegisterNodeForm() {
                       )}{' '}
                       JEJU
                     </p>
+                    <button
+                      type="button"
+                      className="button"
+                      style={{ marginTop: '0.75rem' }}
+                      disabled={
+                        gaslessBootstrap.isBootstrapping ||
+                        !gasless.smartAccountAddress ||
+                        !!gasless.smartAccountDerivationError
+                      }
+                      onClick={async () => {
+                        try {
+                          await gaslessBootstrap.bootstrap({
+                            purpose: 'node',
+                            requiredStakeAmount: parsedStakeAmount,
+                          })
+                        } catch {
+                          // bootstrapError is rendered below
+                        }
+                      }}
+                    >
+                      {gaslessBootstrap.isBootstrapping
+                        ? 'Preparing Smart Account...'
+                        : 'Prepare Smart Account'}
+                    </button>
+                    {gaslessBootstrap.bootstrapError && (
+                      <p
+                        style={{
+                          margin: '0.5rem 0 0 0',
+                          color: 'var(--error)',
+                        }}
+                      >
+                        {gaslessBootstrap.bootstrapError}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -512,7 +554,9 @@ export default function RegisterNodeForm() {
             isRegistering ||
             !canAddMore ||
             (useGasless &&
-              (!gaslessSupportsSelectedToken || !gaslessReadiness.isReady))
+              (!gaslessSupportsSelectedToken ||
+                !gaslessReadiness.isReady ||
+                !!gasless.smartAccountDerivationError))
           }
         >
           {isRegistering

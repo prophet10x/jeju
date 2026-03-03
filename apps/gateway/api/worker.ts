@@ -33,6 +33,7 @@ import {
   getFaucetInfo,
   getFaucetStatus,
 } from './services/faucet-service'
+import { bootstrapGaslessSmartAccount } from './services/gasless-bootstrap'
 import x402App from './x402/server'
 
 /**
@@ -126,6 +127,20 @@ export function createGatewayApp(env?: Partial<GatewayEnv>) {
         return claimGasGrant(bodyParsed.data.address as `0x${string}`)
       }),
   )
+
+  app.post('/api/gasless/bootstrap', async ({ body }) => {
+    try {
+      return await bootstrapGaslessSmartAccount(body)
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to bootstrap gasless smart account',
+      }
+    }
+  })
 
   // Root route - API info
   app.get('/', () => ({

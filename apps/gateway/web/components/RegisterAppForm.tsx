@@ -9,6 +9,7 @@ import {
   useRegistry,
   useStakeAmount,
 } from '../hooks/useRegistry'
+import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import { CONTRACTS } from '../../lib/config'
 
 const InfoIcon = Info as ComponentType<LucideProps>
@@ -80,6 +81,7 @@ const AVAILABLE_TAGS = [
 export default function RegisterAppForm() {
   const { address } = useAccount()
   const { registerApp, gasless } = useRegistry()
+  const gaslessBootstrap = useGaslessBootstrap({ gasless })
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -137,9 +139,14 @@ export default function RegisterAppForm() {
       return
     }
 
+    if (useGasless && gasless.smartAccountDerivationError) {
+      setError(gasless.smartAccountDerivationError)
+      return
+    }
+
     if (useGasless && gaslessReadiness && !gaslessReadiness.isReady) {
       setError(
-        'Your smart account is not ready yet. Fund it with JEJU or preload JEJU credit first.',
+        'Prepare your smart account first so it has JEJU balance and JEJU credit.',
       )
       return
     }
@@ -289,6 +296,12 @@ export default function RegisterAppForm() {
                 ? 'Deriving...'
                 : gasless.smartAccountAddress ?? 'Unavailable'}
             </div>
+            {gasless.smartAccountDerivationError && (
+              <div style={{ color: 'var(--error)' }}>
+                <strong>Derivation error:</strong>{' '}
+                {gasless.smartAccountDerivationError}
+              </div>
+            )}
             <div>
               <strong>JEJU balance:</strong>{' '}
               {gasless.smartAccountJejuBalance !== undefined
@@ -334,8 +347,8 @@ export default function RegisterAppForm() {
                 ) : (
                   <div style={{ color: 'var(--warning)' }}>
                     <p style={{ margin: 0 }}>
-                      Fund this smart account with JEJU first, or preload JEJU
-                      credit for it before using the gasless path.
+                      Prepare this smart account with JEJU and JEJU credit
+                      before using the gasless path.
                     </p>
                     <p style={{ margin: '0.5rem 0 0 0' }}>
                       Recommended JEJU on smart account:{' '}
@@ -345,6 +358,38 @@ export default function RegisterAppForm() {
                       )}{' '}
                       JEJU
                     </p>
+                    <button
+                      type="button"
+                      className="button"
+                      style={{ marginTop: '0.75rem' }}
+                      disabled={
+                        gaslessBootstrap.isBootstrapping ||
+                        !gasless.smartAccountAddress ||
+                        !!gasless.smartAccountDerivationError
+                      }
+                      onClick={async () => {
+                        try {
+                          setError(null)
+                          await gaslessBootstrap.bootstrap({
+                            purpose: 'registry',
+                            requiredStakeAmount:
+                              selectedTier === StakeTier.NONE
+                                ? 0n
+                                : (stakeAmount ?? 0n),
+                          })
+                        } catch (err) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : 'Failed to prepare smart account',
+                          )
+                        }
+                      }}
+                    >
+                      {gaslessBootstrap.isBootstrapping
+                        ? 'Preparing Smart Account...'
+                        : 'Prepare Smart Account'}
+                    </button>
                   </div>
                 )}
               </div>
