@@ -1583,3 +1583,268 @@ Important caveat:
   - KMS key metadata in DWS is still in-memory only
   - after DWS restarts, `GET /kms/keys` may be empty again
   - this is expected with the current implementation and means the user may need to create the key again after a restart
+
+## 2026-03-03 Stage 1 complete: DWS KMS persistence live on AWS
+
+- Stage 1 commit:
+  - `b2b056e63 Persist DWS KMS keys across restarts`
+- Files in commit:
+  - `apps/dws/api/server/routes/kms.ts`
+  - `apps/dws/web/hooks/useApi.ts`
+  - `apps/dws/web/pages/security/Keys.tsx`
+  - `apps/dws/web/types/index.ts`
+
+### What changed
+
+- DWS KMS now persists actual centralized FROST signer state to an encrypted local file:
+  - `/home/ubuntu/jeju/apps/dws/data/kms-keys.v1.json.enc`
+- Persistence key source:
+  - `KMS_STATE_KEY`
+  - fallback: `DWS_VAULT_KEY`
+- `/kms/health` now reports:
+  - `persistentKeys`
+  - `persistenceEnabled`
+  - `persistenceBackend`
+  - `persistenceFile`
+  - `keysRestoredAt`
+- DWS Keys UI now shows whether persistence is enabled and where the encrypted state file lives.
+
+### AWS rollout details
+
+- AWS repo `~/jeju` was fast-forwarded to `b2b056e63`.
+- `KMS_STATE_KEY` was generated on AWS and stored in:
+  - `~/jeju/.env.dws-testnet`
+  - copied to `~/jeju/.env` as well for simpler process startup
+- Important startup caveat:
+  - the DWS app on AWS auto-loads `.env.dws-testnet`, which sets `NODE_ENV=production`
+  - current DWS service startup then fails on unrelated production password enforcement:
+    - `DEFAULT_POSTGRES_PASSWORD must be set in production`
+  - to keep DWS working during this stage, the live AWS process is currently started with:
+    - `NETWORK=testnet`
+    - `JEJU_NETWORK=testnet`
+    - `NODE_ENV=development`
+    - `KMS_STATE_KEY=<value>`
+    - `PORT=4030`
+    - `DWS_SQLIT_FALLBACK=1`
+    - `OAUTH3_AGENT_URL=http://localhost:4200`
+
+### Live verification completed
+
+- Verified live KMS health on AWS:
+  - `http://127.0.0.1:4030/kms/health`
+  - returns:
+    - `network: testnet`
+    - `persistenceEnabled: true`
+    - `persistenceBackend: encrypted-file`
+- Created user key on AWS with:
+  - wallet header: `0x845eD1333733a1572c7cf6788f58fC6f7C1cDc7F`
+  - created key:
+    - `keyId: 5b2429f7-d972-4964-96a9-46adbb617e8c`
+    - `address: 0xab2b1eae265c1000359b6310b710a088b83ca0ad`
+- Created service key on AWS for:
+  - `serviceId: storage-reporter`
+  - created key:
+    - `keyId: ebac97c9-88b3-4f26-9753-cbc0bfc6d071`
+    - `address: 0xe9eda6188ddea99f87ce11ca244159eec1eb4453`
+- Restarted DWS on AWS.
+- After restart:
+  - `GET /kms/keys` still returned the same user key
+  - `POST /kms/keys` with `x-service-id: storage-reporter` returned the same service key
+  - `POST /kms/sign` succeeded with the restored user key
+- This satisfies the Stage 1 live acceptance goal:
+  - user-created key survives restart
+  - service key survives restart
+  - restored key can still sign
+
+### Remaining caveat after Stage 1
+
+- AWS DWS is still being started with `NODE_ENV=development` to avoid unrelated production service bootstrap failures.
+- This does not block KMS persistence or the future storage QoS reporter/checker, but it should be cleaned up later if the team wants a true production-mode DWS startup on AWS.
+
+## 2026-03-03 Stage 2 live: Gateway gasless bootstrap deployed on Oracle
+
+- Stage 2 commit:
+  - `7e2aad358 Add Gateway smart-account bootstrap flow`
+- Files in commit:
+  - `apps/gateway/api/services/gasless-bootstrap.ts`
+  - `apps/gateway/api/worker.ts`
+  - `apps/gateway/web/hooks/useGaslessSmartAccount.ts`
+  - `apps/gateway/web/hooks/useGaslessBootstrap.ts`
+  - `apps/gateway/web/components/RegisterAppForm.tsx`
+  - `apps/gateway/web/components/RegisterNodeForm.tsx`
+  - `packages/shared/src/gasless.ts`
+  - `packages/shared/src/index.ts`
+
+### What changed
+
+- Gateway now derives the predicted SimpleAccount via:
+  - `SimpleAccountFactory.getAddress(owner, 0)`
+- Zero-address handling is stricter:
+  - zero/blank AA config is treated as unconfigured instead of displayed as a valid smart account
+- New bootstrap API route on Gateway worker:
+  - `POST /api/gasless/bootstrap`
+- Registry and node registration UIs now expose:
+  - predicted smart account
+  - JEJU balance
+  - JEJU credit
+  - paymaster allowance
+  - `Prepare Smart Account` action when not ready
+
+### Local validation before deploy
+
+- Local testnet prediction for wallet `0x845eD1333733a1572c7cf6788f58fC6f7C1cDc7F` now returns a nonzero smart account:
+  - `0xdb8251e64D6B5A314267499BB3EA7A3D3c4aEBAE`
+- Gateway local build succeeded after the Stage 2 changes.
+
+### Oracle rollout details
+
+- Oracle repo `~/jeju-repo` was fast-forwarded to `7e2aad358`.
+- Gateway was rebuilt on Oracle with:
+  - `JEJU_NETWORK=testnet /home/ubuntu/.bun/bin/bun run scripts/build.ts`
+- Gateway worker was restarted with:
+  - `JEJU_NETWORK=testnet`
+  - `JEJU_TESTNET_RPC_URL=http://127.0.0.1:9545`
+  - `USE_MEMORY_STATE=true`
+- Verified live worker health:
+  - `http://127.0.0.1:4013/health` => `status: ok`, `network: testnet`
+- Verified bootstrap endpoint exists live:
+  - `POST http://127.0.0.1:4013/api/gasless/bootstrap`
+  - returns validation errors for empty input instead of `404`, so route is mounted
+
+### Public bundle verification
+
+- Public HTML now references:
+  - `/gateway/web/main.q37p8fwa.js`
+- Verified the served public JS bundle contains:
+  - `Prepare Smart Account`
+  - `JEJU gasless smart account`
+  - `JEJU gasless node registration`
+- This means the public Gateway pages are serving the new Stage 2 bundle:
+  - `https://jeju-testnet.fartbag.fun/gateway/registry`
+  - `https://jeju-testnet.fartbag.fun/gateway/nodes`
+
+### Remaining Stage 2 caveat
+
+- Full first-time live gasless registration still depends on the bootstrap signer and credit path behaving correctly end-to-end against live chain state.
+- The UI/backend plumbing is now deployed; next user-visible debugging, if needed, should happen by trying the real flow in browser and checking whether the smart account is prepared and then whether the actual bundled user operation succeeds.
+
+## 2026-03-03: DWS gasless wiring and QoSV naming layer
+
+### DWS gasless status
+
+- Added DWS-side gasless smart-account hook:
+  - `apps/dws/web/hooks/useGaslessSmartAccount.ts`
+- Added DWS-side bootstrap hook:
+  - `apps/dws/web/hooks/useGaslessBootstrap.ts`
+- Added DWS backend bootstrap route:
+  - `apps/dws/api/server/routes/gasless.ts`
+- Added DWS bootstrap service shim reusing Gateway bootstrap logic:
+  - `apps/dws/api/services/gasless-bootstrap.ts`
+- Mounted the DWS gasless route in:
+  - `apps/dws/api/server/index.ts`
+- Exposed AA/payment config needed by DWS web:
+  - `entryPoint`
+  - `entryPointV07`
+  - `simpleAccountFactory`
+  - `creditManager`
+  - `multiTokenPaymaster`
+  - `BUNDLER_URL`
+  in:
+  - `apps/dws/web/config/index.ts`
+- Updated DWS node registration wizard to:
+  - show predicted smart account
+  - show JEJU balance / credit / paymaster allowance
+  - support `Use JEJU gasless flow`
+  - support `Prepare Smart Account`
+  - call `registerNode(..., { gasless: true })`
+  in:
+  - `apps/dws/web/components/NodeRegistrationWizard.tsx`
+
+### DWS local validation
+
+- Import sanity checks passed for:
+  - `apps/dws/api/server/routes/gasless.ts`
+  - `apps/dws/web/hooks/useGaslessSmartAccount.ts`
+  - `apps/dws/web/hooks/useGaslessBootstrap.ts`
+  - `apps/dws/web/components/NodeRegistrationWizard.tsx`
+
+### QoSV naming/status
+
+- Added canonical QoSV alias export:
+  - `apps/gateway/api/oracle/qos-validator-storage.ts`
+- Updated oracle index exports in:
+  - `apps/gateway/api/oracle/index.ts`
+- Added package scripts:
+  - `start:qos-validator:storage`
+  - `start:qos-validator:storage:once`
+  in:
+  - `apps/gateway/package.json`
+- Updated `storage-reporter` config loader to accept canonical QoSV env vars while preserving legacy aliases:
+  - `QOS_VALIDATOR_RPC_URL`
+  - `QOS_VALIDATOR_SERVICE_ID`
+  - `QOS_VALIDATOR_PRIVATE_KEY`
+  - `QOS_VALIDATOR_POLL_INTERVAL_MS`
+  - `QOS_VALIDATOR_REQUEST_TIMEOUT_MS`
+  - `QOS_VALIDATOR_LOOKBACK_HOURS`
+  - `QOS_VALIDATOR_MAX_COMMITMENTS`
+  - `QOS_VALIDATOR_CHUNK_COUNT`
+  - `QOS_VALIDATOR_SUBMIT_ON_CHAIN`
+  - `QOS_VALIDATOR_REGISTER_AS_PERFORMANCE_ORACLE`
+  - `QOS_VALIDATOR_ENABLE_AUTO_SLASHING`
+  - `QOS_VALIDATOR_CHECK_SLASHING`
+  - `QOS_VALIDATOR_EXECUTE_SLASHING`
+  - `QOS_VALIDATOR_RUN_ONCE`
+  - `QOS_VALIDATOR_ENDPOINT_OVERRIDES`
+  - `QOS_VALIDATOR_NODE_IDS`
+- Updated runtime log prefix from `[StorageReporter]` to `[QoSV:storage]`
+  in:
+  - `apps/gateway/api/oracle/storage-reporter.ts`
+
+### QoSV local validation
+
+- Import sanity check passed for:
+  - `apps/gateway/api/oracle/qos-validator-storage.ts`
+
+### Remaining live blocker
+
+- Oracle Gateway worker is healthy and public bootstrap route is healthy, but the live bootstrap signer remains unfunded:
+  - `0x1c8D40d6E81289B5a1B6e4E3a2E34eA23d1c2A0E`
+- Public explorer token-balance lookup still reports:
+  - `JEJU = 0`
+  for that wallet
+- So Gateway gasless is still blocked operationally until that wallet receives JEJU and L2 ETH.
+
+### Remaining deploy work
+
+- DWS gasless changes are local-only and not yet deployed to AWS.
+- QoSV naming/config changes are local-only and not yet deployed to Oracle.
+
+### QoSV generalization follow-up
+
+- Added shared QoSV module/service taxonomy:
+  - `apps/gateway/api/oracle/qos-validator-types.ts`
+- Exported the QoSV taxonomy from:
+  - `apps/gateway/api/oracle/index.ts`
+- Storage validator now uses the shared QoSV storage profile for:
+  - default service id
+  - metric weighting inputs
+  in:
+  - `apps/gateway/api/oracle/storage-reporter.ts`
+- Intended first module set based on Jeju docs:
+  - `storage`
+  - `rpc`
+  - `compute`
+  - `cdn`
+- Relevant doc signals collected:
+  - `apps/documentation/docs/pages/contracts/staking.mdx`
+    - reward target model is uptime 50%, latency 30%, request volume 20%
+  - `apps/documentation/docs/pages/guides/run-rpc-node.mdx`
+    - rpc metrics: `rpc_requests_total`, `rpc_request_duration_seconds`, block height, peer count
+  - `apps/documentation/docs/pages/guides/run-storage-node.mdx`
+    - storage metrics: `storage_total_bytes`, `storage_pins_count`, `storage_requests_total`
+  - `packages/deployment/README.md`
+    - DWS route layer is expected to monitor node health via heartbeats
+- Note:
+  - direct import of the full oracle runtime through `apps/gateway/api/oracle/index.ts` triggers an existing shared logger/KMS initialization issue:
+    - `ReferenceError: Cannot access 'syncLoggerInitialized' before initialization`
+  - the new QoSV type/export layer itself imported successfully; this is an existing side-effect/import-order issue outside the new QoSV files

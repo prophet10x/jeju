@@ -5,6 +5,10 @@
  * Uses wagmi's useWriteContract for actual on-chain transactions.
  */
 
+import {
+  DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  formatTokenUsd,
+} from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
 import {
   Region,
@@ -42,7 +46,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { type Address, formatEther } from 'viem'
+import { type Address, encodeFunctionData, erc20Abi, formatEther } from 'viem'
 import {
   useSignMessage,
   useWaitForTransactionReceipt,
@@ -50,6 +54,8 @@ import {
 } from 'wagmi'
 import { CONTRACTS } from '../config'
 import { useAgentId } from '../hooks/useAgentId'
+import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
+import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 
 type WizardStep =
   | 'connect'
@@ -118,6 +124,36 @@ const IDENTITY_REGISTRY_ABI = [
   },
 ] as const
 
+const NODE_STAKING_REGISTRATION_ABI = [
+  {
+    name: 'registerNode',
+    type: 'function',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+    ],
+    outputs: [{ name: 'nodeId', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    name: 'registerNodeWithAgent',
+    type: 'function',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+      { name: 'operatorAgentId', type: 'uint256' },
+    ],
+    outputs: [{ name: 'nodeId', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
 interface NodeProofChallenge {
   challengeId: string
   expiresAt: number
@@ -144,6 +180,8 @@ interface NodeProofVerification {
 export default function NodeRegistrationWizard() {
   const { address, isConnected, isConnecting, connect } = useWallet()
   const { hasAgent, agentId, isLoading: isAgentLoading } = useAgentId()
+  const gasless = useGaslessSmartAccount()
+  const gaslessBootstrap = useGaslessBootstrap({ gasless })
 
   // Get staking manager address from config
   const stakingManagerAddress =
@@ -178,6 +216,7 @@ export default function NodeRegistrationWizard() {
   const [memoryGb, setMemoryGb] = useState('')
   const [diskGb, setDiskGb] = useState('')
   const [customStakeAmount, setCustomStakeAmount] = useState('')
+  const [useGasless, setUseGasless] = useState(true)
   const [proofChallenge, setProofChallenge] = useState<NodeProofChallenge | null>(
     null,
   )
@@ -233,6 +272,10 @@ export default function NodeRegistrationWizard() {
     const total = perService * selectedServices.length
     return `~$${total.toFixed(0)}`
   }, [baseRewardPerMonthUSD, selectedServices.length])
+  const gaslessReadiness = gasless.getReadiness(
+    requiredStake,
+    DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  )
 
   const toggleService = useCallback((serviceId: string) => {
     setServices((prev) =>
@@ -245,6 +288,12 @@ export default function NodeRegistrationWizard() {
   const handleNextStep = useCallback(() => {
     setError(null)
     if (step === 'connect' && isConnected) {
+      if (useGasless && !gaslessReadiness.isReady) {
+        setError(
+          'Prepare the SimpleAccount with JEJU balance and credit before continuing.',
+        )
+        return
+      }
       if (isAgentLoading) {
         setError('Checking your ERC-8004 operator identity. Please wait.')
         return
@@ -265,7 +314,7 @@ export default function NodeRegistrationWizard() {
         )
         return
       }
-      setStep('approve')
+      setStep(useGasless ? 'confirm' : 'approve')
     } else if (step === 'approve' && isApprovalSuccess) {
       setStep('confirm')
     }
@@ -278,6 +327,7 @@ export default function NodeRegistrationWizard() {
     isOwnershipVerified,
     selectedAgentId,
     selectedServices.length,
+    useGasless,
   ])
 
   const handlePrevStep = useCallback(() => {
@@ -289,9 +339,9 @@ export default function NodeRegistrationWizard() {
     } else if (step === 'approve') {
       setStep('stake')
     } else if (step === 'confirm') {
-      setStep('approve')
+      setStep(useGasless ? 'stake' : 'approve')
     }
-  }, [step])
+  }, [step, useGasless])
 
   const handleApprove = useCallback(() => {
     if (!stakingManagerAddress) {
@@ -306,7 +356,7 @@ export default function NodeRegistrationWizard() {
     approveStaking(DEFAULT_STAKING_TOKEN, requiredStake)
   }, [stakingManagerAddress, requiredStake, approveStaking])
 
-  const handleRegister = useCallback(() => {
+  const handleRegister = useCallback(async () => {
     if (!stakingManagerAddress) {
       setError('Staking manager not configured for this network')
       return
@@ -322,6 +372,49 @@ export default function NodeRegistrationWizard() {
       return
     }
     setError(null)
+
+    if (useGasless) {
+      try {
+        await gasless.executeGaslessCalls({
+          serviceName: 'Jeju Node Registration',
+          requiredJejuBalance: requiredStake,
+          calls: [
+            {
+              to: DEFAULT_STAKING_TOKEN,
+              data: encodeFunctionData({
+                abi: erc20Abi,
+                functionName: 'approve',
+                args: [stakingManagerAddress, requiredStake],
+              }),
+            },
+            {
+              to: stakingManagerAddress,
+              data: encodeFunctionData({
+                abi: NODE_STAKING_REGISTRATION_ABI,
+                functionName: 'registerNodeWithAgent',
+                args: [
+                  DEFAULT_STAKING_TOKEN,
+                  requiredStake,
+                  DEFAULT_REWARD_TOKEN,
+                  nodeRpcUrl,
+                  selectedRegion,
+                  selectedAgentId,
+                ],
+              }),
+            },
+          ],
+        })
+        return
+      } catch (registrationError) {
+        setError(
+          registrationError instanceof Error
+            ? registrationError.message
+            : 'Gasless registration failed',
+        )
+        return
+      }
+    }
+
     registerNode({
       stakingToken: DEFAULT_STAKING_TOKEN,
       stakeAmount: requiredStake,
@@ -337,6 +430,8 @@ export default function NodeRegistrationWizard() {
     requiredStake,
     selectedRegion,
     registerNode,
+    gasless,
+    useGasless,
   ])
 
   const prepareOwnershipProof = useCallback(async () => {
@@ -480,26 +575,32 @@ export default function NodeRegistrationWizard() {
 
   // Auto-advance when approval succeeds
   useEffect(() => {
-    if (step === 'approve' && isApprovalSuccess) {
+    if (!useGasless && step === 'approve' && isApprovalSuccess) {
       setStep('confirm')
     }
-  }, [step, isApprovalSuccess])
+  }, [step, isApprovalSuccess, useGasless])
 
   // Auto-advance when registration succeeds
   useEffect(() => {
-    if (step === 'confirm' && isRegistrationSuccess) {
+    if (
+      step === 'confirm' &&
+      (isRegistrationSuccess || Boolean(gasless.lastTransactionReceipt))
+    ) {
       setStep('complete')
     }
-  }, [step, isRegistrationSuccess])
+  }, [step, isRegistrationSuccess, gasless.lastTransactionReceipt])
 
   const renderStepIndicator = () => {
     const steps: { key: WizardStep; label: string }[] = [
       { key: 'connect', label: 'Connect' },
       { key: 'services', label: 'Services' },
       { key: 'stake', label: 'Stake' },
-      { key: 'approve', label: 'Approve' },
       { key: 'confirm', label: 'Register' },
     ]
+
+    if (!useGasless) {
+      steps.splice(3, 0, { key: 'approve', label: 'Approve' })
+    }
 
     const currentIndex = steps.findIndex((s) => s.key === step)
 
@@ -705,12 +806,147 @@ export default function NodeRegistrationWizard() {
       )}
 
       {isConnected && (
+        <div
+          style={{
+            margin: '1.5rem auto 0',
+            maxWidth: '560px',
+            textAlign: 'left',
+            padding: '1rem',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600 }}>JEJU gasless node registration</div>
+              <div
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.9rem',
+                  marginTop: '0.25rem',
+                }}
+              >
+                Use your SimpleAccount for both JEJU stake and gas.
+              </div>
+            </div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontWeight: 600,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={useGasless}
+                onChange={(event) => setUseGasless(event.target.checked)}
+              />
+              Use JEJU gasless flow
+            </label>
+          </div>
+
+          <div
+            style={{
+              marginTop: '1rem',
+              display: 'grid',
+              gap: '0.4rem',
+              fontSize: '0.9rem',
+            }}
+          >
+            <div>
+              <strong>Smart account:</strong>{' '}
+              {gasless.isLoadingSmartAccount
+                ? 'Deriving...'
+                : gasless.smartAccountAddress ?? 'Unavailable'}
+            </div>
+            {gasless.smartAccountDerivationError && (
+              <div style={{ color: 'var(--danger)' }}>
+                <strong>Derivation error:</strong>{' '}
+                {gasless.smartAccountDerivationError}
+              </div>
+            )}
+            <div>
+              <strong>JEJU balance:</strong>{' '}
+              {gasless.smartAccountJejuBalance !== undefined
+                ? `${formatEther(gasless.smartAccountJejuBalance)} JEJU`
+                : 'Loading...'}
+            </div>
+            <div>
+              <strong>JEJU credit:</strong>{' '}
+              {gasless.smartAccountJejuCredit !== undefined
+                ? `${formatEther(gasless.smartAccountJejuCredit)} JEJU`
+                : 'Loading...'}
+            </div>
+            <div>
+              <strong>Paymaster allowance:</strong>{' '}
+              {gasless.smartAccountPaymasterAllowance !== undefined
+                ? `${formatEther(gasless.smartAccountPaymasterAllowance)} JEJU`
+                : 'Loading...'}
+            </div>
+            <div style={{ color: 'var(--text-secondary)' }}>
+              Recommended JEJU on smart account:{' '}
+              {formatTokenUsd(requiredStake, 18, 1)}
+            </div>
+          </div>
+
+          {useGasless && !gaslessReadiness.isReady && (
+            <div style={{ marginTop: '1rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={
+                  gaslessBootstrap.isPreparing ||
+                  !address ||
+                  !gasless.smartAccountAddress
+                }
+                onClick={() =>
+                  gaslessBootstrap.prepareSmartAccount({
+                    ownerAddress: address,
+                    purpose: 'node',
+                    requiredStakeAmount: requiredStake,
+                  })
+                }
+              >
+                {gaslessBootstrap.isPreparing ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Preparing Smart Account...
+                  </>
+                ) : (
+                  'Prepare Smart Account'
+                )}
+              </button>
+              {gaslessBootstrap.error && (
+                <div style={{ marginTop: '0.75rem', color: 'var(--danger)' }}>
+                  {gaslessBootstrap.error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isConnected && (
         <div style={{ marginTop: '1rem' }}>
           <button
             type="button"
             className="btn btn-primary"
             onClick={handleNextStep}
-            disabled={isAgentLoading || !hasAgent}
+            disabled={
+              isAgentLoading ||
+              !hasAgent ||
+              (useGasless && !gaslessReadiness.isReady)
+            }
             style={{ padding: '0.875rem 2rem' }}
           >
             Continue <ArrowRight size={16} />

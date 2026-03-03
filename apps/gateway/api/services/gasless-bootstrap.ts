@@ -220,6 +220,13 @@ export async function bootstrapGaslessSmartAccount(
   }
 
   if (creditAddedAmount > 0n) {
+    await walletClient.writeContract({
+      address: JEJU_TOKEN_ADDRESS,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [CREDIT_MANAGER_ADDRESS, creditAddedAmount],
+    })
+
     creditTxHash = await walletClient.writeContract({
       address: CREDIT_MANAGER_ADDRESS,
       abi: CREDIT_MANAGER_ABI,

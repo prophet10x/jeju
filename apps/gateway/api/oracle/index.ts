@@ -18,4 +18,11 @@ export {
   StorageReporter,
   type StorageReporterConfig,
 } from './storage-reporter'
+export {
+  loadQoSValidatorStorageConfig,
+  runQoSValidatorStorage,
+  QoSValidatorStorage,
+  type QoSValidatorStorageConfig,
+} from './qos-validator-storage'
+export * from './qos-validator-types'
 export * from './types'

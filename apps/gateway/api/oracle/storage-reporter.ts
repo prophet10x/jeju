@@ -13,6 +13,7 @@ import {
   type StorageAuditChunk,
   type StorageAuditCommitment,
 } from './storage-audit-verifier'
+import { QOS_VALIDATOR_SERVICE_PROFILES } from './qos-validator-types'
 import type { Address, Chain, Hex } from 'viem'
 import { base, baseSepolia, foundry } from 'viem/chains'
 
@@ -374,37 +375,86 @@ async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
 export function loadStorageReporterConfig(): StorageReporterConfig {
   const network = (process.env.JEJU_NETWORK as NetworkType | undefined) ?? getCurrentNetwork()
   const chainId = getChainId(network)
+  const profile = QOS_VALIDATOR_SERVICE_PROFILES.storage
 
   return {
     network,
     chainId,
-    rpcUrl: process.env.STORAGE_REPORTER_RPC_URL ?? getRpcUrl(network),
-    serviceId: process.env.STORAGE_REPORTER_SERVICE_ID ?? 'storage-reporter',
-    fallbackPrivateKey: (process.env.ORACLE_PRIVATE_KEY ??
-      process.env.PRIVATE_KEY) as Hex | undefined,
-    pollIntervalMs: getEnvInt('STORAGE_REPORTER_POLL_INTERVAL_MS', 15 * 60 * 1000),
-    requestTimeoutMs: getEnvInt('STORAGE_REPORTER_REQUEST_TIMEOUT_MS', 15_000),
-    lookbackHours: getEnvInt('STORAGE_REPORTER_LOOKBACK_HOURS', 24 * 30),
+    rpcUrl:
+      process.env.QOS_VALIDATOR_RPC_URL ??
+      process.env.STORAGE_REPORTER_RPC_URL ??
+      getRpcUrl(network),
+    serviceId:
+      process.env.QOS_VALIDATOR_SERVICE_ID ??
+      process.env.STORAGE_REPORTER_SERVICE_ID ??
+      profile.serviceId,
+    fallbackPrivateKey: (
+      process.env.QOS_VALIDATOR_PRIVATE_KEY ??
+      process.env.STORAGE_REPORTER_PRIVATE_KEY ??
+      process.env.ORACLE_PRIVATE_KEY ??
+      process.env.PRIVATE_KEY
+    ) as Hex | undefined,
+    pollIntervalMs: getEnvInt(
+      'QOS_VALIDATOR_POLL_INTERVAL_MS',
+      getEnvInt('STORAGE_REPORTER_POLL_INTERVAL_MS', 15 * 60 * 1000),
+    ),
+    requestTimeoutMs: getEnvInt(
+      'QOS_VALIDATOR_REQUEST_TIMEOUT_MS',
+      getEnvInt('STORAGE_REPORTER_REQUEST_TIMEOUT_MS', 15_000),
+    ),
+    lookbackHours: getEnvInt(
+      'QOS_VALIDATOR_LOOKBACK_HOURS',
+      getEnvInt('STORAGE_REPORTER_LOOKBACK_HOURS', 24 * 30),
+    ),
     maxCommitmentsPerNode: Math.max(
       1,
-      getEnvInt('STORAGE_REPORTER_MAX_COMMITMENTS', 5),
+      getEnvInt(
+        'QOS_VALIDATOR_MAX_COMMITMENTS',
+        getEnvInt('STORAGE_REPORTER_MAX_COMMITMENTS', 5),
+      ),
     ),
     challengeChunkCount: Math.max(
       1,
-      Math.min(16, getEnvInt('STORAGE_REPORTER_CHUNK_COUNT', 3)),
+      Math.min(
+        16,
+        getEnvInt(
+          'QOS_VALIDATOR_CHUNK_COUNT',
+          getEnvInt('STORAGE_REPORTER_CHUNK_COUNT', 3),
+        ),
+      ),
     ),
-    submitOnChain: getEnvBool('STORAGE_REPORTER_SUBMIT_ON_CHAIN'),
+    submitOnChain: getEnvBool(
+      'QOS_VALIDATOR_SUBMIT_ON_CHAIN',
+      getEnvBool('STORAGE_REPORTER_SUBMIT_ON_CHAIN'),
+    ),
     registerAsPerformanceOracle: getEnvBool(
-      'STORAGE_REPORTER_REGISTER_AS_PERFORMANCE_ORACLE',
+      'QOS_VALIDATOR_REGISTER_AS_PERFORMANCE_ORACLE',
+      getEnvBool('STORAGE_REPORTER_REGISTER_AS_PERFORMANCE_ORACLE'),
     ),
-    enableAutoSlashing: getEnvBool('STORAGE_REPORTER_ENABLE_AUTO_SLASHING'),
-    checkSlashing: getEnvBool('STORAGE_REPORTER_CHECK_SLASHING'),
-    executeSlashing: getEnvBool('STORAGE_REPORTER_EXECUTE_SLASHING'),
-    runOnce: getEnvBool('STORAGE_REPORTER_RUN_ONCE'),
+    enableAutoSlashing: getEnvBool(
+      'QOS_VALIDATOR_ENABLE_AUTO_SLASHING',
+      getEnvBool('STORAGE_REPORTER_ENABLE_AUTO_SLASHING'),
+    ),
+    checkSlashing: getEnvBool(
+      'QOS_VALIDATOR_CHECK_SLASHING',
+      getEnvBool('STORAGE_REPORTER_CHECK_SLASHING'),
+    ),
+    executeSlashing: getEnvBool(
+      'QOS_VALIDATOR_EXECUTE_SLASHING',
+      getEnvBool('STORAGE_REPORTER_EXECUTE_SLASHING'),
+    ),
+    runOnce: getEnvBool(
+      'QOS_VALIDATOR_RUN_ONCE',
+      getEnvBool('STORAGE_REPORTER_RUN_ONCE'),
+    ),
     endpointOverrides: parseEndpointOverrides(
-      process.env.STORAGE_REPORTER_ENDPOINT_OVERRIDES,
+      process.env.QOS_VALIDATOR_ENDPOINT_OVERRIDES ??
+        process.env.STORAGE_REPORTER_ENDPOINT_OVERRIDES,
     ),
-    allowedNodeIds: parseAllowedNodeIds(process.env.STORAGE_REPORTER_NODE_IDS),
+    allowedNodeIds: parseAllowedNodeIds(
+      process.env.QOS_VALIDATOR_NODE_IDS ??
+        process.env.STORAGE_REPORTER_NODE_IDS,
+    ),
   }
 }
 
@@ -448,7 +498,7 @@ export class StorageReporter {
     this.running = true
 
     console.log(
-      `[StorageReporter] Starting on ${this.config.network} (${this.config.chainId})`,
+      `[QoSV:storage] Starting on ${this.config.network} (${this.config.chainId})`,
     )
 
     await this.runCycle()
@@ -460,7 +510,7 @@ export class StorageReporter {
 
     this.timer = setInterval(() => {
       void this.runCycle().catch((error) => {
-        console.error('[StorageReporter] Cycle failed:', error)
+        console.error('[QoSV:storage] Cycle failed:', error)
       })
     }, this.config.pollIntervalMs)
   }
@@ -468,7 +518,7 @@ export class StorageReporter {
   async stop(): Promise<void> {
     this.running = false
     if (this.timer) clearInterval(this.timer)
-    console.log('[StorageReporter] Stopped')
+    console.log('[QoSV:storage] Stopped')
   }
 
   async runCycle(): Promise<NodeReportResult[]> {
@@ -479,7 +529,7 @@ export class StorageReporter {
         await this.ensurePerformanceOracleRegistration(contractClient)
       } catch (error) {
         console.warn(
-          '[StorageReporter] Could not register performance oracle:',
+          '[QoSV:storage] Could not register performance oracle:',
           error,
         )
       }
@@ -489,7 +539,7 @@ export class StorageReporter {
         await this.ensureAutoSlashingEnabled(contractClient)
       } catch (error) {
         console.warn(
-          '[StorageReporter] Could not enable auto slashing:',
+          '[QoSV:storage] Could not enable auto slashing:',
           error,
         )
       }
@@ -509,7 +559,7 @@ export class StorageReporter {
           nodeId,
           operator: '0x0000000000000000000000000000000000000000',
           rpcUrl: '',
-          skipped: 'not in STORAGE_REPORTER_NODE_IDS allowlist',
+          skipped: 'not in QOS_VALIDATOR_NODE_IDS allowlist',
           onChainSubmitted: false,
           slashingChecked: false,
           slashingProposed: false,
@@ -523,7 +573,7 @@ export class StorageReporter {
     }
 
     console.log(
-      '[StorageReporter] Cycle complete:',
+      '[QoSV:storage] Cycle complete:',
       JSON.stringify(
         results.map((result) => ({
           nodeId: result.nodeId,
@@ -727,19 +777,38 @@ export class StorageReporter {
       }
     }
 
-    const proofSuccessRatio =
+      const proofSuccessRatio =
       challengedChunks === 0 ? 1 : verifiedChunks / challengedChunks
     const healthRatio = 1
+    const latencyWeight = QOS_VALIDATOR_SERVICE_PROFILES.storage.metrics.latency
+    const volumeWeight = QOS_VALIDATOR_SERVICE_PROFILES.storage.metrics.volume
+    const uptimeWeight = QOS_VALIDATOR_SERVICE_PROFILES.storage.metrics.uptime
     const uptimeScore = Math.max(
       0,
-      Math.min(10000, Math.round((healthRatio * 0.4 + proofSuccessRatio * 0.6) * 10000)),
+      Math.min(
+        10000,
+        Math.round(
+          (healthRatio * uptimeWeight +
+            proofSuccessRatio * (1 - uptimeWeight)) *
+            10000,
+        ),
+      ),
+    )
+    const paidVolumeScore = Math.max(
+      0,
+      Math.round(summary.paidOperations * volumeWeight),
+    )
+    const normalizedLatency =
+      proofLatencies.length > 0 ? average(proofLatencies) : healthLatencyMs
+    const avgResponseTime = Math.max(
+      1,
+      Math.round(normalizedLatency * Math.max(0.1, latencyWeight)),
     )
 
     return {
       uptimeScore,
-      requestsServed: summary.paidOperations,
-      avgResponseTime:
-        proofLatencies.length > 0 ? average(proofLatencies) : healthLatencyMs,
+      requestsServed: paidVolumeScore,
+      avgResponseTime,
       summary,
       healthLatencyMs,
       auditAttempts,
@@ -775,7 +844,7 @@ export class StorageReporter {
     })
     await contractClient.publicClient.waitForTransactionReceipt({ hash: txHash })
     console.log(
-      `[StorageReporter] Registered ${contractClient.address} as performance oracle`,
+      `[QoSV:storage] Registered ${contractClient.address} as performance oracle`,
     )
   }
 
@@ -800,7 +869,7 @@ export class StorageReporter {
       account: contractClient.account,
     })
     await contractClient.publicClient.waitForTransactionReceipt({ hash: txHash })
-    console.log('[StorageReporter] Enabled AutoSlasher')
+    console.log('[QoSV:storage] Enabled AutoSlasher')
   }
 
   private async handleSlashing(
@@ -895,7 +964,7 @@ export async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error('[StorageReporter] Fatal error:', error)
+    console.error('[QoSV:storage] Fatal error:', error)
     process.exit(1)
   })
 }

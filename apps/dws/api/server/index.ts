@@ -121,6 +121,7 @@ import { createEdgeRouter, handleEdgeWebSocket } from './routes/edge'
 import { createExecRouter } from './routes/exec'
 import { createFaucetRouter } from './routes/faucet'
 import { createFundingRouter } from './routes/funding'
+import { gaslessRoutes } from './routes/gasless'
 import { createGitRouter } from './routes/git'
 import { createIndexerRouter, shutdownIndexerProxy } from './routes/indexer'
 import { createKMSRouter } from './routes/kms'
@@ -895,6 +896,7 @@ app.use(createNitroDatabaseRouter())
 
 // Funding and package registry proxy
 app.use(createFundingRouter())
+app.use(gaslessRoutes)
 app.use(createPkgRegistryProxyRouter())
 
 // DNS services (DoH, JNS, ENS bridge)

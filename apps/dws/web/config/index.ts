@@ -48,10 +48,24 @@ export const CONTRACTS = {
   jnsResolver: (contracts.jns.resolver as Address) || ZERO_ADDRESS,
   x402Facilitator:
     (contracts.payments.x402Facilitator as Address) || ZERO_ADDRESS,
+  creditManager: (contracts.payments.creditManager as Address) || ZERO_ADDRESS,
+  multiTokenPaymaster:
+    (contracts.payments.multiTokenPaymaster as Address) || ZERO_ADDRESS,
   // Use nodeStaking.manager to match contracts.json structure
   nodeStakingManager:
     (contracts.nodeStaking?.manager as Address) || ZERO_ADDRESS,
+  entryPoint: (contracts.accountAbstraction?.entryPoint as Address) || ZERO_ADDRESS,
+  entryPointV07:
+    (contracts.accountAbstraction?.entryPointV07 as Address) || ZERO_ADDRESS,
+  simpleAccountFactory:
+    (contracts.accountAbstraction?.simpleAccountFactory as Address) ||
+    ZERO_ADDRESS,
 } as const
+
+export const BUNDLER_URL =
+  typeof window !== 'undefined'
+    ? `${window.location.origin}/bundler`
+    : '/bundler'
 
 // Token addresses from config
 export const TOKENS = {
