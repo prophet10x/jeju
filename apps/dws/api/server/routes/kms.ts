@@ -466,6 +466,7 @@ export function createKMSRouter() {
         return {
           keys: keyList.map((k) => ({
             keyId: k.keyId,
+            publicKey: k.publicKey,
             address: k.address,
             threshold: k.threshold,
             totalParties: k.totalParties,

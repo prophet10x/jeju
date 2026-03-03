@@ -166,6 +166,7 @@ export default function KeysPage() {
                       {key.keyId.slice(0, 12)}...
                     </td>
                     <td>
+                      {key.publicKey ? (
                       <div
                         style={{
                           display: 'flex',
@@ -198,6 +199,11 @@ export default function KeysPage() {
                           )}
                         </button>
                       </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          Unavailable
+                        </span>
+                      )}
                     </td>
                     <td>
                       <div
