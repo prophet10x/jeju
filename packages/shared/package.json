@@ -8,6 +8,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./gasless": "./src/gasless.ts",
     "./dev-server": "./src/dev-server/index.ts",
     "./protocols/middleware": "./src/protocols/middleware.ts",
     "./moderation": "./src/moderation/index.ts",

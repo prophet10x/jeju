@@ -9,7 +9,7 @@ import {
   isConfiguredAddress,
   predictSimpleAccountAddress,
   type GaslessReadiness,
-} from '@jejunetwork/shared'
+} from '@jejunetwork/shared/gasless'
 import { useCallback, useEffect, useState } from 'react'
 import { toSimpleSmartAccount } from 'permissionless/accounts'
 import { createSmartAccountClient } from 'permissionless/clients'
