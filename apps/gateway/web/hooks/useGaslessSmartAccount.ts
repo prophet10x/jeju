@@ -1,7 +1,7 @@
 import {
   getMultiTokenPaymasterData,
   toPaymasterV07Data,
-} from '@jejunetwork/contracts'
+} from '@jejunetwork/contracts/aa'
 import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   getConfiguredAddress,
