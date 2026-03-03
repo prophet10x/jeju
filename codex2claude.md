@@ -1819,6 +1819,34 @@ Important caveat:
 - DWS gasless changes are local-only and not yet deployed to AWS.
 - QoSV naming/config changes are local-only and not yet deployed to Oracle.
 
+### Faucet smart-account routing and EOA gas top-up
+
+- Oracle `PoWFaucet` is now patched so the public faucet keeps taking a pasted EOA but routes JEJU claims to the derived SimpleAccount.
+- Live Oracle faucet files changed:
+  - `src/webserv/FaucetWebApi.ts`
+  - `src/eth/EthClaimManager.ts`
+  - `src/session/FaucetSession.ts`
+  - `faucet-client/src/common/FaucetApi.ts`
+  - `faucet-client/src/common/FaucetSession.ts`
+  - `faucet-client/src/components/frontpage/FaucetInput.tsx`
+  - `faucet-config.yaml`
+- Added live preview endpoint:
+  - `POST /api/deriveSmartAccount`
+- Verified live:
+  - owner `0x845eD1333733a1572c7cf6788f58fC6f7C1cDc7F`
+  - derived smart account `0xdb8251e64D6B5A314267499BB3EA7A3D3c4aEBAE`
+- Claim routing now uses:
+  - `sessionData.data?.smartAccountAddress || sessionData.targetAddr`
+- Rebuilt and restarted Oracle `powfaucet.service` on the new code.
+- One-time L2 ETH top-up to the user EOA completed:
+  - recipient `0x845eD1333733a1572c7cf6788f58fC6f7C1cDc7F`
+  - amount `0.1 ETH`
+  - tx `0xbad69e8818cd1ae30e1e3c5283aab1992af6b288bf13aa38a386ec3297946159`
+- Remaining local-only UI work after this:
+  - shared wallet management menu in Gateway/DWS showing both EOA and SimpleAccount
+  - `Move JEJU to SimpleAccount`
+  - Gateway bridge recipient default to SimpleAccount
+
 ### QoSV generalization follow-up
 
 - Added shared QoSV module/service taxonomy:

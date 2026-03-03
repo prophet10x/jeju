@@ -291,7 +291,11 @@ export default function RegisterAppForm() {
             }}
           >
             <div>
-              <strong>Smart account:</strong>{' '}
+              <strong>Owner wallet (EOA):</strong>{' '}
+              {gasless.ownerAddress ?? 'Unavailable'}
+            </div>
+            <div>
+              <strong>Gasless wallet (SimpleAccount):</strong>{' '}
               {gasless.isLoadingSmartAccount
                 ? 'Deriving...'
                 : gasless.smartAccountAddress ?? 'Unavailable'}
@@ -303,7 +307,7 @@ export default function RegisterAppForm() {
               </div>
             )}
             <div>
-              <strong>JEJU balance:</strong>{' '}
+              <strong>SimpleAccount balance:</strong>{' '}
               {gasless.smartAccountJejuBalance !== undefined
                 ? `${formatUnits(gasless.smartAccountJejuBalance, 18)} JEJU`
                 : 'Loading...'}

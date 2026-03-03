@@ -32,3 +32,8 @@ export {
 } from './config'
 
 export { useWallet, WalletButton, type WalletButtonProps } from './WalletButton'
+export {
+  WalletManagementMenu,
+  type WalletInfoCard,
+  type WalletManagementMenuProps,
+} from './WalletManagementMenu'

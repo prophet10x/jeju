@@ -864,7 +864,11 @@ export default function NodeRegistrationWizard() {
             }}
           >
             <div>
-              <strong>Smart account:</strong>{' '}
+              <strong>Owner wallet (EOA):</strong>{' '}
+              {gasless.ownerAddress ?? 'Unavailable'}
+            </div>
+            <div>
+              <strong>Gasless wallet (SimpleAccount):</strong>{' '}
               {gasless.isLoadingSmartAccount
                 ? 'Deriving...'
                 : gasless.smartAccountAddress ?? 'Unavailable'}
@@ -876,7 +880,7 @@ export default function NodeRegistrationWizard() {
               </div>
             )}
             <div>
-              <strong>JEJU balance:</strong>{' '}
+              <strong>SimpleAccount balance:</strong>{' '}
               {gasless.smartAccountJejuBalance !== undefined
                 ? `${formatEther(gasless.smartAccountJejuBalance)} JEJU`
                 : 'Loading...'}

@@ -1,6 +1,6 @@
 import { AuthProvider } from '@jejunetwork/auth'
 import { LoginModal, useJejuAuth } from '@jejunetwork/auth/react'
-import { useAccount, useDisconnect } from 'wagmi'
+import { useAccount } from 'wagmi'
 import {
   BarChart3,
   Bell,
@@ -46,6 +46,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { NETWORK } from '../config'
 import { useTheme } from '../context/AppContext'
+import WalletManagementMenu from './WalletManagementMenu'
 
 interface NavItem {
   id: string
@@ -318,9 +319,8 @@ export default function Layout({ children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
-  const { authenticated, loading, walletAddress, logout } = useJejuAuth()
+  const { authenticated, loading, walletAddress } = useJejuAuth()
   const { isConnected, address: wagmiAddress } = useAccount()
-  const { disconnect } = useDisconnect()
 
   // Use wagmi wallet as fallback when OAuth3 isn't authenticated
   const displayAddress = walletAddress ?? (isConnected ? wagmiAddress : null)
@@ -541,16 +541,7 @@ export default function Layout({ children }: LayoutProps) {
             </button>
 
             {isLoggedIn && displayAddress ? (
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => {
-                  logout()
-                  disconnect()
-                }}
-              >
-                {displayAddress.slice(0, 6)}...{displayAddress.slice(-4)}
-              </button>
+              <WalletManagementMenu />
             ) : (
               <button
                 type="button"

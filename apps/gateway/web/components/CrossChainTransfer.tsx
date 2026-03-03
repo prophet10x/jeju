@@ -10,6 +10,7 @@ import { useAccount } from 'wagmi'
 import { z } from 'zod'
 import { EXPLORER_URL } from '../../lib/config'
 import { useCrossChainSwap, useEILConfig } from '../hooks/useEIL'
+import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 import { useProtocolTokens } from '../hooks/useProtocolTokens'
 import type { TokenOption } from './TokenSelector'
 import TokenSelector from './TokenSelector'
@@ -44,6 +45,7 @@ type TransferStep = 'input' | 'confirm' | 'processing' | 'complete' | 'error'
 
 export default function CrossChainTransfer() {
   const { address: userAddress, isConnected } = useAccount()
+  const gasless = useGaslessSmartAccount()
   const { crossChainPaymaster } = useEILConfig()
 
   const [selectedToken, setSelectedToken] = useState<TokenOption | null>(null)
@@ -78,6 +80,11 @@ export default function CrossChainTransfer() {
     }
   }, [isLoading, isSuccess])
 
+  useEffect(() => {
+    if (recipient || !gasless.smartAccountAddress) return
+    setRecipient(gasless.smartAccountAddress)
+  }, [gasless.smartAccountAddress, recipient])
+
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault()
     setValidationError(null)
@@ -102,7 +109,9 @@ export default function CrossChainTransfer() {
     }
 
     const amountBigInt = parseTokenAmount(amount, selectedToken?.decimals ?? 18)
-    const recipientAddress = (recipient || userAddress) as Address
+    const recipientAddress = (
+      recipient || gasless.smartAccountAddress || userAddress
+    ) as Address
 
     setStep('processing')
 
@@ -336,7 +345,7 @@ export default function CrossChainTransfer() {
               id="transfer-recipient"
               className="input"
               type="text"
-              placeholder={userAddress ?? '0x...'}
+              placeholder={gasless.smartAccountAddress || userAddress || '0x...'}
               value={recipient}
               onChange={(e) => setRecipient(e.target.value)}
               disabled={isLoading}
@@ -348,7 +357,7 @@ export default function CrossChainTransfer() {
                 marginTop: '0.25rem',
               }}
             >
-              Leave blank to send to yourself on {selectedChain?.name}
+              Defaults to your gasless wallet (SimpleAccount) when available.
             </p>
           </div>
 

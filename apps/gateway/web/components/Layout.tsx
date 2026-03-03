@@ -18,9 +18,9 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAccount } from 'wagmi'
 import MultiTokenBalanceDisplay from './MultiTokenBalanceDisplay'
 import { ThemeToggle } from './ThemeProvider'
+import WalletManagementMenu from './WalletManagementMenu'
 
 interface NavItem {
   path: string
@@ -125,8 +125,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { authenticated, loading, walletAddress, logout } = useJejuAuth()
-  const { isConnected } = useAccount()
+  const { authenticated, loading, walletAddress } = useJejuAuth()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(
@@ -164,13 +163,7 @@ export default function Layout({ children }: LayoutProps) {
           <div className="header-actions">
             <ThemeToggle />
             {authenticated && walletAddress ? (
-              <button
-                type="button"
-                className="nav-link"
-                onClick={() => logout()}
-              >
-                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-              </button>
+              <WalletManagementMenu />
             ) : (
               <button
                 type="button"
