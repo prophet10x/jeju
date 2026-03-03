@@ -173,11 +173,6 @@ export function useGaslessSmartAccount() {
       setSmartAccountDerivationError(null)
 
       try {
-        const account = await buildSmartAccount({
-          publicClient,
-          walletClient,
-          address: predictedAddress,
-        })
         const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
 
         if (!factory) {
@@ -193,6 +188,12 @@ export function useGaslessSmartAccount() {
         if (!isConfiguredAddress(predictedAddress)) {
           throw new Error('Predicted smart account address is invalid')
         }
+
+        const account = await buildSmartAccount({
+          publicClient,
+          walletClient,
+          address: predictedAddress,
+        })
 
         const resolvedAddress = await account.getAddress()
         if (
