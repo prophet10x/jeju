@@ -300,7 +300,7 @@ export function useGaslessSmartAccount() {
         const preparedCalls = [...calls]
 
         if (
-          readiness.readyViaCredit &&
+          readiness.readyViaAllowance &&
           (smartAccountPaymasterAllowance ?? 0n) < bootstrapPaymasterAllowance
         ) {
           preparedCalls.unshift({
@@ -324,9 +324,9 @@ export function useGaslessSmartAccount() {
                 paymaster: CONTRACTS.multiTokenPaymaster,
                 serviceName,
                 paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: readiness.readyViaCredit
-                  ? undefined
-                  : requiredPaymentAmount,
+                overpayment: readiness.readyViaAllowance
+                  ? requiredPaymentAmount
+                  : undefined,
               })
 
               return toPaymasterV07Data(paymasterData)
@@ -336,9 +336,9 @@ export function useGaslessSmartAccount() {
                 paymaster: CONTRACTS.multiTokenPaymaster,
                 serviceName,
                 paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: readiness.readyViaCredit
-                  ? undefined
-                  : requiredPaymentAmount,
+                overpayment: readiness.readyViaAllowance
+                  ? requiredPaymentAmount
+                  : undefined,
               })
 
               return toPaymasterV07Data(paymasterData)

@@ -146,7 +146,7 @@ export default function RegisterAppForm() {
 
     if (useGasless && gaslessReadiness && !gaslessReadiness.isReady) {
       setError(
-        'Prepare your smart account first so it has JEJU balance and JEJU credit.',
+        'Prepare your smart account first so it has enough JEJU and either paymaster allowance or JEJU credit.',
       )
       return
     }
@@ -343,16 +343,16 @@ export default function RegisterAppForm() {
                 {gaslessReadiness.isReady ? (
                   <p style={{ margin: 0, color: 'var(--success)' }}>
                     Ready for JEJU gasless registration via{' '}
-                    {gaslessReadiness.readyViaCredit
-                      ? 'existing credit'
-                      : 'existing paymaster allowance'}
+                    {gaslessReadiness.preferredPath === 'allowance'
+                      ? 'direct paymaster pull'
+                      : 'existing credit'}
                     .
                   </p>
                 ) : (
                   <div style={{ color: 'var(--warning)' }}>
                     <p style={{ margin: 0 }}>
-                      Prepare this smart account with JEJU and JEJU credit
-                      before using the gasless path.
+                      Prepare this smart account with enough JEJU and either
+                      paymaster allowance or JEJU credit before using the gasless path.
                     </p>
                     <p style={{ margin: '0.5rem 0 0 0' }}>
                       Recommended JEJU on smart account:{' '}

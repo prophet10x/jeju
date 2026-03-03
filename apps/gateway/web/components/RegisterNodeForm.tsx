@@ -256,16 +256,17 @@ export default function RegisterNodeForm() {
                 {gaslessReadiness.isReady ? (
                   <p style={{ margin: 0, color: 'var(--success)' }}>
                     Ready for JEJU gasless node registration via{' '}
-                    {gaslessReadiness.readyViaCredit
-                      ? 'existing credit'
-                      : 'existing paymaster allowance'}
+                    {gaslessReadiness.preferredPath === 'allowance'
+                      ? 'direct paymaster pull'
+                      : 'existing credit'}
                     .
                   </p>
                 ) : (
                   <div style={{ color: 'var(--warning)' }}>
                     <p style={{ margin: 0 }}>
                       Prepare this smart account with enough JEJU for the node
-                      stake plus JEJU credit before using the gasless path.
+                      stake plus either paymaster allowance or JEJU credit
+                      before using the gasless path.
                     </p>
                     <p style={{ margin: '0.5rem 0 0 0' }}>
                       Recommended JEJU on smart account:{' '}

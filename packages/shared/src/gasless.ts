@@ -17,8 +17,9 @@ export type GaslessBootstrapPurpose =
 
 export interface GaslessReadiness {
   isReady: boolean
-  readyViaCredit: boolean
   readyViaAllowance: boolean
+  readyViaCredit: boolean
+  preferredPath: 'allowance' | 'credit' | 'not-ready'
   requiredJejuBalance: bigint
   requiredPaymentAmount: bigint
   recommendedJejuBalance: bigint
@@ -104,21 +105,26 @@ export function getGaslessReadiness(
   const requiredPaymentAmount =
     input.requiredPaymentAmount ?? DEFAULT_GASLESS_PAYMENT_AMOUNT
 
-  const readyViaCredit =
-    jejuBalance >= requiredJejuBalance &&
-    jejuCredit >= requiredPaymentAmount
-
   const readyViaAllowance =
     jejuBalance >= requiredJejuBalance + requiredPaymentAmount &&
     paymasterAllowance >= requiredPaymentAmount
+
+  const readyViaCredit =
+    jejuBalance >= requiredJejuBalance &&
+    jejuCredit >= requiredPaymentAmount
 
   const recommendedJejuBalance =
     requiredJejuBalance + requiredPaymentAmount
 
   return {
     isReady: readyViaCredit || readyViaAllowance,
-    readyViaCredit,
     readyViaAllowance,
+    readyViaCredit,
+    preferredPath: readyViaAllowance
+      ? 'allowance'
+      : readyViaCredit
+        ? 'credit'
+        : 'not-ready',
     requiredJejuBalance,
     requiredPaymentAmount,
     recommendedJejuBalance,
