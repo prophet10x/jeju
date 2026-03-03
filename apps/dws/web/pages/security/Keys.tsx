@@ -36,10 +36,37 @@ export default function KeysPage() {
     setFormData({ name: '', threshold: '2', totalParties: '3' })
   }
 
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
-    setCopied(id)
-    setTimeout(() => setCopied(null), 2000)
+  const handleCopy = async (text: string, id: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'absolute'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+
+      setCopied(id)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'absolute'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopied(id)
+      setTimeout(() => setCopied(null), 2000)
+    }
   }
 
   const keys = keysData?.keys ?? []
@@ -161,9 +188,12 @@ export default function KeysPage() {
                       style={{
                         fontFamily: 'var(--font-mono)',
                         fontSize: '0.85rem',
+                        maxWidth: '220px',
+                        wordBreak: 'break-all',
                       }}
+                      title={key.keyId}
                     >
-                      {key.keyId.slice(0, 12)}...
+                      {key.keyId}
                     </td>
                     <td>
                       {key.publicKey ? (
@@ -177,12 +207,13 @@ export default function KeysPage() {
                         <code
                           style={{
                             fontSize: '0.8rem',
-                            maxWidth: '120px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            maxWidth: '220px',
+                            wordBreak: 'break-all',
+                            whiteSpace: 'normal',
                           }}
+                          title={key.publicKey}
                         >
-                          {key.publicKey.slice(0, 20)}...
+                          {key.publicKey}
                         </code>
                         <button
                           type="button"
@@ -214,7 +245,7 @@ export default function KeysPage() {
                         }}
                       >
                         <code style={{ fontSize: '0.8rem' }}>
-                          {key.address.slice(0, 6)}...{key.address.slice(-4)}
+                          {key.address}
                         </code>
                         <button
                           type="button"
