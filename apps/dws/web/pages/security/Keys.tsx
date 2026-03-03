@@ -169,7 +169,19 @@ export default function KeysPage() {
           </div>
         ) : (
           <div className="table-container">
-            <table className="table">
+            <table
+              className="table"
+              style={{ tableLayout: 'fixed', width: '100%' }}
+            >
+              <colgroup>
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '29%' }} />
+                <col style={{ width: '29%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '4%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Key ID</th>
@@ -202,12 +214,14 @@ export default function KeysPage() {
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.5rem',
+                          width: '100%',
                         }}
                       >
                         <code
                           style={{
                             fontSize: '0.8rem',
-                            maxWidth: '220px',
+                            flex: 1,
+                            minWidth: 0,
                             wordBreak: 'break-all',
                             whiteSpace: 'normal',
                           }}
@@ -242,9 +256,18 @@ export default function KeysPage() {
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.5rem',
+                          width: '100%',
                         }}
                       >
-                        <code style={{ fontSize: '0.8rem' }}>
+                        <code
+                          style={{
+                            fontSize: '0.8rem',
+                            flex: 1,
+                            minWidth: 0,
+                            wordBreak: 'break-all',
+                            whiteSpace: 'normal',
+                          }}
+                        >
                           {key.address}
                         </code>
                         <button
