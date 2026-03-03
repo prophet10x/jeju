@@ -65,6 +65,7 @@ interface ExecuteGaslessCallsParams {
 async function buildSmartAccount(params: {
   publicClient: PublicClient
   walletClient: WalletClient
+  address?: Address
 }) {
   const entryPoint = getConfiguredAddress(
     CONTRACTS.entryPointV07 || CONTRACTS.entryPoint,
@@ -90,6 +91,7 @@ async function buildSmartAccount(params: {
       version: '0.7',
     },
     factoryAddress: factory,
+    address: params.address,
   })
 }
 
@@ -174,6 +176,7 @@ export function useGaslessSmartAccount() {
         const account = await buildSmartAccount({
           publicClient,
           walletClient,
+          address: predictedAddress,
         })
         const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
 
@@ -290,6 +293,7 @@ export function useGaslessSmartAccount() {
         const account = await buildSmartAccount({
           publicClient,
           walletClient,
+          address: smartAccountAddress,
         })
 
         const preparedCalls = [...calls]
