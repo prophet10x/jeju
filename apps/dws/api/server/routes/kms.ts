@@ -7,10 +7,19 @@
  */
 
 import { getSQLit, type SQLitClient } from '@jejunetwork/db'
-import { FROSTCoordinator } from '@jejunetwork/kms'
+import {
+  FROSTCoordinator,
+  generateKeyShares,
+  publicKeyToAddress,
+  type FROSTCluster,
+  type FROSTKeyShare,
+} from '@jejunetwork/kms'
 import { decryptAesGcm, encryptAesGcm, randomUUID } from '@jejunetwork/shared'
 import { expectValid } from '@jejunetwork/types'
 import { Elysia } from 'elysia'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { secp256k1 } from '@noble/curves/secp256k1'
 import type { Address, Hex } from 'viem'
 import { hashMessage, keccak256, toBytes, toHex } from 'viem'
 import { z } from 'zod'
@@ -43,9 +52,17 @@ const NETWORK = (process.env.NETWORK ??
   'localnet') as 'localnet' | 'testnet' | 'mainnet'
 
 const SQLIT_DATABASE_ID = process.env.SQLIT_DATABASE_ID ?? 'dws-core'
+const KMS_STATE_FILE = resolve(
+  process.cwd(),
+  process.env.KMS_STATE_FILE ?? 'data/kms-keys.v1.json.enc',
+)
+const CURVE_ORDER = secp256k1.CURVE.n
+const PERSISTENCE_ASSOCIATED_DATA = new TextEncoder().encode('jeju:dws:kms:v1')
 
 let sqlitClient: SQLitClient | null = null
 let tablesInitialized = false
+let keysLoaded = false
+let keysRestoredAt: number | null = null
 
 async function getSQLitClient(): Promise<SQLitClient> {
   if (!sqlitClient) {
@@ -126,6 +143,22 @@ interface SecretRow {
   metadata: string | null
 }
 
+interface PersistedKeyState {
+  keyId: string
+  owner: Address
+  threshold: number
+  totalParties: number
+  createdAt: number
+  version: number
+  metadata: Record<string, string>
+  secret: Hex
+}
+
+interface PersistedKmsState {
+  version: 1
+  keys: PersistedKeyState[]
+}
+
 const RevealByNameSchema = z.object({
   name: z.string().min(1),
 })
@@ -146,6 +179,272 @@ const signingSessions = new Map<
 >()
 
 const serviceKeyIndex = new Map<string, string>()
+
+function getPersistenceSecret(): string | null {
+  return process.env.KMS_STATE_KEY ?? process.env.DWS_VAULT_KEY ?? null
+}
+
+function isPersistenceEnabled(): boolean {
+  return Boolean(getPersistenceSecret())
+}
+
+function getPersistenceBackend(): 'encrypted-file' | 'disabled' {
+  return isPersistenceEnabled() ? 'encrypted-file' : 'disabled'
+}
+
+function derivePersistenceKey(): Uint8Array | null {
+  const secret = getPersistenceSecret()
+  if (!secret) return null
+  return new Uint8Array(Buffer.from(keccak256(toBytes(secret)).slice(2), 'hex'))
+}
+
+function mod(a: bigint, m: bigint): bigint {
+  return ((a % m) + m) % m
+}
+
+function modInverse(a: bigint, m: bigint): bigint {
+  let [oldR, r] = [a, m]
+  let [oldS, s] = [1n, 0n]
+
+  while (r !== 0n) {
+    const quotient = oldR / r
+    ;[oldR, r] = [r, oldR - quotient * r]
+    ;[oldS, s] = [s, oldS - quotient * s]
+  }
+
+  return mod(oldS, m)
+}
+
+function lagrangeCoefficientAtZero(
+  participantIndices: number[],
+  targetIndex: number,
+): bigint {
+  let numerator = 1n
+  let denominator = 1n
+
+  for (const j of participantIndices) {
+    if (j === targetIndex) continue
+    numerator = mod(numerator * -BigInt(j), CURVE_ORDER)
+    denominator = mod(
+      denominator * (BigInt(targetIndex) - BigInt(j)),
+      CURVE_ORDER,
+    )
+  }
+
+  return mod(numerator * modInverse(denominator, CURVE_ORDER), CURVE_ORDER)
+}
+
+function reconstructSecretFromShares(
+  shares: Array<{ index: number; secretShare: bigint }>,
+  threshold: number,
+): bigint {
+  const activeShares = shares.slice(0, threshold)
+  const participantIndices = activeShares.map((share) => share.index)
+
+  return activeShares.reduce((sum, share) => {
+    const lambda = lagrangeCoefficientAtZero(participantIndices, share.index)
+    return mod(sum + share.secretShare * lambda, CURVE_ORDER)
+  }, 0n)
+}
+
+function getCoordinatorShares(coordinator: FROSTCoordinator): FROSTKeyShare[] {
+  const shareMap = (coordinator as unknown as { keyShares: Map<number, FROSTKeyShare> }).keyShares
+  return Array.from(shareMap.values()).sort((a, b) => a.index - b.index)
+}
+
+function serializeKeyState(
+  key: StoredKey,
+  coordinator: FROSTCoordinator,
+): PersistedKeyState {
+  const shares = getCoordinatorShares(coordinator)
+  const secret = reconstructSecretFromShares(
+    shares.map((share) => ({
+      index: share.index,
+      secretShare: share.secretShare,
+    })),
+    key.threshold,
+  )
+
+  return {
+    keyId: key.keyId,
+    owner: key.owner,
+    threshold: key.threshold,
+    totalParties: key.totalParties,
+    createdAt: key.createdAt,
+    version: key.version,
+    metadata: key.metadata,
+    secret: `0x${secret.toString(16).padStart(64, '0')}` as Hex,
+  }
+}
+
+function restoreCoordinatorFromState(
+  state: PersistedKeyState,
+): { key: StoredKey; coordinator: FROSTCoordinator } {
+  const secret = BigInt(state.secret)
+  const shares = generateKeyShares(state.threshold, state.totalParties, secret)
+  const groupPublicKey = toHex(shares[0].groupPublicKey.toRawBytes(true))
+  const groupAddress = publicKeyToAddress(shares[0].groupPublicKey)
+  const cluster: FROSTCluster = {
+    clusterId: state.keyId,
+    threshold: state.threshold,
+    totalParties: state.totalParties,
+    parties: shares.map((share) => ({
+      index: share.index,
+      keyShare: share,
+      endpoint: `http://localhost:${4200 + share.index}`,
+      publicKey: toHex(share.publicShare.toRawBytes(true)),
+      active: true,
+    })),
+    groupPublicKey,
+    groupAddress,
+  }
+
+  const coordinator = new FROSTCoordinator(
+    state.keyId,
+    state.threshold,
+    state.totalParties,
+    {
+      network: NETWORK,
+      acknowledgeInsecureCentralized: NETWORK !== 'mainnet',
+    },
+  )
+
+  ;(
+    coordinator as unknown as {
+      cluster: FROSTCluster
+      keyShares: Map<number, FROSTKeyShare>
+    }
+  ).cluster = cluster
+  ;(
+    coordinator as unknown as {
+      cluster: FROSTCluster
+      keyShares: Map<number, FROSTKeyShare>
+    }
+  ).keyShares = new Map(shares.map((share) => [share.index, share]))
+
+  return {
+    key: {
+      keyId: state.keyId,
+      owner: state.owner,
+      publicKey: groupPublicKey,
+      address: groupAddress,
+      threshold: state.threshold,
+      totalParties: state.totalParties,
+      createdAt: state.createdAt,
+      version: state.version,
+      metadata: state.metadata,
+    },
+    coordinator,
+  }
+}
+
+async function readPersistedKeyStates(): Promise<PersistedKeyState[]> {
+  if (!isPersistenceEnabled()) {
+    return []
+  }
+
+  try {
+    const raw = await readFile(KMS_STATE_FILE, 'utf8')
+    const encrypted = JSON.parse(raw) as {
+      version: 1
+      ciphertext: string
+      iv: string
+      tag: string
+    }
+    const key = derivePersistenceKey()
+    if (!key) return []
+
+    const decryptedBytes = await decryptAesGcm(
+      Buffer.from(encrypted.ciphertext, 'base64'),
+      key,
+      Buffer.from(encrypted.iv, 'base64'),
+      Buffer.from(encrypted.tag, 'base64'),
+      PERSISTENCE_ASSOCIATED_DATA,
+    )
+    const parsed = JSON.parse(
+      new TextDecoder().decode(decryptedBytes),
+    ) as PersistedKmsState
+
+    return Array.isArray(parsed.keys) ? parsed.keys : []
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []
+    }
+    throw error
+  }
+}
+
+async function writePersistedKeyStates(
+  states: PersistedKeyState[],
+): Promise<void> {
+  if (!isPersistenceEnabled()) {
+    return
+  }
+
+  const key = derivePersistenceKey()
+  if (!key) {
+    return
+  }
+
+  await mkdir(dirname(KMS_STATE_FILE), { recursive: true })
+  const payload: PersistedKmsState = {
+    version: 1,
+    keys: states,
+  }
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload))
+  const encrypted = await encryptAesGcm(
+    plaintext,
+    key,
+    PERSISTENCE_ASSOCIATED_DATA,
+  )
+  const serialized = JSON.stringify(
+    {
+      version: 1,
+      ciphertext: Buffer.from(encrypted.ciphertext).toString('base64'),
+      iv: Buffer.from(encrypted.iv).toString('base64'),
+      tag: Buffer.from(encrypted.tag).toString('base64'),
+    },
+    null,
+    2,
+  )
+  const tmpPath = `${KMS_STATE_FILE}.tmp`
+  await writeFile(tmpPath, serialized, 'utf8')
+  await rename(tmpPath, KMS_STATE_FILE)
+}
+
+async function persistAllKeys(): Promise<void> {
+  if (!isPersistenceEnabled()) {
+    return
+  }
+
+  const states = Array.from(keys.values())
+    .map((key) => {
+      const coordinator = frostCoordinators.get(key.keyId)
+      if (!coordinator) return null
+      return serializeKeyState(key, coordinator)
+    })
+    .filter((state): state is PersistedKeyState => state !== null)
+
+  await writePersistedKeyStates(states)
+}
+
+async function ensurePersistedKeysLoaded(): Promise<void> {
+  if (keysLoaded) return
+  const states = await readPersistedKeyStates()
+
+  for (const state of states) {
+    const { key, coordinator } = restoreCoordinatorFromState(state)
+    keys.set(key.keyId, key)
+    frostCoordinators.set(key.keyId, coordinator)
+    const serviceId = key.metadata.serviceId
+    if (serviceId) {
+      serviceKeyIndex.set(serviceId, key.keyId)
+    }
+  }
+
+  keysLoaded = true
+  keysRestoredAt = Date.now()
+}
 
 export interface ServiceKeyInfo {
   keyId: string
@@ -197,6 +496,8 @@ export async function getOrCreateServiceKey(
   serviceId: string,
   metadata: Record<string, string> = {},
 ): Promise<ServiceKeyInfo> {
+  await ensurePersistedKeysLoaded()
+
   const existingKeyId = serviceKeyIndex.get(serviceId)
   if (existingKeyId) {
     const existingKey = keys.get(existingKeyId)
@@ -231,6 +532,7 @@ export async function getOrCreateServiceKey(
   frostCoordinators.set(key.keyId, coordinator)
   keys.set(key.keyId, key)
   serviceKeyIndex.set(serviceId, key.keyId)
+  await persistAllKeys()
 
   return {
     keyId: key.keyId,
@@ -243,6 +545,8 @@ export async function signMessageWithServiceKey(
   serviceId: string,
   message: string,
 ): Promise<{ keyId: string; address: Address; signature: Hex }> {
+  await ensurePersistedKeysLoaded()
+
   const key = await getOrCreateServiceKey(serviceId)
   const coordinator = frostCoordinators.get(key.keyId)
 
@@ -297,23 +601,31 @@ export function createKMSRouter() {
   return (
     new Elysia({ name: 'kms', prefix: '/kms' })
       .get('/health', () => {
-        const activeSessions = Array.from(signingSessions.values()).filter(
-          (s) => s.status === 'pending' || s.status === 'signing',
-        ).length
-        return {
-          healthy: true,
-          status: 'healthy',
-          service: 'dws-kms',
-          mode: 'frost',
-          network: NETWORK,
-          keys: keys.size,
-          secrets: secrets.size,
-          activeSessions,
-          config: {
-            threshold: MPC_CONFIG.defaultThreshold,
-            parties: MPC_CONFIG.defaultParties,
-          },
-        }
+        return (async () => {
+          await ensurePersistedKeysLoaded()
+          const activeSessions = Array.from(signingSessions.values()).filter(
+            (s) => s.status === 'pending' || s.status === 'signing',
+          ).length
+          return {
+            healthy: true,
+            status: 'healthy',
+            service: 'dws-kms',
+            mode: 'frost',
+            network: NETWORK,
+            keys: keys.size,
+            persistentKeys: keys.size,
+            secrets: secrets.size,
+            activeSessions,
+            persistenceEnabled: isPersistenceEnabled(),
+            persistenceBackend: getPersistenceBackend(),
+            persistenceFile: KMS_STATE_FILE,
+            keysRestoredAt,
+            config: {
+              threshold: MPC_CONFIG.defaultThreshold,
+              parties: MPC_CONFIG.defaultParties,
+            },
+          }
+        })()
       })
       .get('/vault/diagnostics', ({ request, set }) => {
         return (async () => {
@@ -357,6 +669,8 @@ export function createKMSRouter() {
       })
       // Generate new MPC key using FROST threshold signing
       .post('/keys', async ({ body, request, set }) => {
+        await ensurePersistedKeysLoaded()
+
         const owner = getOwnerFromRequest(request)
         if (!owner) {
           throw new Error('Missing x-jeju-address or x-service-id header')
@@ -442,6 +756,7 @@ export function createKMSRouter() {
         if (serviceId) {
           serviceKeyIndex.set(serviceId, keyId)
         }
+        await persistAllKeys()
 
         set.status = 201
         return {
@@ -456,27 +771,32 @@ export function createKMSRouter() {
       })
       // List keys
       .get('/keys', ({ request }) => {
-        const owner = request.headers.get('x-jeju-address')?.toLowerCase()
+        return (async () => {
+          await ensurePersistedKeysLoaded()
+          const owner = request.headers.get('x-jeju-address')?.toLowerCase()
 
-        let keyList = Array.from(keys.values())
-        if (owner) {
-          keyList = keyList.filter((k) => k.owner.toLowerCase() === owner)
-        }
+          let keyList = Array.from(keys.values())
+          if (owner) {
+            keyList = keyList.filter((k) => k.owner.toLowerCase() === owner)
+          }
 
-        return {
-          keys: keyList.map((k) => ({
-            keyId: k.keyId,
-            publicKey: k.publicKey,
-            address: k.address,
-            threshold: k.threshold,
-            totalParties: k.totalParties,
-            version: k.version,
-            createdAt: k.createdAt,
-          })),
-        }
+          return {
+            keys: keyList.map((k) => ({
+              keyId: k.keyId,
+              publicKey: k.publicKey,
+              address: k.address,
+              threshold: k.threshold,
+              totalParties: k.totalParties,
+              version: k.version,
+              createdAt: k.createdAt,
+            })),
+          }
+        })()
       })
       // Get key details
       .get('/keys/:keyId', ({ params }) => {
+        return (async () => {
+          await ensurePersistedKeysLoaded()
         const { keyId } = expectValid(
           kmsKeyParamsSchema,
           params,
@@ -497,9 +817,11 @@ export function createKMSRouter() {
           createdAt: key.createdAt,
           metadata: key.metadata,
         }
+        })()
       })
       // Rotate key
       .post('/keys/:keyId/rotate', async ({ params, body, request }) => {
+        await ensurePersistedKeysLoaded()
         const owner = getOwnerFromRequest(request)
         if (!owner) throw new Error('Missing x-jeju-address header')
 
@@ -523,9 +845,29 @@ export function createKMSRouter() {
           'Update key request',
         )
 
-        key.threshold = validBody.newThreshold ?? key.threshold
-        key.totalParties = validBody.newTotalParties ?? key.totalParties
+        const nextThreshold = validBody.newThreshold ?? key.threshold
+        const nextTotalParties = validBody.newTotalParties ?? key.totalParties
+        const coordinator = frostCoordinators.get(key.keyId)
+        if (!coordinator) {
+          throw new Error('FROST coordinator not found for this key')
+        }
+
+        const persisted = serializeKeyState(key, coordinator)
+        const { coordinator: replacementCoordinator, key: replacementKey } =
+          restoreCoordinatorFromState({
+            ...persisted,
+            threshold: nextThreshold,
+            totalParties: nextTotalParties,
+            version: key.version + 1,
+          })
+
+        key.threshold = replacementKey.threshold
+        key.totalParties = replacementKey.totalParties
         key.version++
+        key.publicKey = replacementKey.publicKey
+        key.address = replacementKey.address
+        frostCoordinators.set(key.keyId, replacementCoordinator)
+        await persistAllKeys()
 
         return {
           keyId: key.keyId,
@@ -536,29 +878,38 @@ export function createKMSRouter() {
       })
       // Delete key
       .delete('/keys/:keyId', ({ params, request }) => {
-        const owner = getOwnerFromRequest(request)
-        if (!owner) throw new Error('Missing x-jeju-address header')
+        return (async () => {
+          await ensurePersistedKeysLoaded()
+          const owner = getOwnerFromRequest(request)
+          if (!owner) throw new Error('Missing x-jeju-address header')
 
-        const { keyId } = expectValid(
-          kmsKeyParamsSchema,
-          params,
-          'KMS key params',
-        )
-        const key = keys.get(keyId)
+          const { keyId } = expectValid(
+            kmsKeyParamsSchema,
+            params,
+            'KMS key params',
+          )
+          const key = keys.get(keyId)
 
-        if (!key) {
-          throw new Error('Key not found')
-        }
-        if (key.owner.toLowerCase() !== owner.toLowerCase()) {
-          throw new Error('Not authorized')
-        }
+          if (!key) {
+            throw new Error('Key not found')
+          }
+          if (key.owner.toLowerCase() !== owner.toLowerCase()) {
+            throw new Error('Not authorized')
+          }
 
-        keys.delete(key.keyId)
-        frostCoordinators.delete(key.keyId) // Clean up FROST coordinator
-        return { success: true }
+          keys.delete(key.keyId)
+          frostCoordinators.delete(key.keyId)
+          const serviceId = key.metadata.serviceId
+          if (serviceId) {
+            serviceKeyIndex.delete(serviceId)
+          }
+          await persistAllKeys()
+          return { success: true }
+        })()
       })
       // Request signature using FROST threshold signing
       .post('/sign', async ({ body, request }) => {
+        await ensurePersistedKeysLoaded()
         const owner = getOwnerFromRequest(request)
         if (!owner) throw new Error('Missing x-jeju-address header')
 

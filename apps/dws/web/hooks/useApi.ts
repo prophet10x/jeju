@@ -14,6 +14,7 @@ import type {
   DWSHealth,
   HelmDeployment,
   K3sCluster,
+  KMSHealth,
   KMSKey,
   MeshService,
   Package,
@@ -716,6 +717,14 @@ export function useKMSKeys() {
     queryKey: ['kms-keys', address],
     queryFn: () => fetchApi<{ keys: KMSKey[] }>('/kms/keys', { address }),
     enabled: !!address,
+  })
+}
+
+export function useKMSHealth() {
+  return useQuery({
+    queryKey: ['kms-health'],
+    queryFn: () => fetchApi<KMSHealth>('/kms/health'),
+    refetchInterval: 10000,
   })
 }
 

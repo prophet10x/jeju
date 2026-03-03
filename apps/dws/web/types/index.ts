@@ -176,6 +176,26 @@ export interface KMSKey {
   createdAt: number
 }
 
+export interface KMSHealth {
+  healthy: boolean
+  status: string
+  service: string
+  mode: string
+  network: string
+  keys: number
+  persistentKeys: number
+  secrets: number
+  activeSessions: number
+  persistenceEnabled: boolean
+  persistenceBackend: string
+  persistenceFile?: string
+  keysRestoredAt?: number | null
+  config: {
+    threshold: number
+    parties: number
+  }
+}
+
 export interface Secret {
   id: string
   name: string

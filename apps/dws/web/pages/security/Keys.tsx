@@ -10,11 +10,12 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAccount } from 'wagmi'
-import { useCreateKey, useKMSKeys } from '../../hooks'
+import { useCreateKey, useKMSHealth, useKMSKeys } from '../../hooks'
 
 export default function KeysPage() {
   const { isConnected } = useAccount()
   const { data: keysData, isLoading, refetch } = useKMSKeys()
+  const { data: kmsHealth } = useKMSHealth()
   const createKey = useCreateKey()
 
   const [showModal, setShowModal] = useState(false)
@@ -135,6 +136,22 @@ export default function KeysPage() {
             </div>
           </div>
         </div>
+        <div className="stat-card">
+          <div className="stat-icon auth">
+            <Shield size={24} />
+          </div>
+          <div className="stat-content">
+            <div className="stat-label">Persistence</div>
+            <div className="stat-value" style={{ fontSize: '1rem' }}>
+              {kmsHealth?.persistenceEnabled ? 'Encrypted File' : 'Ephemeral'}
+            </div>
+            {kmsHealth?.keysRestoredAt ? (
+              <div className="stat-subtitle">
+                Restored {new Date(kmsHealth.keysRestoredAt).toLocaleTimeString()}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       <div className="card">
@@ -143,6 +160,49 @@ export default function KeysPage() {
             <Key size={18} /> Keys
           </h3>
         </div>
+
+        {kmsHealth ? (
+          <div
+            style={{
+              margin: '0 1.5rem 1rem',
+              padding: '0.875rem 1rem',
+              borderRadius: '0.75rem',
+              border: '1px solid var(--border-color)',
+              background: kmsHealth.persistenceEnabled
+                ? 'rgba(14, 165, 233, 0.08)'
+                : 'rgba(245, 158, 11, 0.08)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '1rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600 }}>
+                {kmsHealth.persistenceEnabled
+                  ? 'Restart-safe KMS is enabled'
+                  : 'KMS keys are still ephemeral'}
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                {kmsHealth.persistenceEnabled
+                  ? `${kmsHealth.persistentKeys} persisted key${kmsHealth.persistentKeys === 1 ? '' : 's'} stored via ${kmsHealth.persistenceBackend}.`
+                  : 'Configure KMS_STATE_KEY or DWS_VAULT_KEY to preserve keys across DWS restarts.'}
+              </div>
+            </div>
+            {kmsHealth.persistenceFile ? (
+              <code
+                style={{
+                  fontSize: '0.8rem',
+                  wordBreak: 'break-all',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {kmsHealth.persistenceFile}
+              </code>
+            ) : null}
+          </div>
+        ) : null}
 
         {isLoading ? (
           <div
@@ -209,41 +269,41 @@ export default function KeysPage() {
                     </td>
                     <td>
                       {key.publicKey ? (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          width: '100%',
-                        }}
-                      >
-                        <code
+                        <div
                           style={{
-                            fontSize: '0.8rem',
-                            flex: 1,
-                            minWidth: 0,
-                            wordBreak: 'break-all',
-                            whiteSpace: 'normal',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            width: '100%',
                           }}
-                          title={key.publicKey}
                         >
-                          {key.publicKey}
-                        </code>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon"
-                          style={{ padding: '0.25rem' }}
-                          onClick={() =>
-                            handleCopy(key.publicKey, `pk-${key.keyId}`)
-                          }
-                        >
-                          {copied === `pk-${key.keyId}` ? (
-                            <Check size={14} />
-                          ) : (
-                            <Copy size={14} />
-                          )}
-                        </button>
-                      </div>
+                          <code
+                            style={{
+                              fontSize: '0.8rem',
+                              flex: 1,
+                              minWidth: 0,
+                              wordBreak: 'break-all',
+                              whiteSpace: 'normal',
+                            }}
+                            title={key.publicKey}
+                          >
+                            {key.publicKey}
+                          </code>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon"
+                            style={{ padding: '0.25rem' }}
+                            onClick={() =>
+                              handleCopy(key.publicKey, `pk-${key.keyId}`)
+                            }
+                          >
+                            {copied === `pk-${key.keyId}` ? (
+                              <Check size={14} />
+                            ) : (
+                              <Copy size={14} />
+                            )}
+                          </button>
+                        </div>
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>
                           Unavailable
