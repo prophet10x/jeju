@@ -17,6 +17,7 @@ import { type ComponentType, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAccount } from 'wagmi'
 import { createPublicClient, http, parseAbi } from 'viem'
+import { predictSimpleAccountAddress } from '@jejunetwork/shared/gasless'
 import { z } from 'zod'
 import type {
   FaucetClaimResult,
@@ -91,13 +92,36 @@ async function checkRegistrationOnChain(address: string): Promise<boolean> {
   if (!registryAddr || registryAddr === '0x0000000000000000000000000000000000000000') return false
   try {
     const client = createPublicClient({ transport: http(RPC_URL) })
-    const balance = await client.readContract({
+    const ownerBalance = await client.readContract({
       address: registryAddr,
       abi: identityAbi,
       functionName: 'balanceOf',
       args: [address as `0x${string}`],
     })
-    return balance > 0n
+
+    if (ownerBalance > 0n) return true
+
+    if (
+      CONTRACTS.simpleAccountFactory &&
+      CONTRACTS.simpleAccountFactory !== '0x0000000000000000000000000000000000000000'
+    ) {
+      const smartAccountAddress = await predictSimpleAccountAddress({
+        publicClient: client,
+        factoryAddress: CONTRACTS.simpleAccountFactory as `0x${string}`,
+        ownerAddress: address as `0x${string}`,
+      })
+
+      const smartAccountBalance = await client.readContract({
+        address: registryAddr,
+        abi: identityAbi,
+        functionName: 'balanceOf',
+        args: [smartAccountAddress],
+      })
+
+      if (smartAccountBalance > 0n) return true
+    }
+
+    return false
   } catch {
     return false
   }

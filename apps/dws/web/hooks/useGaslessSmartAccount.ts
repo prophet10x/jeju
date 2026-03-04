@@ -1,13 +1,18 @@
 import {
+  getMultiTokenPaymasterData,
+  toPaymasterV07Data,
+} from '@jejunetwork/contracts/aa'
+import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   getConfiguredAddress,
+  getGaslessEntryPointVersion,
   getGaslessReadiness,
   isConfiguredAddress,
   predictSimpleAccountAddress,
   type GaslessReadiness,
-} from '@jejunetwork/shared'
+} from '@jejunetwork/shared/gasless'
+import { toJejuSimpleSmartAccount } from '@jejunetwork/shared/gasless-smart-account'
 import { useCallback, useEffect, useState } from 'react'
-import { toSimpleSmartAccount } from 'permissionless/accounts'
 import { createSmartAccountClient } from 'permissionless/clients'
 import type {
   Account,
@@ -27,7 +32,14 @@ import {
 } from 'wagmi'
 import { BUNDLER_URL, CONTRACTS, TOKENS } from '../config'
 
-const DEFAULT_PAYMASTER_ALLOWANCE = parseEther('10')
+const PAYMENT_TOKEN_JEJU = 0 as const
+const DEFAULT_GASLESS_OVERPAYMENT = DEFAULT_GASLESS_PAYMENT_AMOUNT
+const DEFAULT_PAYMASTER_ALLOWANCE = parseEther('1')
+const FIRST_DEPLOY_CALL_GAS_LIMIT = 2_500_000n
+const FIRST_DEPLOY_VERIFICATION_GAS_LIMIT = 2_000_000n
+const FIRST_DEPLOY_PRE_VERIFICATION_GAS = 300_000n
+const FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT = 500_000n
+const FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT = 120_000n
 
 const CREDIT_MANAGER_ABI = [
   {
@@ -59,31 +71,34 @@ interface ExecuteGaslessCallsParams {
 async function buildSmartAccount(params: {
   publicClient: PublicClient
   walletClient: WalletClient
+  address?: Address
 }) {
   const entryPoint = getConfiguredAddress(
     CONTRACTS.entryPointV07 || CONTRACTS.entryPoint,
   )
   const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
+  const entryPointVersion = getGaslessEntryPointVersion(entryPoint)
   const walletClient = params.walletClient as WalletClient<
     Transport,
     undefined,
     Account
   >
 
-  if (!entryPoint) throw new Error('EntryPoint v0.7 is not configured')
+  if (!entryPoint) throw new Error('EntryPoint is not configured')
   if (!factory) throw new Error('SimpleAccountFactory is not configured')
   if (!walletClient.account) {
     throw new Error('Connected wallet has no active account')
   }
 
-  return toSimpleSmartAccount({
+  return toJejuSimpleSmartAccount({
     client: params.publicClient,
     owner: walletClient,
     entryPoint: {
       address: entryPoint,
-      version: '0.7',
+      version: entryPointVersion,
     },
     factoryAddress: factory,
+    address: params.address,
   })
 }
 
@@ -147,7 +162,7 @@ export function useGaslessSmartAccount() {
     },
   })
 
-  const { data: lastTransactionReceipt } = useWaitForTransactionReceipt({
+  const { data: lastTxReceipt } = useWaitForTransactionReceipt({
     hash: lastTx,
   })
 
@@ -165,10 +180,6 @@ export function useGaslessSmartAccount() {
       setSmartAccountDerivationError(null)
 
       try {
-        const account = await buildSmartAccount({
-          publicClient,
-          walletClient,
-        })
         const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
 
         if (!factory) {
@@ -184,6 +195,12 @@ export function useGaslessSmartAccount() {
         if (!isConfiguredAddress(predictedAddress)) {
           throw new Error('Predicted smart account address is invalid')
         }
+
+        const account = await buildSmartAccount({
+          publicClient,
+          walletClient,
+          address: predictedAddress,
+        })
 
         const resolvedAddress = await account.getAddress()
         if (
@@ -232,7 +249,7 @@ export function useGaslessSmartAccount() {
   const getReadiness = useCallback(
     (
       requiredJejuBalance = 0n,
-      requiredPaymentAmount = DEFAULT_GASLESS_PAYMENT_AMOUNT,
+      requiredPaymentAmount = DEFAULT_GASLESS_OVERPAYMENT,
     ): GaslessReadiness => {
       return getGaslessReadiness({
         jejuBalance: smartAccountJejuBalance as bigint | undefined,
@@ -240,6 +257,7 @@ export function useGaslessSmartAccount() {
         paymasterAllowance: smartAccountPaymasterAllowance as bigint | undefined,
         requiredJejuBalance,
         requiredPaymentAmount,
+        targetPaymasterAllowance: DEFAULT_PAYMASTER_ALLOWANCE,
       })
     },
     [
@@ -254,100 +272,156 @@ export function useGaslessSmartAccount() {
       serviceName,
       calls,
       requiredJejuBalance = 0n,
-      requiredPaymentAmount = DEFAULT_GASLESS_PAYMENT_AMOUNT,
+      requiredPaymentAmount = DEFAULT_GASLESS_OVERPAYMENT,
       bootstrapPaymasterAllowance = DEFAULT_PAYMASTER_ALLOWANCE,
-    }: ExecuteGaslessCallsParams) => {
-      if (!walletClient || !publicClient || !ownerAddress) {
-        throw new Error('Connect your wallet to use the gasless flow')
+    }: ExecuteGaslessCallsParams): Promise<Hex> => {
+      if (!walletClient || !publicClient) {
+        throw new Error('Connect a wallet first')
+      }
+      if (!smartAccountAddress) {
+        throw new Error('Smart account is not available yet')
+      }
+      if (!isConfiguredAddress(CONTRACTS.multiTokenPaymaster)) {
+        throw new Error('MultiTokenPaymaster is not configured')
       }
 
-      const account = await buildSmartAccount({ publicClient, walletClient })
-      const readiness = getReadiness(requiredJejuBalance, requiredPaymentAmount)
-      const batchedCalls = [...calls]
-
-      if (
-        readiness.needsPaymasterAllowance &&
-        isConfiguredAddress(CONTRACTS.multiTokenPaymaster)
-      ) {
-        batchedCalls.unshift({
-          to: TOKENS.jeju,
-          data: encodeFunctionData({
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [CONTRACTS.multiTokenPaymaster, bootstrapPaymasterAllowance],
-          }),
-        })
-      }
-
-      const client = createSmartAccountClient({
-        account,
-        chain: publicClient.chain,
-        bundlerTransport: http(BUNDLER_URL),
-        paymaster: {
-          async getPaymasterData(userOperation) {
-            const { getMultiTokenPaymasterData } = await import(
-              '@jejunetwork/contracts'
-            )
-
-            if (!isConfiguredAddress(CONTRACTS.multiTokenPaymaster)) {
-              throw new Error('MultiTokenPaymaster is not configured')
-            }
-
-            return getMultiTokenPaymasterData(
-              publicClient,
-              {
-                address: CONTRACTS.multiTokenPaymaster,
-                paymentToken: TOKENS.jeju,
-                mode: 'credit',
-                paymentAmount: requiredPaymentAmount,
-                serviceName,
-              },
-              userOperation,
-            )
-          },
-        },
+      const readiness = getGaslessReadiness({
+        jejuBalance: smartAccountJejuBalance as bigint | undefined,
+        jejuCredit: smartAccountJejuCredit as bigint | undefined,
+        paymasterAllowance: smartAccountPaymasterAllowance as bigint | undefined,
+        requiredJejuBalance,
+        requiredPaymentAmount,
+        targetPaymasterAllowance: bootstrapPaymasterAllowance,
       })
+      if (!readiness.isReady) {
+        throw new Error(
+          'Smart account is not ready for JEJU gasless transactions yet',
+        )
+      }
 
       setIsExecuting(true)
       setExecutionError(null)
 
       try {
-        const txHash = await client.sendUserOperation({
-          calls: batchedCalls.map((call) => ({
-            to: call.to,
-            data: call.data,
-            value: call.value ?? 0n,
-          })),
+        const account = await buildSmartAccount({
+          publicClient,
+          walletClient,
+          address: smartAccountAddress,
         })
+        const isDeployed = await account.isDeployed()
+        const gasPrice = await publicClient.getGasPrice()
+
+        const preparedCalls = [...calls]
+
+        if (
+          readiness.needsPaymasterAllowance &&
+          isConfiguredAddress(CONTRACTS.multiTokenPaymaster)
+        ) {
+          preparedCalls.unshift({
+            to: TOKENS.jeju,
+            data: encodeFunctionData({
+              abi: erc20Abi,
+              functionName: 'approve',
+              args: [CONTRACTS.multiTokenPaymaster, bootstrapPaymasterAllowance],
+            }),
+          })
+        }
+
+        const smartAccountClient = createSmartAccountClient({
+          account,
+          chain: publicClient.chain,
+          client: publicClient,
+          bundlerTransport: http(BUNDLER_URL),
+          paymaster: {
+            getPaymasterStubData: async () => {
+              const paymasterData = getMultiTokenPaymasterData({
+                paymaster: CONTRACTS.multiTokenPaymaster,
+                serviceName,
+                paymentToken: PAYMENT_TOKEN_JEJU,
+                overpayment: readiness.readyViaAllowance
+                  ? requiredPaymentAmount
+                  : undefined,
+              })
+
+              return toPaymasterV07Data(paymasterData)
+            },
+            getPaymasterData: async () => {
+              const paymasterData = getMultiTokenPaymasterData({
+                paymaster: CONTRACTS.multiTokenPaymaster,
+                serviceName,
+                paymentToken: PAYMENT_TOKEN_JEJU,
+                overpayment: readiness.readyViaAllowance
+                  ? requiredPaymentAmount
+                  : undefined,
+              })
+
+              return toPaymasterV07Data(paymasterData)
+            },
+          },
+        })
+
+        const txHash = await smartAccountClient.sendTransaction(
+          isDeployed
+            ? {
+                calls: preparedCalls,
+                maxFeePerGas: gasPrice,
+                maxPriorityFeePerGas: gasPrice,
+              }
+            : {
+                calls: preparedCalls,
+                callGasLimit: FIRST_DEPLOY_CALL_GAS_LIMIT,
+                verificationGasLimit: FIRST_DEPLOY_VERIFICATION_GAS_LIMIT,
+                preVerificationGas: FIRST_DEPLOY_PRE_VERIFICATION_GAS,
+                paymasterVerificationGasLimit:
+                  FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT,
+                paymasterPostOpGasLimit:
+                  FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT,
+                maxFeePerGas: gasPrice,
+                maxPriorityFeePerGas: gasPrice,
+              },
+        )
+
         setLastTx(txHash)
+        await refreshState()
         return txHash
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : 'Gasless execution failed'
+          error instanceof Error ? error.message : 'Gasless transaction failed'
         setExecutionError(message)
-        throw error
+        throw new Error(message)
       } finally {
         setIsExecuting(false)
       }
     },
-    [getReadiness, ownerAddress, publicClient, walletClient],
+    [
+      publicClient,
+      refreshState,
+      smartAccountAddress,
+      smartAccountJejuBalance,
+      smartAccountJejuCredit,
+      smartAccountPaymasterAllowance,
+      walletClient,
+    ],
   )
 
   return {
     ownerAddress,
     smartAccountAddress,
-    isLoadingSmartAccount,
     smartAccountDerivationError,
+    isLoadingSmartAccount,
     smartAccountJejuBalance: smartAccountJejuBalance as bigint | undefined,
     smartAccountJejuCredit: smartAccountJejuCredit as bigint | undefined,
     smartAccountPaymasterAllowance:
       smartAccountPaymasterAllowance as bigint | undefined,
-    getReadiness,
-    executeGaslessCalls,
-    refreshState,
+    defaultGaslessOverpayment: DEFAULT_GASLESS_OVERPAYMENT,
+    defaultPaymasterAllowance: DEFAULT_PAYMASTER_ALLOWANCE,
     isExecuting,
     executionError,
     lastTx,
-    lastTransactionReceipt,
+    lastTransactionHash: lastTx,
+    lastTransactionReceipt: lastTxReceipt,
+    getReadiness,
+    executeGaslessCalls,
+    refreshState,
   }
 }

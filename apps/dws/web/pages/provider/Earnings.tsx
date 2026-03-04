@@ -1,4 +1,4 @@
-import { WalletButton } from '@jejunetwork/ui'
+import { WalletButton } from '@jejunetwork/ui/wallet'
 import {
   ArrowDownRight,
   ArrowUpRight,

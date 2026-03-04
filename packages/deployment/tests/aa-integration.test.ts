@@ -17,6 +17,7 @@ import {
   encodePacked,
   type Hex,
   http,
+  parseAbi,
   type PublicClient,
   parseEther,
 } from 'viem'
@@ -35,6 +36,24 @@ let ctx: TestContext
 let publicClient: PublicClient
 let sponsoredPaymasterAddress: Address | undefined
 let simpleAccountFactoryAddress: Address | undefined
+let entryPointAddress: Address | undefined
+let bundlerUrl: string | undefined
+
+const LIVE_ENTRYPOINT_ABI = parseAbi([
+  'function senderCreator() view returns (address)',
+  'function getSenderAddress(bytes) returns (address)',
+])
+const LIVE_FACTORY_ABI = parseAbi([
+  'function senderCreator() view returns (address)',
+  'function accountImplementation() view returns (address)',
+  'function getAddress(address owner, uint256 salt) view returns (address)',
+])
+const LIVE_SIMPLE_ACCOUNT_ABI = parseAbi([
+  'function entryPoint() view returns (address)',
+])
+const LIVE_PAYMASTER_ABI = parseAbi([
+  'function entryPoint() view returns (address)',
+])
 const ENTRYPOINT_ABI = [
   {
     name: 'balanceOf',
@@ -67,6 +86,8 @@ describe('Account Abstraction Integration Tests', () => {
     simpleAccountFactoryAddress = process.env.SIMPLE_ACCOUNT_FACTORY_ADDRESS as
       | Address
       | undefined
+    entryPointAddress = process.env.ENTRYPOINT_ADDRESS as Address | undefined
+    bundlerUrl = process.env.BUNDLER_URL
   })
 
   afterAll(async () => {
@@ -327,6 +348,124 @@ describe('Account Abstraction Integration Tests', () => {
       console.log(`   ✅ Packed UserOperation structure valid`)
     })
   })
+
+  describe('8. Live AA Stack Coherence', () => {
+    const ownerAddress =
+      (process.env.TEST_OWNER_ADDRESS as Address | undefined) ??
+      TEST_ACCOUNTS.user1.address
+
+    it('should expose the configured AA contracts through env for live verification', () => {
+      expect(entryPointAddress).toBeDefined()
+      expect(simpleAccountFactoryAddress).toBeDefined()
+      expect(sponsoredPaymasterAddress).toBeDefined()
+    })
+
+    it('should keep entryPoint and factory senderCreator aligned', async () => {
+      if (
+        !entryPointAddress ||
+        !simpleAccountFactoryAddress ||
+        !sponsoredPaymasterAddress
+      ) {
+        console.log('   ~ Live AA env not configured, skipping coherence checks')
+        return
+      }
+
+      const [entryPointSenderCreator, factorySenderCreator, accountImplementation] =
+        await Promise.all([
+          publicClient.readContract({
+            address: entryPointAddress,
+            abi: LIVE_ENTRYPOINT_ABI,
+            functionName: 'senderCreator',
+          }),
+          publicClient.readContract({
+            address: simpleAccountFactoryAddress,
+            abi: LIVE_FACTORY_ABI,
+            functionName: 'senderCreator',
+          }),
+          publicClient.readContract({
+            address: simpleAccountFactoryAddress,
+            abi: LIVE_FACTORY_ABI,
+            functionName: 'accountImplementation',
+          }),
+        ])
+
+      expect(entryPointSenderCreator.toLowerCase()).toBe(
+        factorySenderCreator.toLowerCase(),
+      )
+
+      const implementationEntryPoint = await publicClient.readContract({
+        address: accountImplementation,
+        abi: LIVE_SIMPLE_ACCOUNT_ABI,
+        functionName: 'entryPoint',
+      })
+
+      expect(implementationEntryPoint.toLowerCase()).toBe(
+        entryPointAddress.toLowerCase(),
+      )
+    })
+
+    it('should keep paymaster bound to the same entryPoint', async () => {
+      if (!entryPointAddress || !sponsoredPaymasterAddress) {
+        console.log('   ~ Live AA env not configured, skipping paymaster check')
+        return
+      }
+
+      const paymasterEntryPoint = await publicClient.readContract({
+        address: sponsoredPaymasterAddress,
+        abi: LIVE_PAYMASTER_ABI,
+        functionName: 'entryPoint',
+      })
+
+      expect(paymasterEntryPoint.toLowerCase()).toBe(
+        entryPointAddress.toLowerCase(),
+      )
+    })
+
+    it('should derive the predicted smart account through the live factory', async () => {
+      if (!simpleAccountFactoryAddress) {
+        console.log('   ~ Live AA env not configured, skipping getAddress check')
+        return
+      }
+
+      const predicted = await publicClient.readContract({
+        address: simpleAccountFactoryAddress,
+        abi: LIVE_FACTORY_ABI,
+        functionName: 'getAddress',
+        args: [ownerAddress, 0n],
+      })
+
+      expect(predicted).toMatch(/^0x[a-fA-F0-9]{40}$/)
+      console.log(`   ✅ Live predicted smart account: ${predicted}`)
+    })
+
+    it('should report the configured entryPoint through the live bundler', async () => {
+      if (!bundlerUrl || !entryPointAddress) {
+        console.log('   ~ Bundler URL not configured, skipping bundler check')
+        return
+      }
+
+      const response = await fetch(bundlerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_supportedEntryPoints',
+          params: [],
+        }),
+      })
+
+      expect(response.ok).toBe(true)
+      const payload = await response.json()
+      expect(Array.isArray(payload.result)).toBe(true)
+      expect(
+        payload.result.some(
+          (value: string) =>
+            value.toLowerCase() === entryPointAddress?.toLowerCase(),
+        ),
+      ).toBe(true)
+    })
+  })
 })
 
 describe('Integration Summary', () => {
@@ -342,6 +481,8 @@ describe('Integration Summary', () => {
     console.log(
       `SimpleAccountFactory: ${simpleAccountFactoryAddress ?? 'Not deployed'}`,
     )
+    console.log(`EntryPoint: ${entryPointAddress ?? ENTRYPOINT_V07_ADDRESS}`)
+    console.log(`Bundler: ${bundlerUrl ?? 'Not configured'}`)
     console.log(`${'='.repeat(50)}\n`)
   })
 })

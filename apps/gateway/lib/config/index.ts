@@ -146,11 +146,20 @@ export const CONTRACTS = {
   serviceRegistry: optionalAddr(contracts.payments?.serviceRegistry),
   creditManager: optionalAddr(contracts.payments?.creditManager),
   feeConfig: optionalAddr(contracts.payments?.feeConfig),
+  entryPointDeployed: optionalAddr(
+    contracts.accountAbstraction?.entryPointDeployed ||
+      contracts.accountAbstraction?.entryPointV07 ||
+      getConstant('entryPointV07'),
+  ),
   entryPoint: optionalAddr(
-    contracts.accountAbstraction?.entryPointV07 || getConstant('entryPointV07'),
+    contracts.accountAbstraction?.entryPointDeployed ||
+      contracts.accountAbstraction?.entryPointV07 ||
+      getConstant('entryPointV07'),
   ),
   entryPointV07: optionalAddr(
-    contracts.accountAbstraction?.entryPointV07 || getConstant('entryPointV07'),
+    contracts.accountAbstraction?.entryPointDeployed ||
+      contracts.accountAbstraction?.entryPointV07 ||
+      getConstant('entryPointV07'),
   ),
   simpleAccountFactory: optionalAddr(
     contracts.accountAbstraction?.simpleAccountFactory,

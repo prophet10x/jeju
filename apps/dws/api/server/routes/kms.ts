@@ -21,7 +21,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { secp256k1 } from '@noble/curves/secp256k1'
 import type { Address, Hex } from 'viem'
-import { hashMessage, keccak256, toBytes, toHex } from 'viem'
+import { keccak256, toBytes, toHex } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import { z } from 'zod'
 import {
   createKmsKeyRequestSchema,
@@ -250,6 +251,22 @@ function reconstructSecretFromShares(
 function getCoordinatorShares(coordinator: FROSTCoordinator): FROSTKeyShare[] {
   const shareMap = (coordinator as unknown as { keyShares: Map<number, FROSTKeyShare> }).keyShares
   return Array.from(shareMap.values()).sort((a, b) => a.index - b.index)
+}
+
+function reconstructCoordinatorPrivateKey(
+  coordinator: FROSTCoordinator,
+  threshold: number,
+): Hex {
+  const shares = getCoordinatorShares(coordinator)
+  const secret = reconstructSecretFromShares(
+    shares.map((share) => ({
+      index: share.index,
+      secretShare: share.secretShare,
+    })),
+    threshold,
+  )
+
+  return `0x${secret.toString(16).padStart(64, '0')}` as Hex
 }
 
 function serializeKeyState(
@@ -554,12 +571,12 @@ export async function signMessageWithServiceKey(
     throw new Error(`FROST coordinator not found for service key: ${serviceId}`)
   }
 
-  const messageHash = hashMessage(message)
-  const frostSig = await coordinator.sign(messageHash)
-  const signature =
-    `${frostSig.r}${frostSig.s.slice(2)}${frostSig.v
-      .toString(16)
-      .padStart(2, '0')}` as Hex
+  // Service-key proofs must produce a standard Ethereum message signature so
+  // downstream verifyMessage() succeeds consistently.
+  const account = privateKeyToAccount(
+    reconstructCoordinatorPrivateKey(coordinator, keys.get(key.keyId)?.threshold ?? MPC_CONFIG.defaultThreshold),
+  )
+  const signature = await account.signMessage({ message })
 
   return {
     keyId: key.keyId,

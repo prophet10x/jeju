@@ -31,6 +31,15 @@ const browserShimPlugin: BunPlugin = {
     build.onResolve({ filter: /^@jejunetwork\/ui$/ }, () => ({
       path: resolve('../../packages/ui/src/index.ts'),
     }))
+    build.onResolve({ filter: /^@jejunetwork\/ui\/wallet$/ }, () => ({
+      path: resolve('../../packages/ui/src/wallet/index.ts'),
+    }))
+    build.onResolve(
+      { filter: /^@jejunetwork\/ui\/hooks\/useNodeStaking$/ },
+      () => ({
+        path: resolve('../../packages/ui/src/hooks/useNodeStaking.ts'),
+      }),
+    )
     build.onResolve({ filter: /^@jejunetwork\/config$/ }, () => ({
       path: resolve('../../packages/config/index.ts'),
     }))

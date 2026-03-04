@@ -82,6 +82,10 @@ const CONTRACT_CATEGORIES: Record<string, string> = {
   NodePerformanceOracle: 'nodeStaking.performanceOracle',
   AutoSlasher: 'nodeStaking.autoSlasher',
 
+  // Account Abstraction
+  EntryPoint: 'accountAbstraction.entryPointDeployed',
+  SimpleAccountFactory: 'accountAbstraction.simpleAccountFactory',
+
   // JNS
   JNSRegistry: 'jns.registry',
   JNSResolver: 'jns.resolver',
@@ -225,6 +229,20 @@ function setNestedValue(
   }
 
   current[parts[parts.length - 1]] = value
+}
+
+function setContractValue(
+  obj: Record<string, unknown>,
+  network: string,
+  contractName: string,
+  categoryPath: string,
+  value: string,
+): void {
+  setNestedValue(obj, `${network}.${categoryPath}`, value)
+
+  if (contractName === 'EntryPoint') {
+    setNestedValue(obj, `${network}.accountAbstraction.entryPointV07`, value)
+  }
 }
 
 function parseFoundryBroadcast(filePath: string): Map<string, Address> {
@@ -381,9 +399,11 @@ Examples:
     if (categoryPath) {
       const fullPath = `${network}.${categoryPath}`
       log(`Setting ${fullPath} = ${address}`, 'info')
-      setNestedValue(
+      setContractValue(
         config as unknown as Record<string, unknown>,
-        fullPath,
+        network,
+        contractName,
+        categoryPath,
         address,
       )
       updated++
@@ -431,6 +451,9 @@ Examples:
       const categoryPath = CONTRACT_CATEGORIES[contractName]
       if (categoryPath) {
         setNestedValue(existingDeployment, categoryPath, address)
+        if (contractName === 'EntryPoint') {
+          setNestedValue(existingDeployment, 'accountAbstraction.entryPointV07', address)
+        }
       }
     }
 

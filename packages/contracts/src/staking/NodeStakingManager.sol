@@ -112,6 +112,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
 
     mapping(bytes32 => PendingSlash) public pendingSlashes;
     uint256 private _slashCounter;
+    address public slashAuthority;
 
     event EmergencyWithdrawalProposed(address indexed token, uint256 amount, uint256 executeAfter);
     event EmergencyWithdrawalExecuted(address indexed token, uint256 amount);
@@ -119,6 +120,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     event SlashProposed(bytes32 indexed slashId, bytes32 indexed nodeId, uint256 slashPercentageBPS, string reason);
     event SlashDisputed(bytes32 indexed slashId, bytes32 indexed nodeId);
     event SlashExecuted(bytes32 indexed slashId, bytes32 indexed nodeId, uint256 slashAmount);
+    event SlashAuthorityUpdated(address indexed oldAuthority, address indexed newAuthority);
 
     constructor(
         address _tokenRegistry,
@@ -137,6 +139,13 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         priceOracle = IPriceOracle(_priceOracle);
         performanceOracles.push(_performanceOracle);
         isPerformanceOracle[_performanceOracle] = true;
+    }
+
+    error NotSlashAuthority();
+
+    modifier onlySlashManager() {
+        if (msg.sender != owner() && msg.sender != slashAuthority) revert NotSlashAuthority();
+        _;
     }
 
     function registerNode(
@@ -607,6 +616,12 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         tokenDiversityBonusEnabled = enabled;
     }
 
+    function setSlashAuthority(address newSlashAuthority) external onlyOwner {
+        address oldAuthority = slashAuthority;
+        slashAuthority = newSlashAuthority;
+        emit SlashAuthorityUpdated(oldAuthority, newSlashAuthority);
+    }
+
     event IdentityRegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
     event AgentRegistrationRequirementUpdated(bool required);
 
@@ -636,7 +651,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     /// @dev SECURITY: Operators can dispute slashes during the dispute period
     function proposeSlash(bytes32 nodeId, uint256 slashPercentageBPS, string calldata reason)
         public
-        onlyOwner
+        onlySlashManager
         returns (bytes32 slashId)
     {
         NodeStake storage node = nodes[nodeId];
@@ -672,7 +687,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     }
 
     /// @notice Execute a slash after dispute period - cannot execute if disputed
-    function executeSlash(bytes32 slashId) external onlyOwner {
+    function executeSlash(bytes32 slashId) external onlySlashManager {
         PendingSlash storage slash = pendingSlashes[slashId];
         if (slash.proposedAt == 0) revert SlashNotFound();
         if (slash.executed) revert SlashNotFound();
@@ -695,7 +710,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     }
 
     /// @notice Legacy slashNode kept for backwards compatibility - now requires dispute period
-    function slashNode(bytes32 nodeId, uint256 slashPercentageBPS, string calldata reason) external onlyOwner {
+    function slashNode(bytes32 nodeId, uint256 slashPercentageBPS, string calldata reason) external onlySlashManager {
         proposeSlash(nodeId, slashPercentageBPS, reason);
     }
 

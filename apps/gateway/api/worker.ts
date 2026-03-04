@@ -34,6 +34,11 @@ import {
   getFaucetStatus,
 } from './services/faucet-service'
 import { bootstrapGaslessSmartAccount } from './services/gasless-bootstrap'
+import {
+  createNodeRegistrationChallenge,
+  getNodeRegistrationProof,
+  verifyNodeRegistrationChallenge,
+} from './services/node-registration'
 import x402App from './x402/server'
 
 /**
@@ -139,6 +144,67 @@ export function createGatewayApp(env?: Partial<GatewayEnv>) {
             ? error.message
             : 'Failed to bootstrap gasless smart account',
       }
+    }
+  })
+
+  app.post('/api/node-registration/challenge', async ({ body, set }) => {
+    try {
+      return await createNodeRegistrationChallenge(body)
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to prepare node proof challenge'
+      if (message.includes('not owned')) set.status = 403
+      else if (message.includes('not configured')) set.status = 503
+      else set.status = 400
+      return { error: message }
+    }
+  })
+
+  app.post('/api/node-registration/verify', async ({ body, set }) => {
+    try {
+      return await verifyNodeRegistrationChallenge(body)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to verify node proof'
+      if (message.includes('not found') || message.includes('expired')) set.status = 404
+      else if (
+        message.includes('changed before verification') ||
+        message.includes('not authorized on-chain') ||
+        message.includes('does not expose delegated wallet methods')
+      ) {
+        set.status = 409
+      } else if (message.includes('Failed to fetch proof document')) {
+        set.status = 502
+      } else {
+        set.status = 400
+      }
+      return { error: message }
+    }
+  })
+
+  app.get('/.well-known/jeju-node-proof.json', async ({ query, request, set }) => {
+    const parsed = z
+      .object({
+        challengeId: z.string().uuid(),
+      })
+      .safeParse(query)
+
+    if (!parsed.success) {
+      set.status = 400
+      return { error: 'challengeId query parameter is required' }
+    }
+
+    try {
+      set.headers['cache-control'] = 'no-store'
+      return await getNodeRegistrationProof(request.url, parsed.data.challengeId)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch proof'
+      if (message.includes('not found') || message.includes('expired')) set.status = 404
+      else set.status = 400
+      return { error: message }
     }
   })
 

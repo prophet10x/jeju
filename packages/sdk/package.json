@@ -24,7 +24,7 @@
     "@jejunetwork/types": "workspace:*",
     "@noble/curves": "^1.8.0",
     "@noble/hashes": "^1.7.1",
-    "permissionless": "0.2.34",
+    "permissionless": "0.3.4",
     "viem": "2.43.3"
   },
   "devDependencies": {

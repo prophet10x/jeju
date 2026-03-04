@@ -68,6 +68,7 @@ import {
 } from './schemas'
 import servicesJsonRaw from './services.json' with { type: 'json' }
 import vendorAppsJsonRaw from './vendor-apps.json' with { type: 'json' }
+import type { Address } from 'viem'
 
 export * from './dev-proxy'
 // Network utilities - some use fs and are Node.js-only (loadDeployedContracts, getNetworkInfo).
@@ -181,8 +182,19 @@ function detectNetworkFromHostname(): NetworkType | null {
     return 'testnet'
   }
 
-  // Jeju testnet deployment on fartbag.fun
-  if (hostname === 'jeju-testnet.fartbag.fun') {
+  // Jeju testnet deployments on fartbag.fun
+  if (
+    hostname === 'jeju-testnet.fartbag.fun' ||
+    hostname === 'jeju-dws.fartbag.fun'
+  ) {
+    return 'testnet'
+  }
+
+  // DWS public testnet hostnames
+  if (
+    hostname === 'dws.testnet.jejunetwork.org' ||
+    hostname.endsWith('.dws.testnet.jejunetwork.org')
+  ) {
     return 'testnet'
   }
 
@@ -1054,11 +1066,21 @@ export function getFrontendContracts(network?: NetworkType) {
       'simpleAccountFactory',
       net,
     ),
+    entryPoint: (
+      tryGetContract('accountAbstraction', 'entryPointDeployed', net) ||
+      tryGetContract('accountAbstraction', 'entryPointV07', net) ||
+      getConstant('entryPointV07')
+    ) as Address,
     entryPointDeployed: tryGetContract(
       'accountAbstraction',
       'entryPointDeployed',
       net,
     ),
+    entryPointV07: (
+      tryGetContract('accountAbstraction', 'entryPointDeployed', net) ||
+      tryGetContract('accountAbstraction', 'entryPointV07', net) ||
+      getConstant('entryPointV07')
+    ) as Address,
 
     // DeFi
     poolManager: getContract('defi', 'poolManager', net),
@@ -1075,10 +1097,6 @@ export function getFrontendContracts(network?: NetworkType) {
 
     // EIL
     crossChainPaymaster: getContract('eil', 'crossChainPaymaster', net),
-
-    // Constants
-    entryPoint: getConstant('entryPoint'),
-    entryPointV07: getConstant('entryPointV07'),
   }
 }
 

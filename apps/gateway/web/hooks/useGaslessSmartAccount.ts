@@ -5,13 +5,14 @@ import {
 import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   getConfiguredAddress,
+  getGaslessEntryPointVersion,
   getGaslessReadiness,
   isConfiguredAddress,
   predictSimpleAccountAddress,
   type GaslessReadiness,
 } from '@jejunetwork/shared/gasless'
+import { toJejuSimpleSmartAccount } from '@jejunetwork/shared/gasless-smart-account'
 import { useCallback, useEffect, useState } from 'react'
-import { toSimpleSmartAccount } from 'permissionless/accounts'
 import { createSmartAccountClient } from 'permissionless/clients'
 import type {
   Account,
@@ -33,7 +34,12 @@ import { BUNDLER_URL, CONTRACTS } from '../../lib/config'
 
 const PAYMENT_TOKEN_JEJU = 0 as const
 const DEFAULT_GASLESS_OVERPAYMENT = DEFAULT_GASLESS_PAYMENT_AMOUNT
-const DEFAULT_PAYMASTER_ALLOWANCE = parseEther('10')
+const DEFAULT_PAYMASTER_ALLOWANCE = parseEther('1')
+const FIRST_DEPLOY_CALL_GAS_LIMIT = 2_500_000n
+const FIRST_DEPLOY_VERIFICATION_GAS_LIMIT = 2_000_000n
+const FIRST_DEPLOY_PRE_VERIFICATION_GAS = 300_000n
+const FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT = 500_000n
+const FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT = 120_000n
 
 const CREDIT_MANAGER_ABI = [
   {
@@ -71,24 +77,25 @@ async function buildSmartAccount(params: {
     CONTRACTS.entryPointV07 || CONTRACTS.entryPoint,
   )
   const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
+  const entryPointVersion = getGaslessEntryPointVersion(entryPoint)
   const walletClient = params.walletClient as WalletClient<
     Transport,
     undefined,
     Account
   >
 
-  if (!entryPoint) throw new Error('EntryPoint v0.7 is not configured')
+  if (!entryPoint) throw new Error('EntryPoint is not configured')
   if (!factory) throw new Error('SimpleAccountFactory is not configured')
   if (!walletClient.account) {
     throw new Error('Connected wallet has no active account')
   }
 
-  return toSimpleSmartAccount({
+  return toJejuSimpleSmartAccount({
     client: params.publicClient,
     owner: walletClient,
     entryPoint: {
       address: entryPoint,
-      version: '0.7',
+      version: entryPointVersion,
     },
     factoryAddress: factory,
     address: params.address,
@@ -250,6 +257,7 @@ export function useGaslessSmartAccount() {
         paymasterAllowance: smartAccountPaymasterAllowance as bigint | undefined,
         requiredJejuBalance,
         requiredPaymentAmount,
+        targetPaymasterAllowance: DEFAULT_PAYMASTER_ALLOWANCE,
       })
     },
     [
@@ -277,10 +285,14 @@ export function useGaslessSmartAccount() {
         throw new Error('MultiTokenPaymaster is not configured')
       }
 
-      const readiness = getReadiness(
+      const readiness = getGaslessReadiness({
+        jejuBalance: smartAccountJejuBalance as bigint | undefined,
+        jejuCredit: smartAccountJejuCredit as bigint | undefined,
+        paymasterAllowance: smartAccountPaymasterAllowance as bigint | undefined,
         requiredJejuBalance,
         requiredPaymentAmount,
-      )
+        targetPaymasterAllowance: bootstrapPaymasterAllowance,
+      })
       if (!readiness.isReady) {
         throw new Error(
           'Smart account is not ready for JEJU gasless transactions yet',
@@ -296,12 +308,14 @@ export function useGaslessSmartAccount() {
           walletClient,
           address: smartAccountAddress,
         })
+        const isDeployed = await account.isDeployed()
+        const gasPrice = await publicClient.getGasPrice()
 
         const preparedCalls = [...calls]
 
         if (
-          readiness.readyViaAllowance &&
-          (smartAccountPaymasterAllowance ?? 0n) < bootstrapPaymasterAllowance
+          readiness.needsPaymasterAllowance &&
+          isConfiguredAddress(CONTRACTS.multiTokenPaymaster)
         ) {
           preparedCalls.unshift({
             to: CONTRACTS.jeju,
@@ -346,9 +360,26 @@ export function useGaslessSmartAccount() {
           },
         })
 
-        const txHash = await smartAccountClient.sendTransaction({
-          calls: preparedCalls,
-        })
+        const txHash = await smartAccountClient.sendTransaction(
+          isDeployed
+            ? {
+                calls: preparedCalls,
+                maxFeePerGas: gasPrice,
+                maxPriorityFeePerGas: gasPrice,
+              }
+            : {
+                calls: preparedCalls,
+                callGasLimit: FIRST_DEPLOY_CALL_GAS_LIMIT,
+                verificationGasLimit: FIRST_DEPLOY_VERIFICATION_GAS_LIMIT,
+                preVerificationGas: FIRST_DEPLOY_PRE_VERIFICATION_GAS,
+                paymasterVerificationGasLimit:
+                  FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT,
+                paymasterPostOpGasLimit:
+                  FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT,
+                maxFeePerGas: gasPrice,
+                maxPriorityFeePerGas: gasPrice,
+              },
+        )
 
         setLastTx(txHash)
         await refreshState()

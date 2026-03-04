@@ -9,6 +9,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./gasless": "./src/gasless.ts",
+    "./gasless-smart-account": "./src/gasless-smart-account.ts",
+    "./token-utils": "./src/token-utils.ts",
     "./dev-server": "./src/dev-server/index.ts",
     "./protocols/middleware": "./src/protocols/middleware.ts",
     "./moderation": "./src/moderation/index.ts",
@@ -38,6 +40,7 @@
     "nanoid": "^5.1.5",
     "nsfwjs": "^4.2.1",
     "obscenity": "^0.4.5",
+    "permissionless": "0.3.4",
     "pino": "^10.1.0",
     "pretty-bytes": "^6.1.1",
     "pretty-ms": "^9.2.0",

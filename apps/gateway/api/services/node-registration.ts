@@ -1,0 +1,120 @@
+import {
+  createNodeProofService,
+  ChallengeRequestSchema,
+  VerifyRequestSchema,
+  type NodeProofSigner,
+} from '@jejunetwork/shared'
+import { getKMSSigner } from '@jejunetwork/kms'
+import type { Address } from 'viem'
+
+const NODE_PROOF_SERVICE_ID =
+  process.env.GATEWAY_NODE_PROOF_SERVICE_ID ??
+  `gateway-node-proof:${process.env.HOSTNAME ?? 'default'}`
+
+const signer = getKMSSigner(NODE_PROOF_SERVICE_ID)
+const remoteChallengeOrigins = new Map<string, string>()
+
+const proofSigner: NodeProofSigner = {
+  async getNodeWalletAddress() {
+    await signer.initialize()
+    return signer.getAddress() as Address
+  },
+  async signNodeMessage(message) {
+    await signer.initialize()
+    const signed = await signer.signMessage(message)
+    return {
+      address: signer.getAddress() as Address,
+      signature: signed.signature,
+    }
+  },
+}
+
+const service = createNodeProofService(proofSigner)
+
+function normalizeOrigin(endpoint: string) {
+  return new URL(endpoint).origin.replace(/\/$/, '')
+}
+
+async function proxyJson<T>(
+  url: string,
+  init: RequestInit,
+  fallbackError: string,
+): Promise<T> {
+  const response = await fetch(url, init).catch((error) => {
+    throw new Error(
+      error instanceof Error ? error.message : fallbackError,
+    )
+  })
+
+  const text = await response.text()
+  const payload = text ? (JSON.parse(text) as T | { error?: string }) : {}
+
+  if (!response.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+        ? payload.error
+        : fallbackError
+    throw new Error(message)
+  }
+
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'error' in payload &&
+    typeof payload.error === 'string'
+  ) {
+    throw new Error(payload.error)
+  }
+
+  return payload as T
+}
+
+export async function createNodeRegistrationChallenge(body: unknown) {
+  const validBody = ChallengeRequestSchema.parse(body)
+  const endpointOrigin = normalizeOrigin(validBody.endpoint)
+
+  const challenge = await proxyJson<
+    Awaited<ReturnType<typeof service.createChallenge>>
+  >(
+    `${endpointOrigin}/node-registration/challenge`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(validBody),
+    },
+    'Failed to prepare node proof challenge',
+  )
+
+  remoteChallengeOrigins.set(challenge.challengeId, endpointOrigin)
+  return challenge
+}
+
+export async function verifyNodeRegistrationChallenge(body: unknown) {
+  const validBody = VerifyRequestSchema.parse(body)
+  const endpointOrigin = remoteChallengeOrigins.get(validBody.challengeId)
+
+  if (!endpointOrigin) {
+    return service.verifyChallenge(validBody)
+  }
+
+  return proxyJson<Awaited<ReturnType<typeof service.verifyChallenge>>>(
+    `${endpointOrigin}/node-registration/verify`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(validBody),
+    },
+    'Failed to verify node proof',
+  )
+}
+
+export const getNodeRegistrationProof = service.getProof

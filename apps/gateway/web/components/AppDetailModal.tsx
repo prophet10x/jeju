@@ -21,6 +21,32 @@ const Trash2Icon = Trash2 as ComponentType<LucideProps>
 const EditIcon = Edit as ComponentType<LucideProps>
 const GithubIcon = Github as ComponentType<LucideProps>
 
+const CATEGORY_LABELS: Record<string, string> = {
+  developer: 'Developer',
+  agent: 'AI Agent',
+  app: 'Application',
+  game: 'Game',
+  marketplace: 'Marketplace',
+  defi: 'DeFi',
+  social: 'Social',
+  'info-provider': 'Information Provider',
+  service: 'Service',
+  mcp: 'MCP',
+}
+
+function formatCategoryLabel(value?: string): string {
+  if (!value) return ''
+
+  return (
+    CATEGORY_LABELS[value.toLowerCase()] ??
+    value
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' ')
+  )
+}
+
 interface AppDetailModalProps {
   agentId: bigint
   onClose: () => void
@@ -34,6 +60,15 @@ export default function AppDetailModal({
   const { app, isLoading } = useRegistryAppDetails(agentId)
   const { withdrawStake } = useRegistry()
   const [isWithdrawing, setIsWithdrawing] = useState(false)
+  const categoryTags = app
+    ? [
+        ...new Set(
+          [app.category, ...(app.tags ?? [])].filter(
+            (value): value is string => Boolean(value),
+          ),
+        ),
+      ]
+    : []
 
   const isOwner =
     app && address && app.owner.toLowerCase() === address.toLowerCase()
@@ -164,11 +199,15 @@ export default function AppDetailModal({
                 Categories
               </h3>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {app.tags.map((tag: string) => (
-                  <span key={tag} className="pill">
-                    {tag}
-                  </span>
-                ))}
+                {categoryTags.length > 0 ? (
+                  categoryTags.map((tag) => (
+                    <span key={tag} className="pill">
+                      {formatCategoryLabel(tag)}
+                    </span>
+                  ))
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>None</span>
+                )}
               </div>
             </div>
 

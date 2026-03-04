@@ -249,6 +249,7 @@ export {
   DEFAULT_GASLESS_BOOTSTRAP_EXTRA_JEJU,
   DEFAULT_GASLESS_BOOTSTRAP_MAX_STAKE_JEJU,
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  getGaslessEntryPointVersion,
   GaslessBootstrapRequestSchema,
   GASLESS_BOOTSTRAP_PURPOSES,
   getConfiguredAddress,
@@ -259,9 +260,15 @@ export {
   type GaslessBootstrapPurpose,
   type GaslessBootstrapRequest,
   type GaslessBootstrapResponse,
+  type GaslessEntryPointVersion,
   type GaslessReadiness,
   type GaslessReadinessInput,
 } from './gasless'
+export {
+  toJejuSimpleSmartAccount,
+  type JejuSimpleSmartAccount,
+  type JejuSimpleSmartAccountImplementation,
+} from './gasless-smart-account'
 // Errors
 export {
   AuthenticationError,
@@ -854,3 +861,40 @@ export {
   type X402PaymentOption,
   type X402PaymentRequirement,
 } from './x402'
+export {
+  getNodeServiceMinimumStakeUsd,
+  NODE_SERVICE_DEFINITIONS,
+  type NodeIdentityMetadata,
+  type NodeRegistrationDraft,
+  type NodeRegistrationResult,
+  type NodeServiceDefinition,
+  type NodeServiceId,
+  type NodeServiceScoreMap,
+  type OperatorIdentityOption,
+} from './node-services'
+export {
+  buildNodeIdentityMetadataEntries,
+  buildNodeIdentityPresentation,
+  buildNodeIdentityTokenUri,
+  fetchAgentWallet,
+  fetchOwnedAgentIdentities,
+  getNodeRegisteredIdFromReceipt,
+  getRegisteredAgentIdFromReceipt,
+  IDENTITY_REGISTRY_ABI,
+  REGISTERED_EVENT_ABI,
+  NODE_REGISTERED_EVENT_ABI,
+  waitForAgentWallet,
+  type IdentityRegistryMetadataEntry,
+  type OwnedAgentIdentity,
+  type OwnedIdentityLookupResult,
+  type NodeIdentityPresentation,
+} from './identity-registry'
+export {
+  ChallengeRequestSchema,
+  createNodeProofService,
+  NODE_PROOF_PATH,
+  VerifyRequestSchema,
+  type NodeProofChallenge,
+  type NodeProofSigner,
+  type NodeProofVerification,
+} from './node-proof'

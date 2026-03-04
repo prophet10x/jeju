@@ -87,23 +87,27 @@ const TYPE_FILTERS = [
 
 const CATEGORY_FILTERS = [
   { value: 'all', label: 'All Categories' },
-  { value: 'ai', label: 'AI & ML' },
+  { value: 'developer', label: 'Developer' },
+  { value: 'agent', label: 'AI Agent' },
+  { value: 'app', label: 'Application' },
+  { value: 'game', label: 'Game' },
+  { value: 'marketplace', label: 'Marketplace' },
   { value: 'defi', label: 'DeFi' },
-  { value: 'gaming', label: 'Gaming' },
   { value: 'social', label: 'Social' },
-  { value: 'productivity', label: 'Productivity' },
-  { value: 'utilities', label: 'Utilities' },
-  { value: 'finance', label: 'Finance' },
-  { value: 'creative', label: 'Creative' },
+  { value: 'info-provider', label: 'Information Provider' },
+  { value: 'service', label: 'Service' },
 ]
 
 const TAG_FILTERS = [
   { value: 'all', label: 'All', emoji: '✨' },
+  { value: 'developer', label: 'Developer', emoji: '👨‍💻' },
+  { value: 'agent', label: 'AI Agent', emoji: '🤖' },
   { value: 'app', label: 'Apps', emoji: '📱' },
   { value: 'game', label: 'Games', emoji: '🎮' },
   { value: 'marketplace', label: 'Markets', emoji: '🏪' },
   { value: 'defi', label: 'DeFi', emoji: '💰' },
   { value: 'social', label: 'Social', emoji: '💬' },
+  { value: 'info-provider', label: 'Info', emoji: '📊' },
   { value: 'service', label: 'Services', emoji: '⚙️' },
 ]
 
@@ -113,6 +117,41 @@ const STAKE_TIERS = [
   { label: 'Silver', className: 'text-info' },
   { label: 'Gold', className: 'text-accent' },
 ] as const
+
+function getPrimaryCategory(app: RegisteredApp): string | undefined {
+  if (app.category) return app.category
+
+  return app.tags.find((tag) => {
+    const normalized = tag.toLowerCase()
+    return normalized !== (app.serviceType ?? '').toLowerCase()
+  })
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  developer: 'Developer',
+  agent: 'AI Agent',
+  app: 'Application',
+  game: 'Game',
+  marketplace: 'Marketplace',
+  defi: 'DeFi',
+  social: 'Social',
+  'info-provider': 'Information Provider',
+  service: 'Service',
+  mcp: 'MCP',
+}
+
+function formatCategoryLabel(value?: string): string {
+  if (!value) return ''
+
+  return (
+    CATEGORY_LABELS[value.toLowerCase()] ??
+    value
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' ')
+  )
+}
 
 function getStakeTier(tier: number) {
   if (tier < 0 || tier >= STAKE_TIERS.length) {
@@ -134,6 +173,9 @@ const registryAbi = parseAbi([
   'function ownerOf(uint256 tokenId) view returns (address)',
   'function tokenURI(uint256 tokenId) view returns (string)',
   'function getMetadata(uint256 agentId, string key) view returns (bytes)',
+  'function getAgentTags(uint256 agentId) view returns (string[])',
+  'function getServiceType(uint256 agentId) view returns (string)',
+  'function getCategory(uint256 agentId) view returns (string)',
   'function balanceOf(address owner) view returns (uint256)',
   'function agents(uint256) view returns (uint256 agentId, address owner, uint8 tier, address stakedToken, uint256 stakedAmount, uint256 registeredAt, uint256 lastActivityAt, bool isBanned, bool isSlashed)',
 ])
@@ -183,20 +225,48 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
         }).catch(() => null),
       ])
 
+      const [a2aBytes, tagsResult, serviceTypeResult, categoryResult] =
+        await Promise.all([
+          client
+            .readContract({
+              address: registryAddr,
+              abi: registryAbi,
+              functionName: 'getMetadata',
+              args: [BigInt(id), 'a2aEndpoint'],
+            })
+            .catch(() => '0x'),
+          client
+            .readContract({
+              address: registryAddr,
+              abi: registryAbi,
+              functionName: 'getAgentTags',
+              args: [BigInt(id)],
+            })
+            .catch(() => [] as string[]),
+          client
+            .readContract({
+              address: registryAddr,
+              abi: registryAbi,
+              functionName: 'getServiceType',
+              args: [BigInt(id)],
+            })
+            .catch(() => ''),
+          client
+            .readContract({
+              address: registryAddr,
+              abi: registryAbi,
+              functionName: 'getCategory',
+              args: [BigInt(id)],
+            })
+            .catch(() => ''),
+        ])
+
       let a2aEndpoint: string | undefined
-      try {
-        const a2aBytes = await client.readContract({
-          address: registryAddr,
-          abi: registryAbi,
-          functionName: 'getMetadata',
-          args: [BigInt(id), 'a2aEndpoint'],
-        })
-        if (a2aBytes && a2aBytes !== '0x') {
-          a2aEndpoint = new TextDecoder().decode(
-            Uint8Array.from(a2aBytes.slice(2).match(/.{2}/g)!.map(b => parseInt(b, 16)))
-          )
-        }
-      } catch { /* no a2a metadata */ }
+      if (a2aBytes && a2aBytes !== '0x') {
+        a2aEndpoint = new TextDecoder().decode(
+          Uint8Array.from(a2aBytes.slice(2).match(/.{2}/g)!.map((b) => parseInt(b, 16))),
+        )
+      }
 
       let parsed: { name?: string; description?: string; registeredAt?: string } = {}
       try { parsed = JSON.parse(tokenURI) } catch { /* not JSON */ }
@@ -213,7 +283,7 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
         name: parsed.name ?? `Agent #${id}`,
         description: parsed.description,
         owner: owner as string,
-        tags: [],
+        tags: [...tagsResult],
         stakeToken: resolveTokenName(stakedToken),
         stakeAmount: stakeAmountStr,
         stakeTier: tier,
@@ -222,7 +292,13 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
           : (parsed.registeredAt ?? new Date().toISOString()),
         active: true,
         a2aEndpoint,
-        serviceType: a2aEndpoint ? 'agent' : 'app',
+        serviceType:
+          serviceTypeResult === 'agent' || serviceTypeResult === 'mcp' || serviceTypeResult === 'app'
+            ? serviceTypeResult
+            : a2aEndpoint
+              ? 'agent'
+              : 'app',
+        category: categoryResult || undefined,
       })
     } catch {
       // ownerOf reverts for non-existent tokens, stop scanning
@@ -240,10 +316,22 @@ async function fetchAgentsFromIndexer(
   const contractAgents = await fetchAgentsFromContract()
 
   // Apply client-side filters
-  const { search, serviceType, activeOnly } = filters
+  const { search, serviceType, category, tag, activeOnly } = filters
   return contractAgents.filter(agent => {
     if (search && !agent.name.toLowerCase().includes(search.toLowerCase())) return false
     if (serviceType && serviceType !== 'all' && agent.serviceType !== serviceType) return false
+    if (category && category !== 'all') {
+      const normalizedCategory = category.toLowerCase()
+      const primaryCategory = getPrimaryCategory(agent)?.toLowerCase()
+      const tagMatch = agent.tags.some((candidate) => candidate.toLowerCase() === normalizedCategory)
+      if (primaryCategory !== normalizedCategory && !tagMatch) return false
+    }
+    if (tag && tag !== 'all') {
+      const normalizedTag = tag.toLowerCase()
+      if (!agent.tags.some((candidate) => candidate.toLowerCase() === normalizedTag)) {
+        return false
+      }
+    }
     if (activeOnly && !agent.active) return false
     return true
   })
@@ -485,6 +573,11 @@ export default function RegisteredAppsList({
           {apps.map((app) => {
             const ServiceIcon = getServiceIcon(app.serviceType ?? 'agent')
             const tier = getStakeTier(app.stakeTier ?? 0)
+            const primaryCategory = getPrimaryCategory(app)
+            const visibleTags = [
+              ...(primaryCategory ? [primaryCategory] : []),
+              ...app.tags.filter((tag) => tag !== primaryCategory),
+            ]
 
             return (
               <button
@@ -576,8 +669,24 @@ export default function RegisteredAppsList({
                           textTransform: 'uppercase',
                         }}
                       >
-                        {app.serviceType ?? 'agent'}
+                        {formatCategoryLabel(
+                          primaryCategory ?? app.serviceType ?? 'agent',
+                        )}
                       </span>
+                      {primaryCategory && app.serviceType && primaryCategory !== app.serviceType && (
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '0.625rem',
+                            padding: '0.125rem 0.5rem',
+                            background: 'var(--surface-hover)',
+                            color: 'var(--text-secondary)',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {formatCategoryLabel(app.serviceType)}
+                        </span>
+                      )}
                       <code style={{ fontSize: '0.75rem' }}>
                         #{app.agentId}
                       </code>
@@ -602,7 +711,7 @@ export default function RegisteredAppsList({
                   </p>
                 )}
 
-                {app.tags.length > 0 && (
+                {visibleTags.length > 0 && (
                   <div
                     style={{
                       display: 'flex',
@@ -611,7 +720,7 @@ export default function RegisteredAppsList({
                       marginBottom: '1rem',
                     }}
                   >
-                    {app.tags.slice(0, 3).map((tag) => (
+                    {visibleTags.slice(0, 3).map((tag) => (
                       <span
                         key={`${app.agentId}-${tag}`}
                         className="pill"
@@ -620,10 +729,10 @@ export default function RegisteredAppsList({
                           padding: '0.1875rem 0.5rem',
                         }}
                       >
-                        {tag}
+                        {formatCategoryLabel(tag)}
                       </span>
                     ))}
-                    {app.tags.length > 3 && (
+                    {visibleTags.length > 3 && (
                       <span
                         style={{
                           fontSize: '0.6875rem',
@@ -631,7 +740,7 @@ export default function RegisteredAppsList({
                           padding: '0.1875rem 0.25rem',
                         }}
                       >
-                        +{app.tags.length - 3}
+                        +{visibleTags.length - 3}
                       </span>
                     )}
                   </div>

@@ -15,7 +15,7 @@ import {
   type NetworkType,
 } from '@jejunetwork/config'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
-import type { Address } from 'viem'
+import { getAddress, type Address } from 'viem'
 
 // Network from config
 export const NETWORK: NetworkType = getCurrentNetwork()
@@ -36,30 +36,41 @@ export const OAUTH3_AGENT_URL =
 // Contract addresses from config
 const contracts = getContractsConfig(NETWORK)
 
+function optionalAddr(value: string | undefined): Address {
+  if (!value) return ZERO_ADDRESS
+  return getAddress(value)
+}
+
 export const CONTRACTS = {
-  identityRegistry: (contracts.registry.identity as Address) || ZERO_ADDRESS,
-  banManager: (contracts.moderation.banManager as Address) || ZERO_ADDRESS,
+  identityRegistry: optionalAddr(contracts.registry.identity),
+  banManager: optionalAddr(contracts.moderation.banManager),
   moderationMarketplace:
-    (contracts.moderation.moderationMarketplace as Address) || ZERO_ADDRESS,
+    optionalAddr(contracts.moderation.moderationMarketplace),
   reportingSystem:
-    (contracts.moderation.reportingSystem as Address) || ZERO_ADDRESS,
-  computeRegistry: (contracts.compute.registry as Address) || ZERO_ADDRESS,
-  jnsRegistry: (contracts.jns.registry as Address) || ZERO_ADDRESS,
-  jnsResolver: (contracts.jns.resolver as Address) || ZERO_ADDRESS,
-  x402Facilitator:
-    (contracts.payments.x402Facilitator as Address) || ZERO_ADDRESS,
-  creditManager: (contracts.payments.creditManager as Address) || ZERO_ADDRESS,
+    optionalAddr(contracts.moderation.reportingSystem),
+  computeRegistry: optionalAddr(contracts.compute.registry),
+  jnsRegistry: optionalAddr(contracts.jns.registry),
+  jnsResolver: optionalAddr(contracts.jns.resolver),
+  x402Facilitator: optionalAddr(contracts.payments.x402Facilitator),
+  creditManager: optionalAddr(contracts.payments.creditManager),
   multiTokenPaymaster:
-    (contracts.payments.multiTokenPaymaster as Address) || ZERO_ADDRESS,
+    optionalAddr(contracts.payments.multiTokenPaymaster),
   // Use nodeStaking.manager to match contracts.json structure
-  nodeStakingManager:
-    (contracts.nodeStaking?.manager as Address) || ZERO_ADDRESS,
-  entryPoint: (contracts.accountAbstraction?.entryPoint as Address) || ZERO_ADDRESS,
-  entryPointV07:
-    (contracts.accountAbstraction?.entryPointV07 as Address) || ZERO_ADDRESS,
+  nodeStakingManager: optionalAddr(contracts.nodeStaking?.manager),
+  entryPointDeployed: optionalAddr(
+    contracts.accountAbstraction?.entryPointDeployed ||
+      contracts.accountAbstraction?.entryPointV07,
+  ),
+  entryPoint: optionalAddr(
+    contracts.accountAbstraction?.entryPointDeployed ||
+      contracts.accountAbstraction?.entryPointV07,
+  ),
+  entryPointV07: optionalAddr(
+    contracts.accountAbstraction?.entryPointDeployed ||
+      contracts.accountAbstraction?.entryPointV07,
+  ),
   simpleAccountFactory:
-    (contracts.accountAbstraction?.simpleAccountFactory as Address) ||
-    ZERO_ADDRESS,
+    optionalAddr(contracts.accountAbstraction?.simpleAccountFactory),
 } as const
 
 export const BUNDLER_URL =
@@ -69,9 +80,9 @@ export const BUNDLER_URL =
 
 // Token addresses from config
 export const TOKENS = {
-  jeju: (contracts.tokens?.jeju as Address) || ZERO_ADDRESS,
-  usdc: (contracts.tokens?.usdc as Address) || ZERO_ADDRESS,
-  weth: (contracts.tokens?.weth as Address) || ZERO_ADDRESS,
+  jeju: optionalAddr(contracts.tokens?.jeju),
+  usdc: optionalAddr(contracts.tokens?.usdc),
+  weth: optionalAddr(contracts.tokens?.weth),
 } as const
 
 // Explorer URL from config

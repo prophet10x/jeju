@@ -139,6 +139,63 @@ const client = createPublicClient({
   transport: http(rpcUrl),
 })
 
+const ENTRYPOINT_SENDER_CREATOR_ABI = [
+  {
+    name: 'senderCreator',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+] as const
+
+const SIMPLE_ACCOUNT_FACTORY_ABI = [
+  {
+    name: 'senderCreator',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    name: 'accountImplementation',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    name: 'getAddress',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'salt', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'address' }],
+  },
+] as const
+
+const SIMPLE_ACCOUNT_IMPLEMENTATION_ABI = [
+  {
+    name: 'entryPoint',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+] as const
+
+const MULTI_TOKEN_PAYMASTER_ABI = [
+  {
+    name: 'entryPoint',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+] as const
+
 let totalErrors = 0
 
 console.log(`\x1b[1m=== Contract Bytecode Verification (${networkArg}, chain ${chainId}) ===\x1b[0m`)
@@ -409,6 +466,11 @@ if (functionalCheck || runAll) {
   const identityRegistry = getAddr('registry.identity')
   const nodeStakingManager = getAddr('nodeStaking.manager')
   const paymasterFactory = getAddr('payments.paymasterFactory')
+  const entryPoint =
+    getAddr('accountAbstraction.entryPointDeployed') ||
+    getAddr('accountAbstraction.entryPointV07')
+  const simpleAccountFactory = getAddr('accountAbstraction.simpleAccountFactory')
+  const multiTokenPaymaster = getAddr('payments.multiTokenPaymaster')
 
   // Check JEJU token: name(), symbol(), totalSupply()
   if (jejuToken) {
@@ -443,6 +505,99 @@ if (functionalCheck || runAll) {
       funcPass++
     } else {
       console.log(`\x1b[31m✗ ${'PaymasterFactory has NO bytecode'.padEnd(50)}\x1b[0m`)
+      funcFail++
+    }
+  }
+
+  if (entryPoint && simpleAccountFactory) {
+    try {
+      const [entryPointSenderCreator, factorySenderCreator, accountImplementation] =
+        await Promise.all([
+          client.readContract({
+            address: entryPoint as Address,
+            abi: ENTRYPOINT_SENDER_CREATOR_ABI,
+            functionName: 'senderCreator',
+          }),
+          client.readContract({
+            address: simpleAccountFactory as Address,
+            abi: SIMPLE_ACCOUNT_FACTORY_ABI,
+            functionName: 'senderCreator',
+          }),
+          client.readContract({
+            address: simpleAccountFactory as Address,
+            abi: SIMPLE_ACCOUNT_FACTORY_ABI,
+            functionName: 'accountImplementation',
+          }),
+        ])
+
+      if (
+        entryPointSenderCreator.toLowerCase() ===
+        factorySenderCreator.toLowerCase()
+      ) {
+        console.log(`\x1b[32m✓ ${'AA senderCreator coherence'.padEnd(50)}\x1b[0m`)
+        funcPass++
+      } else {
+        console.log(
+          `\x1b[31m✗ ${'AA senderCreator coherence'.padEnd(50)} EP ${entryPointSenderCreator} != Factory ${factorySenderCreator}\x1b[0m`,
+        )
+        funcFail++
+      }
+
+      const implementationEntryPoint = await client.readContract({
+        address: accountImplementation as Address,
+        abi: SIMPLE_ACCOUNT_IMPLEMENTATION_ABI,
+        functionName: 'entryPoint',
+      })
+
+      if (implementationEntryPoint.toLowerCase() === entryPoint.toLowerCase()) {
+        console.log(`\x1b[32m✓ ${'AA implementation entryPoint coherence'.padEnd(50)}\x1b[0m`)
+        funcPass++
+      } else {
+        console.log(
+          `\x1b[31m✗ ${'AA implementation entryPoint coherence'.padEnd(50)} Impl ${implementationEntryPoint} != EntryPoint ${entryPoint}\x1b[0m`,
+        )
+        funcFail++
+      }
+
+      const predicted = await client.readContract({
+        address: simpleAccountFactory as Address,
+        abi: SIMPLE_ACCOUNT_FACTORY_ABI,
+        functionName: 'getAddress',
+        args: ['0x845eD1333733a1572c7cf6788f58fC6f7C1cDc7F', 0n],
+      })
+      console.log(
+        `\x1b[32m✓ ${'AA sample getAddress(owner,0)'.padEnd(50)} ${predicted}\x1b[0m`,
+      )
+      funcPass++
+    } catch (err) {
+      console.log(
+        `\x1b[31m✗ ${'AA coherence checks'.padEnd(50)} ${(err as Error).message.slice(0, 120)}\x1b[0m`,
+      )
+      funcFail++
+    }
+  }
+
+  if (entryPoint && multiTokenPaymaster) {
+    try {
+      const paymasterEntryPoint = await client.readContract({
+        address: multiTokenPaymaster as Address,
+        abi: MULTI_TOKEN_PAYMASTER_ABI,
+        functionName: 'entryPoint',
+      })
+
+      if (paymasterEntryPoint.toLowerCase() === entryPoint.toLowerCase()) {
+        console.log(`\x1b[32m✓ ${'AA paymaster entryPoint coherence'.padEnd(50)}\x1b[0m`)
+        funcPass++
+      } else {
+        console.log(
+          `\x1b[31m✗ ${'AA paymaster entryPoint coherence'.padEnd(50)} Paymaster ${paymasterEntryPoint} != EntryPoint ${entryPoint}\x1b[0m`,
+        )
+        funcFail++
+      }
+    } catch (err) {
+      console.log(
+        `\x1b[31m✗ ${'AA paymaster entryPoint coherence'.padEnd(50)} ${(err as Error).message.slice(0, 120)}\x1b[0m`,
+      )
       funcFail++
     }
   }

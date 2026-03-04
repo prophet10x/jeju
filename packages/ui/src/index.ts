@@ -157,6 +157,8 @@ export {
   createDecentralizedWagmiConfig,
   ETHEREUM_MAINNET,
   JEJU_CHAINS,
+  TransactionStatusModal,
+  type TransactionStatusResult,
   WalletManagementMenu,
   type WalletInfoCard,
   type WalletManagementMenuProps,

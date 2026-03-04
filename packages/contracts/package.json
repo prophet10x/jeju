@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@jejunetwork/types": "workspace:*",
-    "permissionless": "0.2.0",
+    "permissionless": "0.3.4",
     "viem": "2.43.3",
     "zod": "4.2.1"
   },

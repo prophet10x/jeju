@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react'
+import {
+  TransactionStatusModal,
+  type TransactionStatusResult,
+} from './TransactionStatusModal'
 
 export interface WalletInfoCard {
   label: string
@@ -9,6 +13,8 @@ export interface WalletInfoCard {
   paymasterAllowance?: string | null
 }
 
+export type WalletMoveResult = TransactionStatusResult
+
 export interface WalletManagementMenuProps {
   connectedLabel: string
   ownerWallet: WalletInfoCard
@@ -16,6 +22,10 @@ export interface WalletManagementMenuProps {
   smartAccountError?: string | null
   movePending?: boolean
   moveDisabledReason?: string | null
+  moveStatusMessage?: string | null
+  moveErrorMessage?: string | null
+  moveResult?: WalletMoveResult | null
+  onDismissMoveResult?: () => void
   onMoveAllToSmart?: () => void | Promise<void>
   onMoveCustomToSmart?: (amount: string) => void | Promise<void>
   onDisconnect: () => void | Promise<void>
@@ -136,6 +146,10 @@ export function WalletManagementMenu({
   smartAccountError,
   movePending = false,
   moveDisabledReason,
+  moveStatusMessage,
+  moveErrorMessage,
+  moveResult,
+  onDismissMoveResult,
   onMoveAllToSmart,
   onMoveCustomToSmart,
   onDisconnect,
@@ -151,55 +165,56 @@ export function WalletManagementMenu({
   }, [open])
 
   return (
-    <div
-      style={{ position: 'relative', display: 'inline-block' }}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          padding: '0.55rem 0.85rem',
-          borderRadius: '10px',
-          border: '1px solid var(--border, #374151)',
-          background: 'var(--surface-hover, rgba(255,255,255,0.04))',
-          color: 'var(--text-primary, #f8fafc)',
-          cursor: 'pointer',
-        }}
+    <>
+      <div
+        style={{ position: 'relative', display: 'inline-block' }}
+        onClick={(event) => event.stopPropagation()}
       >
-        <span
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
           style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '999px',
-            background: '#22c55e',
-          }}
-        />
-        <span style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
-          {connectedLabel}
-        </span>
-      </button>
-
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 10px)',
-            right: 0,
-            width: 'min(420px, 92vw)',
-            borderRadius: '16px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.55rem 0.85rem',
+            borderRadius: '10px',
             border: '1px solid var(--border, #374151)',
-            background: 'var(--surface, #111827)',
-            boxShadow: '0 22px 50px rgba(0,0,0,0.35)',
-            padding: '1rem',
-            zIndex: 1000,
-            display: 'grid',
-            gap: '0.85rem',
+            background: 'var(--surface-hover, rgba(255,255,255,0.04))',
+            color: 'var(--text-primary, #f8fafc)',
+            cursor: 'pointer',
           }}
         >
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '999px',
+              background: '#22c55e',
+            }}
+          />
+          <span style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+            {connectedLabel}
+          </span>
+        </button>
+
+        {open && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 10px)',
+              right: 0,
+              width: 'min(420px, 92vw)',
+              borderRadius: '16px',
+              border: '1px solid var(--border, #374151)',
+              background: 'var(--surface, #111827)',
+              boxShadow: '0 22px 50px rgba(0,0,0,0.35)',
+              padding: '1rem',
+              zIndex: 1000,
+              display: 'grid',
+              gap: '0.85rem',
+            }}
+          >
           <WalletCard info={ownerWallet} />
           <WalletCard info={smartWallet} />
 
@@ -304,6 +319,26 @@ export function WalletManagementMenu({
                 Use this if JEJU lands in the EOA instead of the gasless wallet.
               </div>
             )}
+            {moveStatusMessage ? (
+              <div
+                style={{
+                  color: '#86efac',
+                  fontSize: '0.8rem',
+                }}
+              >
+                {moveStatusMessage}
+              </div>
+            ) : null}
+            {moveErrorMessage ? (
+              <div
+                style={{
+                  color: '#fca5a5',
+                  fontSize: '0.8rem',
+                }}
+              >
+                {moveErrorMessage}
+              </div>
+            ) : null}
           </div>
 
           <button
@@ -320,8 +355,13 @@ export function WalletManagementMenu({
           >
             Disconnect
           </button>
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
+
+      {moveResult && onDismissMoveResult ? (
+        <TransactionStatusModal result={moveResult} onClose={onDismissMoveResult} />
+      ) : null}
+    </>
   )
 }

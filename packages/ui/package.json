@@ -22,6 +22,11 @@
       "bun": "./src/wallet/index.ts",
       "types": "./dist/wallet/index.d.ts",
       "import": "./dist/wallet/index.js"
+    },
+    "./hooks/useNodeStaking": {
+      "bun": "./src/hooks/useNodeStaking.ts",
+      "types": "./dist/hooks/useNodeStaking.d.ts",
+      "import": "./dist/hooks/useNodeStaking.js"
     }
   },
   "files": ["dist", "src"],

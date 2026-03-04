@@ -4,7 +4,7 @@
   "description": "All contract addresses for Jeju networks. Env overrides use VITE_/PUBLIC_ + name (e.g., VITE_BAN_MANAGER_ADDRESS)",
   "constants": {
     "entryPoint": "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
-    "entryPointV07": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+    "entryPointV07": "0x433709009B8330FDa32311DF1C2AFA402eD8D009",
     "l2Messenger": "0x4200000000000000000000000000000000000007",
     "l2StandardBridge": "0x4200000000000000000000000000000000000010",
     "weth": "0x4200000000000000000000000000000000000006"
@@ -261,7 +261,7 @@
       "bountyRegistry": "0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926"
     },
     "nodeStaking": {
-      "manager": "0xCD8a1C3ba11CF5ECfa6267617243239504a98d90",
+      "manager": "0x67d90BcC44D55269881597C84CD96d00D8Ca96F8",
       "performanceOracle": "0xbb0a3554af6792436609d21bcd703b9ef70ee7aa",
       "autoSlasher": "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1",
       "serviceStaking": "0x2bdCC0de6bE1f7D2ee689a0342D76F52E8EFABa3"
@@ -295,7 +295,7 @@
       "serviceRegistry": "0xefc5a8c31cfd2a693e0169790421076916405083",
       "creditManager": "0x6cfc5f9b0e5fe29470778b018aaaeb014281ea19",
       "liquidityPaymaster": "0xF32D39ff9f6Aa7a7A64d7a4F00a54826Ef791a55",
-      "multiTokenPaymaster": "0xfc86aeccf568e966c404387037195eee2f97f51d",
+      "multiTokenPaymaster": "0x976A62558df02514090500e588Bb62E04eA85DC3",
       "paymasterFactory": "0xe4abfd2e67240dfffa8433e04df094f3b5206272",
       "tokenRegistry": "0x6d8a467a29e4da4b53345555ae7d628e741a40a8"
     },
@@ -441,9 +441,9 @@
       "contentRegistry": "0x47c9b4bb4680163cff384b184acc1d12ef75295a"
     },
     "accountAbstraction": {
-      "entryPointV07": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
-      "entryPointDeployed": "0x922D6956C99E12DFeB3224DEA977D0939758A1Fe",
-      "simpleAccountFactory": "0x5081a39b8A5f0E35a8D959395a630b68B74Dd30f"
+      "entryPointV07": "0x433709009B8330FDa32311DF1C2AFA402eD8D009",
+      "entryPointDeployed": "0x433709009B8330FDa32311DF1C2AFA402eD8D009",
+      "simpleAccountFactory": "0x02e10A72Da4B211D432dC082f9440fe4ad383e07"
     },
     "vpn": {
       "registry": "0x7969c5eD335650692Bc04293B07F5BF2e7A673C0"

@@ -4,7 +4,7 @@
  *
  * Deploys EIL infrastructure across L1 and L2 local chains:
  * - L1: L1CrossDomainMessenger, L1StakeManager
- * - L2: L2CrossDomainMessenger, EntryPoint, CrossChainPaymasterUpgradeable
+ * - L2: L2CrossDomainMessenger, canonical account-abstraction EntryPoint, CrossChainPaymasterUpgradeable
  *
  * Usage:
  *   bun packages/deployment/scripts/bridge/deploy-crosschain.ts
@@ -156,8 +156,9 @@ async function main() {
   console.log('')
   console.log('=== DEPLOYING TO L2 ===')
 
-  // Deploy EntryPoint
-  console.log('Deploying EntryPoint v0.7...')
+  // Deploy the vendored upstream account-abstraction EntryPoint.
+  // Keep version labels in sync with the vendored package line instead of calling this v0.7.
+  console.log('Deploying account-abstraction EntryPoint...')
   const entryPointAddress = await deployContract(
     l2Wallet,
     l2Public,

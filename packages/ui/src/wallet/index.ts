@@ -37,3 +37,7 @@ export {
   type WalletInfoCard,
   type WalletManagementMenuProps,
 } from './WalletManagementMenu'
+export {
+  TransactionStatusModal,
+  type TransactionStatusResult,
+} from './TransactionStatusModal'

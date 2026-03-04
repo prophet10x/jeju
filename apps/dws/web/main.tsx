@@ -7,7 +7,7 @@
 
 import { OAuth3Provider } from '@jejunetwork/auth'
 import type { OAuth3AppConfig } from '@jejunetwork/shared'
-import { createDecentralizedWagmiConfig } from '@jejunetwork/ui'
+import { createDecentralizedWagmiConfig } from '@jejunetwork/ui/wallet'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

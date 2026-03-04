@@ -10,7 +10,7 @@ import {
   useReadContract,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS } from '../../lib/config'
+import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 
 function formatToken(value?: bigint) {
@@ -36,6 +36,14 @@ export default function WalletManagementMenu() {
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
   const [movePending, setMovePending] = useState(false)
+  const [moveStatusMessage, setMoveStatusMessage] = useState<string | null>(null)
+  const [moveErrorMessage, setMoveErrorMessage] = useState<string | null>(null)
+  const [moveResult, setMoveResult] = useState<{
+    status: 'info' | 'success' | 'error'
+    title: string
+    message: string
+    txHash?: string | null
+  } | null>(null)
   const { writeContractAsync } = useWriteContract()
 
   const ownerAddress =
@@ -88,6 +96,8 @@ export default function WalletManagementMenu() {
   async function moveToSmartAccount(amount: bigint) {
     if (!ownerAddress || !gasless.smartAccountAddress) return
     setMovePending(true)
+    setMoveErrorMessage(null)
+    setMoveStatusMessage(null)
     try {
       const hash = await writeContractAsync({
         address: CONTRACTS.jeju,
@@ -95,13 +105,39 @@ export default function WalletManagementMenu() {
         functionName: 'transfer',
         args: [gasless.smartAccountAddress, amount],
       })
-      await publicClient?.waitForTransactionReceipt({ hash })
+      setMoveResult({
+        status: 'info',
+        title: 'JEJU transfer submitted',
+        message: 'Waiting for on-chain confirmation.',
+        txHash: hash,
+      })
+      const receipt = await publicClient?.waitForTransactionReceipt({ hash })
+      if (receipt && receipt.status !== 'success') {
+        throw new Error('JEJU transfer reverted on-chain')
+      }
+      setMoveStatusMessage('JEJU transferred to the gasless wallet.')
+      setMoveResult({
+        status: 'success',
+        title: 'JEJU transfer confirmed',
+        message: 'The transfer to the gasless wallet was confirmed on-chain.',
+        txHash: hash,
+      })
       await Promise.all([
         gasless.refreshState(),
         refetchOwnerJeju(),
         refetchOwnerEth(),
         refetchSmartEth(),
       ])
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to move JEJU'
+      setMoveErrorMessage(message)
+      setMoveResult({
+        status: 'error',
+        title: 'JEJU transfer failed',
+        message,
+      })
+      throw error
     } finally {
       setMovePending(false)
     }
@@ -131,6 +167,17 @@ export default function WalletManagementMenu() {
       smartAccountError={gasless.smartAccountDerivationError}
       movePending={movePending}
       moveDisabledReason={moveDisabledReason}
+      moveStatusMessage={moveStatusMessage}
+      moveErrorMessage={moveErrorMessage}
+      moveResult={
+        moveResult
+          ? {
+              ...moveResult,
+              explorerUrl: EXPLORER_URL,
+            }
+          : null
+      }
+      onDismissMoveResult={() => setMoveResult(null)}
       onMoveAllToSmart={() =>
         moveToSmartAccount((ownerJejuBalance as bigint | undefined) ?? 0n)
       }

@@ -1,7 +1,11 @@
 import { ZERO_ADDRESS } from '@jejunetwork/types'
 import { useState } from 'react'
-import { type Address, encodeFunctionData } from 'viem'
-import { useReadContract, useWaitForTransactionReceipt } from 'wagmi'
+import { type Address, decodeEventLog, encodeFunctionData } from 'viem'
+import {
+  usePublicClient,
+  useReadContract,
+  useWaitForTransactionReceipt,
+} from 'wagmi'
 import { CONTRACTS } from '../../lib/config'
 import { IERC20_ABI } from '../lib/constants'
 import type { GaslessCall } from './useGaslessSmartAccount'
@@ -273,6 +277,16 @@ const IDENTITY_REGISTRY_ABI = [
   {
     inputs: [
       { internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { internalType: 'string[]', name: 'tags_', type: 'string[]' },
+    ],
+    name: 'updateTags',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'agentId', type: 'uint256' },
       { internalType: 'bool', name: 'supported', type: 'bool' },
     ],
     name: 'setX402Support',
@@ -296,6 +310,9 @@ export interface RegisterAppParams {
   tier: StakeTierValue
   stakeToken: Address
   stakeAmount: bigint
+  tags?: string[]
+  category?: string
+  serviceType?: string
 }
 
 interface RegisterAppOptions {
@@ -309,17 +326,175 @@ function encodeStringMetadata(value: string): `0x${string}` {
   return `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')}`
 }
 
+const REGISTERED_EVENT_ABI = [
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { indexed: true, internalType: 'address', name: 'owner', type: 'address' },
+      { indexed: false, internalType: 'uint8', name: 'tier', type: 'uint8' },
+      { indexed: false, internalType: 'uint256', name: 'stakedAmount', type: 'uint256' },
+      { indexed: false, internalType: 'string', name: 'tokenURI', type: 'string' },
+    ],
+    name: 'Registered',
+    type: 'event',
+  },
+] as const
+
+function resolveServiceType(a2aEndpoint: string, requested?: string): string {
+  if (requested && requested.length > 0) return requested
+  return a2aEndpoint ? 'agent' : 'app'
+}
+
+function resolveCategory(tags: string[] | undefined, requested?: string): string {
+  if (requested && requested.length > 0) return requested
+  return tags?.[0] ?? ''
+}
+
 export function useRegistry() {
   const [lastTx, setLastTx] = useState<`0x${string}` | undefined>()
   const { data: txReceipt } = useWaitForTransactionReceipt({ hash: lastTx })
+  const publicClient = usePublicClient()
   const { writeAsync } = useTypedWriteContract()
   const gasless = useGaslessSmartAccount()
+
+  function getRegisteredAgentIdFromReceipt(
+    receipt: Awaited<ReturnType<typeof publicClient.waitForTransactionReceipt>>,
+  ): bigint | undefined {
+    for (const log of receipt.logs) {
+      try {
+        const decoded = decodeEventLog({
+          abi: REGISTERED_EVENT_ABI,
+          data: log.data,
+          topics: log.topics,
+        })
+        if (decoded.eventName === 'Registered') {
+          return decoded.args.agentId
+        }
+      } catch {
+        // ignore unrelated logs
+      }
+    }
+    return undefined
+  }
+
+  async function persistAgentPresentation(
+    agentId: bigint,
+    params: { tags?: string[]; category?: string; serviceType?: string; a2aEndpoint: string },
+    options: RegisterAppOptions,
+  ) {
+    const tags = params.tags?.filter(Boolean) ?? []
+    const category = resolveCategory(tags, params.category)
+    const serviceType = resolveServiceType(params.a2aEndpoint, params.serviceType)
+
+    if (options.gasless) {
+      const calls: GaslessCall[] = []
+
+      if (tags.length > 0) {
+        calls.push({
+          to: REGISTRY_ADDRESS,
+          data: encodeFunctionData({
+            abi: IDENTITY_REGISTRY_ABI,
+            functionName: 'updateTags',
+            args: [agentId, tags],
+          }),
+        })
+      }
+
+      if (category) {
+        calls.push({
+          to: REGISTRY_ADDRESS,
+          data: encodeFunctionData({
+            abi: IDENTITY_REGISTRY_ABI,
+            functionName: 'setCategory',
+            args: [agentId, category],
+          }),
+        })
+      }
+
+      if (serviceType) {
+        calls.push({
+          to: REGISTRY_ADDRESS,
+          data: encodeFunctionData({
+            abi: IDENTITY_REGISTRY_ABI,
+            functionName: 'setServiceType',
+            args: [agentId, serviceType],
+          }),
+        })
+      }
+
+      if (calls.length > 0) {
+        const hash = await gasless.executeGaslessCalls({
+          serviceName: 'Jeju Agent Registration Metadata',
+          calls,
+        })
+        setLastTx(hash)
+        await waitForSuccessfulReceipt(hash)
+      }
+      return
+    }
+
+    if (tags.length > 0) {
+      const hash = await writeAsync({
+        address: REGISTRY_ADDRESS,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'updateTags',
+        args: [agentId, tags],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+    }
+
+    if (category) {
+      const hash = await writeAsync({
+        address: REGISTRY_ADDRESS,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'setCategory',
+        args: [agentId, category],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+    }
+
+    if (serviceType) {
+      const hash = await writeAsync({
+        address: REGISTRY_ADDRESS,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'setServiceType',
+        args: [agentId, serviceType],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+    }
+  }
+
+  async function waitForSuccessfulReceipt(hash: `0x${string}`) {
+    if (!publicClient) {
+      throw new Error('Public client is not available')
+    }
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+    if (receipt.status !== 'success') {
+      throw new Error('Transaction reverted on-chain')
+    }
+
+    return receipt
+  }
 
   async function registerApp(
     params: RegisterAppParams,
     options: RegisterAppOptions = {},
   ): Promise<{ success: boolean; error?: string; agentId?: bigint }> {
-    const { tokenURI, a2aEndpoint, tier, stakeToken, stakeAmount } = params
+    const {
+      tokenURI,
+      a2aEndpoint,
+      tier,
+      stakeToken,
+      stakeAmount,
+      tags,
+      category,
+      serviceType,
+    } = params
 
     // Build metadata entries for the a2a endpoint
     const metadata: { key: string; value: `0x${string}` }[] = []
@@ -373,7 +548,16 @@ export function useRegistry() {
         requiredJejuBalance: tier === StakeTier.NONE ? 0n : stakeAmount,
       })
       setLastTx(hash)
-      return { success: true }
+      const receipt = await waitForSuccessfulReceipt(hash)
+      const agentId = getRegisteredAgentIdFromReceipt(receipt)
+      if (agentId !== undefined) {
+        await persistAgentPresentation(
+          agentId,
+          { tags, category, serviceType, a2aEndpoint },
+          options,
+        )
+      }
+      return { success: true, agentId }
     }
 
     if (tier === StakeTier.NONE) {
@@ -385,6 +569,16 @@ export function useRegistry() {
         args: [tokenURI, metadata],
       })
       setLastTx(hash)
+      const receipt = await waitForSuccessfulReceipt(hash)
+      const agentId = getRegisteredAgentIdFromReceipt(receipt)
+      if (agentId !== undefined) {
+        await persistAgentPresentation(
+          agentId,
+          { tags, category, serviceType, a2aEndpoint },
+          options,
+        )
+      }
+      return { success: true, agentId }
     } else {
       // Registration with staking
       if (stakeToken !== ZERO_ADDRESS) {
@@ -404,9 +598,17 @@ export function useRegistry() {
         value: stakeToken === ZERO_ADDRESS ? stakeAmount : 0n,
       })
       setLastTx(hash)
+      const receipt = await waitForSuccessfulReceipt(hash)
+      const agentId = getRegisteredAgentIdFromReceipt(receipt)
+      if (agentId !== undefined) {
+        await persistAgentPresentation(
+          agentId,
+          { tags, category, serviceType, a2aEndpoint },
+          options,
+        )
+      }
+      return { success: true, agentId }
     }
-
-    return { success: true }
   }
 
   async function withdrawStake(

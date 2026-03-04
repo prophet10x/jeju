@@ -7,15 +7,27 @@
 
 import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
-  formatTokenUsd,
+  fetchAgentWallet,
+  getNodeRegisteredIdFromReceipt,
+  NODE_SERVICE_DEFINITIONS,
+  type NodeIdentityMetadata,
+  type NodeRegistrationDraft,
+  type NodeRegistrationResult,
+  type NodeServiceDefinition,
+  type NodeServiceId,
+  waitForAgentWallet,
 } from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
 import {
   Region,
   type RegionValue,
   useNodeStaking,
-  useWallet,
-} from '@jejunetwork/ui'
+} from '@jejunetwork/ui/hooks/useNodeStaking'
+import { useWallet } from '@jejunetwork/ui/wallet'
+import {
+  TransactionStatusModal,
+  type TransactionStatusResult,
+} from '@jejunetwork/ui/wallet'
 import {
   AlertCircle,
   ArrowRight,
@@ -49,12 +61,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, formatEther } from 'viem'
 import {
   useSignMessage,
+  usePublicClient,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS } from '../config'
+import { CONTRACTS, EXPLORER_URL } from '../config'
 import { useAgentId } from '../hooks/useAgentId'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
+import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 
 type WizardStep =
@@ -70,32 +84,40 @@ interface ServiceOption {
   name: string
   icon: React.ReactNode
   description: string
-  // Stake requirements will be fetched from contract
   selected: boolean
 }
 
-const DEFAULT_SERVICES: ServiceOption[] = [
-  { id: 'vpn', name: 'VPN Node', icon: <Shield size={20} />, description: 'Route encrypted VPN traffic', selected: false },
-  { id: 'cdn', name: 'CDN Edge', icon: <Globe size={20} />, description: 'Cache and serve content', selected: false },
-  { id: 'storage', name: 'Storage Node', icon: <HardDrive size={20} />, description: 'Store network data', selected: false },
-  { id: 'rpc', name: 'RPC Provider', icon: <Radio size={20} />, description: 'Serve blockchain queries', selected: false },
-  { id: 'compute', name: 'Compute Node', icon: <Cpu size={20} />, description: 'Run containers and workers', selected: false },
-  { id: 'gpu', name: 'GPU Compute', icon: <Monitor size={20} />, description: 'GPU inference and training', selected: false },
-  { id: 'workers', name: 'Serverless Workers', icon: <Zap size={20} />, description: 'Run serverless functions', selected: false },
-  { id: 'workerd', name: 'V8 Isolates', icon: <Box size={20} />, description: 'Lightweight V8 workloads', selected: false },
-  { id: 'agents', name: 'AI Agent Host', icon: <Bot size={20} />, description: 'Host ElizaOS AI agents', selected: false },
-  { id: 'git', name: 'Git Repository', icon: <GitBranch size={20} />, description: 'Host git repositories', selected: false },
-  { id: 'pkg', name: 'Package Registry', icon: <Package size={20} />, description: 'Host package registry', selected: false },
-  { id: 'ci', name: 'CI/CD Runner', icon: <Play size={20} />, description: 'Run CI/CD pipeline jobs', selected: false },
-  { id: 's3', name: 'S3 Storage', icon: <Database size={20} />, description: 'S3-compatible object storage', selected: false },
-  { id: 'da', name: 'Data Availability', icon: <Layers size={20} />, description: 'Data availability node', selected: false },
-  { id: 'email', name: 'Email Relay', icon: <Mail size={20} />, description: 'Decentralized email relay', selected: false },
-  { id: 'lb', name: 'Load Balancer', icon: <Scale size={20} />, description: 'Scale-to-zero load balancing', selected: false },
-  { id: 'indexer', name: 'Indexer Node', icon: <Search size={20} />, description: 'Index blockchain data', selected: false },
-  { id: 'scraping', name: 'Web Scraper', icon: <Eye size={20} />, description: 'Web scraping and extraction', selected: false },
-  { id: 'security', name: 'Security Node', icon: <Lock size={20} />, description: 'WAF and access control', selected: false },
-  { id: 'observability', name: 'Observability', icon: <Eye size={20} />, description: 'Logs, metrics, and traces', selected: false },
-]
+const SERVICE_ICONS: Record<NodeServiceDefinition['icon'], React.ReactNode> = {
+  shield: <Shield size={20} />,
+  globe: <Globe size={20} />,
+  'hard-drive': <HardDrive size={20} />,
+  radio: <Radio size={20} />,
+  cpu: <Cpu size={20} />,
+  monitor: <Monitor size={20} />,
+  zap: <Zap size={20} />,
+  box: <Box size={20} />,
+  bot: <Bot size={20} />,
+  'git-branch': <GitBranch size={20} />,
+  package: <Package size={20} />,
+  play: <Play size={20} />,
+  database: <Database size={20} />,
+  layers: <Layers size={20} />,
+  mail: <Mail size={20} />,
+  scale: <Scale size={20} />,
+  search: <Search size={20} />,
+  eye: <Eye size={20} />,
+  lock: <Lock size={20} />,
+}
+
+function createDefaultServices(): ServiceOption[] {
+  return NODE_SERVICE_DEFINITIONS.map((service) => ({
+    id: service.id,
+    name: service.name,
+    description: service.description,
+    icon: SERVICE_ICONS[service.icon],
+    selected: false,
+  }))
+}
 
 // Token addresses from config - use JEJU token for staking and rewards
 import { TOKENS } from '../config'
@@ -179,9 +201,11 @@ interface NodeProofVerification {
 
 export default function NodeRegistrationWizard() {
   const { address, isConnected, isConnecting, connect } = useWallet()
-  const { hasAgent, agentId, isLoading: isAgentLoading } = useAgentId()
+  const publicClient = usePublicClient()
+  const { hasAgent, agentId, agents, isLoading: isAgentLoading } = useAgentId()
   const gasless = useGaslessSmartAccount()
   const gaslessBootstrap = useGaslessBootstrap({ gasless })
+  const { registerNodeIdentity } = useNodeIdentityRegistry()
 
   // Get staking manager address from config
   const stakingManagerAddress =
@@ -199,12 +223,16 @@ export default function NodeRegistrationWizard() {
     approvalHash,
     registerNode,
     isRegistering,
-    isRegistrationSuccess,
     registrationHash,
   } = useNodeStaking(stakingManagerAddress, address)
+  const { data: registrationReceipt } = useWaitForTransactionReceipt({
+    hash: registrationHash,
+  })
 
   const [step, setStep] = useState<WizardStep>('connect')
-  const [services, setServices] = useState<ServiceOption[]>(DEFAULT_SERVICES)
+  const [services, setServices] = useState<ServiceOption[]>(() =>
+    createDefaultServices(),
+  )
   const [error, setError] = useState<string | null>(null)
   const [selectedRegion, setSelectedRegion] = useState<RegionValue>(
     Region.NorthAmerica,
@@ -217,6 +245,9 @@ export default function NodeRegistrationWizard() {
   const [diskGb, setDiskGb] = useState('')
   const [customStakeAmount, setCustomStakeAmount] = useState('')
   const [useGasless, setUseGasless] = useState(true)
+  const [selectedAgentIdState, setSelectedAgentIdState] = useState<number | null>(
+    null,
+  )
   const [proofChallenge, setProofChallenge] = useState<NodeProofChallenge | null>(
     null,
   )
@@ -224,6 +255,22 @@ export default function NodeRegistrationWizard() {
     useState<NodeProofVerification | null>(null)
   const [isPreparingProof, setIsPreparingProof] = useState(false)
   const [isVerifyingProof, setIsVerifyingProof] = useState(false)
+  const [isAuthorizingNodeWallet, setIsAuthorizingNodeWallet] = useState(false)
+  const [authorizeResult, setAuthorizeResult] =
+    useState<TransactionStatusResult | null>(null)
+  const [lastRegistrationHash, setLastRegistrationHash] = useState<
+    `0x${string}` | undefined
+  >()
+  const [submittedDraft, setSubmittedDraft] = useState<NodeRegistrationDraft | null>(
+    null,
+  )
+  const [processedRegistrationHash, setProcessedRegistrationHash] = useState<
+    `0x${string}` | null
+  >(null)
+  const [nodeRegistrationResult, setNodeRegistrationResult] =
+    useState<NodeRegistrationResult | null>(null)
+  const [nodeIdentityError, setNodeIdentityError] = useState<string | null>(null)
+  const [isRegisteringNodeIdentity, setIsRegisteringNodeIdentity] = useState(false)
 
   const {
     writeContract: writeSetAgentWallet,
@@ -238,7 +285,26 @@ export default function NodeRegistrationWizard() {
     useSignMessage()
 
   const selectedServices = services.filter((s) => s.selected)
-  const selectedAgentId = agentId !== null ? BigInt(agentId) : undefined
+  const selectedServiceIds = useMemo(
+    () => selectedServices.map((service) => service.id as NodeServiceId),
+    [selectedServices],
+  )
+  const selectedAgent =
+    selectedAgentIdState !== null
+      ? agents.find((candidate) => Number(candidate.id) === selectedAgentIdState)
+      : undefined
+  const selectedAgentId =
+    selectedAgentIdState !== null ? BigInt(selectedAgentIdState) : undefined
+  const selectedAgentOwnedBySmartAccount = useMemo(
+    () =>
+      Boolean(
+        selectedAgent?.owner &&
+          gasless.smartAccountAddress &&
+          selectedAgent.owner.toLowerCase() ===
+            gasless.smartAccountAddress.toLowerCase(),
+      ),
+    [gasless.smartAccountAddress, selectedAgent?.owner],
+  )
   const nodeWalletAuthorized =
     proofChallenge !== null &&
     proofChallenge.currentAgentWallet !== null &&
@@ -276,6 +342,30 @@ export default function NodeRegistrationWizard() {
     requiredStake,
     DEFAULT_GASLESS_PAYMENT_AMOUNT,
   )
+  const effectiveRegistrationHash = useGasless
+    ? lastRegistrationHash
+    : registrationHash
+  const effectiveRegistrationReceipt = useGasless
+    ? gasless.lastTransactionReceipt
+    : registrationReceipt
+
+  useEffect(() => {
+    if (!agents.length) {
+      setSelectedAgentIdState(null)
+      return
+    }
+
+    setSelectedAgentIdState((current) => {
+      if (
+        current !== null &&
+        agents.some((candidate) => Number(candidate.id) === current)
+      ) {
+        return current
+      }
+
+      return agentId ?? Number(agents[0].id)
+    })
+  }, [agentId, agents])
 
   const toggleService = useCallback((serviceId: string) => {
     setServices((prev) =>
@@ -288,12 +378,6 @@ export default function NodeRegistrationWizard() {
   const handleNextStep = useCallback(() => {
     setError(null)
     if (step === 'connect' && isConnected) {
-      if (useGasless && !gaslessReadiness.isReady) {
-        setError(
-          'Prepare the SimpleAccount with JEJU balance and credit before continuing.',
-        )
-        return
-      }
       if (isAgentLoading) {
         setError('Checking your ERC-8004 operator identity. Please wait.')
         return
@@ -328,6 +412,7 @@ export default function NodeRegistrationWizard() {
     selectedAgentId,
     selectedServices.length,
     useGasless,
+    gaslessReadiness.isReady,
   ])
 
   const handlePrevStep = useCallback(() => {
@@ -372,10 +457,44 @@ export default function NodeRegistrationWizard() {
       return
     }
     setError(null)
+    setNodeIdentityError(null)
+    setNodeRegistrationResult(null)
+
+    const nextDraft: NodeRegistrationDraft = {
+      operatorAgentId: selectedAgentId.toString(),
+      services: selectedServiceIds,
+      stakeAmount: requiredStake.toString(),
+      stakingToken: DEFAULT_STAKING_TOKEN,
+      rewardToken: DEFAULT_REWARD_TOKEN,
+      rpcUrl: nodeRpcUrl,
+      region:
+        [
+          [Region.NorthAmerica, 'North America'],
+          [Region.SouthAmerica, 'South America'],
+          [Region.Europe, 'Europe'],
+          [Region.Asia, 'Asia'],
+          [Region.Africa, 'Africa'],
+          [Region.Oceania, 'Oceania'],
+          [Region.Global, 'Global'],
+        ].find(([value]) => value === selectedRegion)?.[1] ?? 'Unknown',
+      nodeName: nodeName.trim() || undefined,
+      zone: zone.trim() || undefined,
+      cpuCores: cpuCores ? Number(cpuCores) : undefined,
+      memoryGb: memoryGb ? Number(memoryGb) : undefined,
+      diskGb: diskGb ? Number(diskGb) : undefined,
+    }
+
+    setSubmittedDraft(nextDraft)
 
     if (useGasless) {
+      if (!gaslessReadiness.isReady) {
+        setError(
+          'Prepare this smart account with enough JEJU and either paymaster allowance or JEJU credit before using the gasless path.',
+        )
+        return
+      }
       try {
-        await gasless.executeGaslessCalls({
+        const txHash = await gasless.executeGaslessCalls({
           serviceName: 'Jeju Node Registration',
           requiredJejuBalance: requiredStake,
           calls: [
@@ -404,6 +523,7 @@ export default function NodeRegistrationWizard() {
             },
           ],
         })
+        setLastRegistrationHash(txHash)
         return
       } catch (registrationError) {
         setError(
@@ -415,6 +535,7 @@ export default function NodeRegistrationWizard() {
       }
     }
 
+    setLastRegistrationHash(undefined)
     registerNode({
       stakingToken: DEFAULT_STAKING_TOKEN,
       stakeAmount: requiredStake,
@@ -430,7 +551,9 @@ export default function NodeRegistrationWizard() {
     requiredStake,
     selectedRegion,
     registerNode,
+    selectedServiceIds,
     gasless,
+    gaslessReadiness.isReady,
     useGasless,
   ])
 
@@ -478,7 +601,7 @@ export default function NodeRegistrationWizard() {
     }
   }, [address, nodeRpcUrl, selectedAgentId])
 
-  const authorizeNodeWallet = useCallback(() => {
+  const authorizeNodeWallet = useCallback(async () => {
     if (!proofChallenge || selectedAgentId === undefined) {
       setError('Prepare the node proof challenge first.')
       return
@@ -489,16 +612,102 @@ export default function NodeRegistrationWizard() {
     }
 
     setError(null)
+    if (selectedAgentOwnedBySmartAccount) {
+      if (!publicClient) {
+        setError('Public client is not available.')
+        return
+      }
+
+      setIsAuthorizingNodeWallet(true)
+
+      try {
+        const txHash = await gasless.executeGaslessCalls({
+          serviceName: 'Jeju Node Registration',
+          calls: [
+            {
+              to: CONTRACTS.identityRegistry,
+              data: encodeFunctionData({
+                abi: IDENTITY_REGISTRY_ABI,
+                functionName: 'setAgentWallet',
+                args: [selectedAgentId, proofChallenge.nodeWalletAddress],
+              }),
+            },
+          ],
+        })
+
+        setAuthorizeResult({
+          status: 'info',
+          title: 'Authorization submitted',
+          message: 'Waiting for on-chain confirmation.',
+          txHash,
+          explorerUrl: EXPLORER_URL,
+        })
+        const resolvedWallet = await waitForAgentWallet({
+          publicClient,
+          registryAddress: CONTRACTS.identityRegistry,
+          agentId: selectedAgentId,
+          expectedWallet: proofChallenge.nodeWalletAddress,
+        })
+
+        if (
+          !resolvedWallet ||
+          resolvedWallet.toLowerCase() !==
+            proofChallenge.nodeWalletAddress.toLowerCase()
+        ) {
+          throw new Error('Delegated node wallet was not updated on-chain')
+        }
+
+        setProofChallenge((current) =>
+          current
+            ? {
+                ...current,
+                currentAgentWallet: resolvedWallet,
+                requiresDelegatedWalletUpdate: false,
+              }
+            : current,
+        )
+        setAuthorizeResult({
+          status: 'success',
+          title: 'Node wallet authorized',
+          message: 'The delegated node wallet was authorized on-chain.',
+          txHash,
+          explorerUrl: EXPLORER_URL,
+        })
+      } catch (err) {
+        setAuthorizeResult({
+          status: 'error',
+          title: 'Authorization failed',
+          message:
+            err instanceof Error ? err.message : 'Failed to authorize node wallet',
+          explorerUrl: EXPLORER_URL,
+        })
+        setError(
+          err instanceof Error ? err.message : 'Failed to authorize node wallet',
+        )
+      } finally {
+        setIsAuthorizingNodeWallet(false)
+      }
+
+      return
+    }
+
     writeSetAgentWallet({
       address: CONTRACTS.identityRegistry,
       abi: IDENTITY_REGISTRY_ABI,
       functionName: 'setAgentWallet',
       args: [selectedAgentId, proofChallenge.nodeWalletAddress],
     })
-  }, [proofChallenge, selectedAgentId, writeSetAgentWallet])
+  }, [
+    gasless,
+    proofChallenge,
+    publicClient,
+    selectedAgentId,
+    selectedAgentOwnedBySmartAccount,
+    writeSetAgentWallet,
+  ])
 
   const verifyOwnershipProof = useCallback(async () => {
-    if (!proofChallenge) {
+    if (!proofChallenge || selectedAgentId === undefined || !publicClient) {
       setError('Prepare the node proof challenge first.')
       return
     }
@@ -530,13 +739,22 @@ export default function NodeRegistrationWizard() {
         throw new Error(payload.error ?? 'Failed to verify node proof')
       }
 
+      const onChainAgentWallet = await fetchAgentWallet({
+        publicClient,
+        registryAddress: CONTRACTS.identityRegistry,
+        agentId: selectedAgentId,
+      })
+
       setProofVerification(payload)
       setProofChallenge((current) =>
         current
           ? {
               ...current,
-              currentAgentWallet: payload.nodeWalletAddress,
-              requiresDelegatedWalletUpdate: false,
+              currentAgentWallet: onChainAgentWallet,
+              requiresDelegatedWalletUpdate:
+                !onChainAgentWallet ||
+                onChainAgentWallet.toLowerCase() !==
+                  payload.nodeWalletAddress.toLowerCase(),
             }
           : current,
       )
@@ -546,7 +764,7 @@ export default function NodeRegistrationWizard() {
     } finally {
       setIsVerifyingProof(false)
     }
-  }, [proofChallenge, signMessageAsync])
+  }, [proofChallenge, publicClient, selectedAgentId, signMessageAsync])
 
   useEffect(() => {
     setProofChallenge(null)
@@ -554,24 +772,103 @@ export default function NodeRegistrationWizard() {
   }, [nodeRpcUrl, selectedAgentId])
 
   useEffect(() => {
-    if (!isSetAgentWalletSuccess) return
+    if (!setAgentWalletHash || selectedAgentOwnedBySmartAccount) return
 
-    setProofChallenge((current) => {
-      if (!current) return current
+    setAuthorizeResult((current) => {
       if (
-        current.currentAgentWallet?.toLowerCase() ===
-        current.nodeWalletAddress.toLowerCase()
+        current?.status === 'success' ||
+        (current?.status === 'info' && current.txHash === setAgentWalletHash)
       ) {
         return current
       }
 
       return {
-        ...current,
-        currentAgentWallet: current.nodeWalletAddress,
-        requiresDelegatedWalletUpdate: false,
+        status: 'info',
+        title: 'Authorization submitted',
+        message: 'Waiting for on-chain confirmation.',
+        txHash: setAgentWalletHash,
+        explorerUrl: EXPLORER_URL,
       }
     })
-  }, [isSetAgentWalletSuccess])
+  }, [selectedAgentOwnedBySmartAccount, setAgentWalletHash])
+
+  useEffect(() => {
+    if (
+      !isSetAgentWalletSuccess ||
+      !publicClient ||
+      selectedAgentId === undefined ||
+      !proofChallenge ||
+      selectedAgentOwnedBySmartAccount
+    ) {
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const resolvedWallet = await waitForAgentWallet({
+          publicClient,
+          registryAddress: CONTRACTS.identityRegistry,
+          agentId: selectedAgentId,
+          expectedWallet: proofChallenge.nodeWalletAddress,
+        })
+
+        if (
+          cancelled ||
+          !resolvedWallet ||
+          resolvedWallet.toLowerCase() !==
+            proofChallenge.nodeWalletAddress.toLowerCase()
+        ) {
+          throw new Error('Delegated node wallet was not updated on-chain')
+        }
+
+        setProofChallenge((current) =>
+          current
+            ? {
+                ...current,
+                currentAgentWallet: resolvedWallet,
+                requiresDelegatedWalletUpdate: false,
+              }
+            : current,
+        )
+        if (setAgentWalletHash) {
+          setAuthorizeResult({
+            status: 'success',
+            title: 'Node wallet authorized',
+            message: 'The delegated node wallet was authorized on-chain.',
+            txHash: setAgentWalletHash,
+            explorerUrl: EXPLORER_URL,
+          })
+        }
+      } catch (err) {
+        if (cancelled) return
+        const message =
+          err instanceof Error
+            ? err.message
+            : 'Failed to confirm delegated wallet authorization'
+        setAuthorizeResult({
+          status: 'error',
+          title: 'Authorization failed',
+          message,
+          txHash: setAgentWalletHash,
+          explorerUrl: EXPLORER_URL,
+        })
+        setError(message)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    isSetAgentWalletSuccess,
+    proofChallenge,
+    publicClient,
+    selectedAgentId,
+    selectedAgentOwnedBySmartAccount,
+    setAgentWalletHash,
+  ])
 
   // Auto-advance when approval succeeds
   useEffect(() => {
@@ -580,15 +877,78 @@ export default function NodeRegistrationWizard() {
     }
   }, [step, isApprovalSuccess, useGasless])
 
-  // Auto-advance when registration succeeds
   useEffect(() => {
-    if (
-      step === 'confirm' &&
-      (isRegistrationSuccess || Boolean(gasless.lastTransactionReceipt))
-    ) {
+    if (step === 'confirm' && nodeRegistrationResult) {
+      setStep('complete')
+      return
+    }
+
+    if (step === 'confirm' && nodeIdentityError && processedRegistrationHash) {
       setStep('complete')
     }
-  }, [step, isRegistrationSuccess, gasless.lastTransactionReceipt])
+  }, [step, nodeRegistrationResult, nodeIdentityError, processedRegistrationHash])
+
+  useEffect(() => {
+    if (!effectiveRegistrationHash || !effectiveRegistrationReceipt || !submittedDraft) {
+      return
+    }
+    if (processedRegistrationHash === effectiveRegistrationHash) return
+
+    const nodeId = getNodeRegisteredIdFromReceipt(effectiveRegistrationReceipt)
+    setProcessedRegistrationHash(effectiveRegistrationHash)
+
+    if (!nodeId) {
+      setNodeIdentityError(
+        'Node registered, but the node ID could not be decoded from the receipt.',
+      )
+      return
+    }
+
+    const metadata: NodeIdentityMetadata = {
+      nodeName: submittedDraft.nodeName,
+      operatorAgentId: submittedDraft.operatorAgentId,
+      nodeId,
+      rpcUrl: submittedDraft.rpcUrl,
+      region: submittedDraft.region,
+      services: submittedDraft.services,
+      serviceTags: [...submittedDraft.services],
+      cpuCores: submittedDraft.cpuCores,
+      memoryGb: submittedDraft.memoryGb,
+      diskGb: submittedDraft.diskGb,
+      zone: submittedDraft.zone,
+      stakingToken: submittedDraft.stakingToken,
+      stakeAmount: submittedDraft.stakeAmount,
+      rewardToken: submittedDraft.rewardToken,
+      status: 'active',
+    }
+
+    setIsRegisteringNodeIdentity(true)
+    void registerNodeIdentity(metadata, { gasless: useGasless }).then((result) => {
+      setIsRegisteringNodeIdentity(false)
+
+      if (!result.success) {
+        setNodeIdentityError(
+          result.error ??
+            'Node identity registration failed after staking succeeded.',
+        )
+        return
+      }
+
+      setNodeRegistrationResult({
+        operatorAgentId: submittedDraft.operatorAgentId,
+        nodeId,
+        nodeIdentityId: result.agentId?.toString(),
+        txHash: effectiveRegistrationHash,
+      })
+    })
+  }, [
+    effectiveRegistrationHash,
+    effectiveRegistrationReceipt,
+    processedRegistrationHash,
+    registerNodeIdentity,
+    submittedDraft,
+    useGasless,
+  ])
 
   const renderStepIndicator = () => {
     const steps: { key: WizardStep; label: string }[] = [
@@ -710,33 +1070,37 @@ export default function NodeRegistrationWizard() {
 
   const renderConnectStep = () => (
     <div style={{ textAlign: 'center', padding: '1rem' }}>
-      <div
-        style={{
-          width: '64px',
-          height: '64px',
-          borderRadius: 'var(--radius-lg)',
-          background: 'var(--accent-soft)',
-          color: 'var(--accent)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 1.5rem',
-        }}
-      >
-        <Wallet size={32} />
-      </div>
-      <h3 style={{ marginBottom: '0.75rem' }}>Connect Your Wallet</h3>
-      <p
-        style={{
-          color: 'var(--text-secondary)',
-          marginBottom: '1.5rem',
-          maxWidth: '400px',
-          margin: '0 auto 1.5rem',
-        }}
-      >
-        Connect your Ethereum wallet to register your node. Your wallet will
-        receive all earnings from providing services.
-      </p>
+      {!isConnected && (
+        <>
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--accent-soft)',
+              color: 'var(--accent)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 1.5rem',
+            }}
+          >
+            <Wallet size={32} />
+          </div>
+          <h3 style={{ marginBottom: '0.75rem' }}>Connect Your Wallet</h3>
+          <p
+            style={{
+              color: 'var(--text-secondary)',
+              marginBottom: '1.5rem',
+              maxWidth: '400px',
+              margin: '0 auto 1.5rem',
+            }}
+          >
+            Connect your Ethereum wallet to register your node. Your wallet will
+            receive all earnings from providing services.
+          </p>
+        </>
+      )}
 
       {isConnected ? (
         <div
@@ -778,8 +1142,8 @@ export default function NodeRegistrationWizard() {
           >
             {isAgentLoading
               ? 'Checking ERC-8004 operator identity...'
-              : hasAgent && agentId !== null
-                ? `Linked ERC-8004 operator identity: Agent #${agentId}`
+              : hasAgent && selectedAgentIdState !== null
+                ? `Linked ERC-8004 operator identity: Agent #${selectedAgentIdState}`
                 : 'No ERC-8004 operator identity found for this wallet yet.'}
           </div>
         </div>
@@ -817,6 +1181,43 @@ export default function NodeRegistrationWizard() {
             border: '1px solid var(--border)',
           }}
         >
+          {hasAgent && agents.length > 0 && (
+            <div style={{ marginBottom: '1rem', textAlign: 'left' }}>
+              <div
+                style={{
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Operator identity
+              </div>
+              <select
+                value={selectedAgentIdState ?? ''}
+                onChange={(event) =>
+                  setSelectedAgentIdState(
+                    event.target.value ? Number(event.target.value) : null,
+                  )
+                }
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-tertiary)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    Agent #{agent.id}
+                    {agent.name ? ` - ${agent.name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div
             style={{
               display: 'flex',
@@ -899,7 +1300,7 @@ export default function NodeRegistrationWizard() {
             </div>
             <div style={{ color: 'var(--text-secondary)' }}>
               Recommended JEJU on smart account:{' '}
-              {formatTokenUsd(requiredStake, 18, 1)}
+              {formatStakeAmount(requiredStake)}
             </div>
           </div>
 
@@ -948,8 +1349,7 @@ export default function NodeRegistrationWizard() {
             onClick={handleNextStep}
             disabled={
               isAgentLoading ||
-              !hasAgent ||
-              (useGasless && !gaslessReadiness.isReady)
+              !hasAgent
             }
             style={{ padding: '0.875rem 2rem' }}
           >
@@ -1263,7 +1663,10 @@ export default function NodeRegistrationWizard() {
                   Agent Delegated Wallet
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
-                  {proofChallenge.currentAgentWallet ?? 'Not set'}
+                  {proofChallenge.currentAgentWallet &&
+                  proofChallenge.currentAgentWallet !== ZERO_ADDRESS
+                    ? proofChallenge.currentAgentWallet
+                    : 'Set after authorization'}
                 </div>
               </div>
             </div>
@@ -1321,12 +1724,16 @@ export default function NodeRegistrationWizard() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={authorizeNodeWallet}
+                  onClick={() => void authorizeNodeWallet()}
                   disabled={
-                    isSetAgentWalletPending || isSetAgentWalletConfirming
+                    isAuthorizingNodeWallet ||
+                    isSetAgentWalletPending ||
+                    isSetAgentWalletConfirming
                   }
                 >
-                  {isSetAgentWalletPending || isSetAgentWalletConfirming ? (
+                  {isAuthorizingNodeWallet ||
+                  isSetAgentWalletPending ||
+                  isSetAgentWalletConfirming ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
                       Authorizing...
@@ -1358,6 +1765,50 @@ export default function NodeRegistrationWizard() {
                 </button>
               )}
           </div>
+
+          {authorizeResult ? (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.875rem',
+                borderRadius: 'var(--radius-md)',
+                border:
+                  authorizeResult.status === 'error'
+                    ? '1px solid var(--error)'
+                    : authorizeResult.status === 'success'
+                      ? '1px solid var(--success)'
+                      : '1px solid var(--border)',
+                background:
+                  authorizeResult.status === 'error'
+                    ? 'var(--error-soft)'
+                    : authorizeResult.status === 'success'
+                      ? 'var(--success-soft)'
+                      : 'var(--surface-hover)',
+                display: 'grid',
+                gap: '0.35rem',
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>{authorizeResult.title}</div>
+              <div style={{ fontSize: '0.9rem' }}>{authorizeResult.message}</div>
+              {authorizeResult.txHash ? (
+                <a
+                  href={`${EXPLORER_URL}/tx/${authorizeResult.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  View transaction
+                  <ExternalLink size={14} />
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {/* Region and Zone */}
@@ -1853,7 +2304,10 @@ export default function NodeRegistrationWizard() {
             >
               Linked Operator Identity
             </div>
-            <div style={{ fontSize: '0.9rem' }}>Agent #{selectedAgentId.toString()}</div>
+            <div style={{ fontSize: '0.9rem' }}>
+              Agent #{selectedAgentId.toString()}
+              {selectedAgent?.name ? ` - ${selectedAgent.name}` : ''}
+            </div>
           </div>
         )}
 
@@ -2007,6 +2461,34 @@ export default function NodeRegistrationWizard() {
           )}
         </button>
       </div>
+
+      {isRegisteringNodeIdentity && (
+        <div
+          style={{
+            marginTop: '1rem',
+            padding: '1rem',
+            background: 'var(--info-soft)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--info)',
+          }}
+        >
+          Creating node identity and persisting selected services...
+        </div>
+      )}
+
+      {nodeIdentityError && (
+        <div
+          style={{
+            marginTop: '1rem',
+            padding: '1rem',
+            background: 'var(--warning-soft)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--warning)',
+          }}
+        >
+          {nodeIdentityError}
+        </div>
+      )}
     </div>
   )
 
@@ -2040,7 +2522,31 @@ export default function NodeRegistrationWizard() {
         Node app to start earning.
       </p>
 
-      {registrationHash && (
+      {nodeRegistrationResult?.nodeIdentityId && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--success-soft)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '1rem',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '0.25rem',
+            }}
+          >
+            Node Identity
+          </div>
+          <div style={{ fontSize: '1rem', fontWeight: 600 }}>
+            Agent #{nodeRegistrationResult.nodeIdentityId}
+          </div>
+        </div>
+      )}
+
+      {(nodeRegistrationResult?.txHash || effectiveRegistrationHash) && (
         <div
           style={{
             padding: '1rem',
@@ -2056,10 +2562,10 @@ export default function NodeRegistrationWizard() {
               marginBottom: '0.25rem',
             }}
           >
-            Transaction Hash
+            Registration Transaction
           </div>
           <a
-            href={`https://explorer.jejunetwork.org/tx/${registrationHash}`}
+            href={`https://explorer.jejunetwork.org/tx/${nodeRegistrationResult?.txHash ?? effectiveRegistrationHash}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -2072,9 +2578,25 @@ export default function NodeRegistrationWizard() {
               gap: '0.5rem',
             }}
           >
-            {registrationHash.slice(0, 10)}...{registrationHash.slice(-8)}
+            {(nodeRegistrationResult?.txHash ?? effectiveRegistrationHash)?.slice(0, 10)}...
+            {(nodeRegistrationResult?.txHash ?? effectiveRegistrationHash)?.slice(-8)}
             <ExternalLink size={14} />
           </a>
+        </div>
+      )}
+
+      {nodeIdentityError && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--warning-soft)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '1.5rem',
+            color: 'var(--warning)',
+          }}
+        >
+          Node staking succeeded, but the node identity metadata could not be
+          finalized: {nodeIdentityError}
         </div>
       )}
 
@@ -2091,21 +2613,29 @@ export default function NodeRegistrationWizard() {
   )
 
   return (
-    <div className="card" style={{ marginBottom: '2rem' }}>
-      <div className="card-header">
-        <h3 className="card-title">
-          <Server size={18} /> Register Your Node
-        </h3>
+    <>
+      <div className="card" style={{ marginBottom: '2rem' }}>
+        <div className="card-header">
+          <h3 className="card-title">
+            <Server size={18} /> Register Your Node
+          </h3>
+        </div>
+
+        {step !== 'complete' && renderStepIndicator()}
+
+        {step === 'connect' && renderConnectStep()}
+        {step === 'services' && renderServicesStep()}
+        {step === 'stake' && renderStakeStep()}
+        {step === 'approve' && renderApproveStep()}
+        {step === 'confirm' && renderConfirmStep()}
+        {step === 'complete' && renderCompleteStep()}
       </div>
-
-      {step !== 'complete' && renderStepIndicator()}
-
-      {step === 'connect' && renderConnectStep()}
-      {step === 'services' && renderServicesStep()}
-      {step === 'stake' && renderStakeStep()}
-      {step === 'approve' && renderApproveStep()}
-      {step === 'confirm' && renderConfirmStep()}
-      {step === 'complete' && renderCompleteStep()}
-    </div>
+      {authorizeResult ? (
+        <TransactionStatusModal
+          result={authorizeResult}
+          onClose={() => setAuthorizeResult(null)}
+        />
+      ) : null}
+    </>
   )
 }

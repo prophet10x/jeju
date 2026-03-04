@@ -15,15 +15,30 @@ export default function RegistryTab() {
     'list',
   )
   const [selectedAppId, setSelectedAppId] = useState<bigint | null>(null)
+  const [listRefreshKey, setListRefreshKey] = useState(0)
 
   useEffect(() => {
     const handleNavigateToRegister = () => setActiveSection('register')
+    const handleNavigateToRegistryList = () => {
+      setActiveSection('list')
+      setListRefreshKey((current) => current + 1)
+    }
     window.addEventListener('navigate-to-register', handleNavigateToRegister)
+    window.addEventListener(
+      'navigate-to-registry-list',
+      handleNavigateToRegistryList,
+    )
     return () =>
-      window.removeEventListener(
-        'navigate-to-register',
-        handleNavigateToRegister,
-      )
+      {
+        window.removeEventListener(
+          'navigate-to-register',
+          handleNavigateToRegister,
+        )
+        window.removeEventListener(
+          'navigate-to-registry-list',
+          handleNavigateToRegistryList,
+        )
+      }
   }, [])
 
   return (
@@ -54,7 +69,10 @@ export default function RegistryTab() {
         </button>
       </div>
       {activeSection === 'list' && (
-        <RegisteredAppsList onSelectApp={setSelectedAppId} />
+        <RegisteredAppsList
+          key={listRefreshKey}
+          onSelectApp={setSelectedAppId}
+        />
       )}
       {activeSection === 'register' &&
         (isConnected ? (

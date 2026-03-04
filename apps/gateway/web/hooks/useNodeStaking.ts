@@ -1,4 +1,5 @@
-import { type Address, encodeFunctionData, erc20Abi } from 'viem'
+import { type Address, encodeFunctionData, erc20Abi, type Hex } from 'viem'
+import { useState } from 'react'
 import { useAccount, useReadContract } from 'wagmi'
 import { CONTRACTS } from '../../lib/config'
 import {
@@ -34,6 +35,7 @@ export function useNodeStaking() {
   const stakingManager = getNodeStakingAddress()
   const { address: userAddress } = useAccount()
   const gasless = useGaslessSmartAccount()
+  const [lastRegistrationHash, setLastRegistrationHash] = useState<Hex>()
 
   const { data: operatorNodeIds, refetch: refetchNodes } = useReadContract({
     address: stakingManager,
@@ -56,10 +58,12 @@ export function useNodeStaking() {
   })
 
   const {
-    write: register,
+    writeAsync: registerAsync,
+    hash: registerHash,
     isPending: isRegistering,
     isConfirming: isConfirmingRegister,
     isSuccess: isRegisterSuccess,
+    receipt: registerReceipt,
   } = useTypedWriteContract()
 
   const {
@@ -139,7 +143,7 @@ export function useNodeStaking() {
 
     // Step 2: Register node (contract will transferFrom)
     if (operatorAgentId !== undefined) {
-      register({
+      const hash = await registerAsync({
         address: stakingManager,
         abi: NODE_STAKING_WITH_AGENT_ABI,
         functionName: 'registerNodeWithAgent',
@@ -152,15 +156,17 @@ export function useNodeStaking() {
           operatorAgentId,
         ],
       })
+      setLastRegistrationHash(hash)
       return
     }
 
-    register({
+    const hash = await registerAsync({
       address: stakingManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'registerNode',
       args: [stakingToken, stakeAmount, rewardToken, rpcUrl, region],
     })
+    setLastRegistrationHash(hash)
   }
 
   const {
@@ -190,6 +196,11 @@ export function useNodeStaking() {
     isRegistering: isRegistering || isConfirmingRegister || gasless.isExecuting,
     isDeregistering: isDeregistering || isConfirmingDeregister,
     isRegisterSuccess: isRegisterSuccess || Boolean(gasless.lastTransactionReceipt),
+    registrationHash:
+      (registerHash as Hex | undefined) ??
+      lastRegistrationHash ??
+      gasless.lastTransactionHash,
+    registrationReceipt: registerReceipt ?? gasless.lastTransactionReceipt,
     isDeregisterSuccess,
     refetchNodes,
     gasless,

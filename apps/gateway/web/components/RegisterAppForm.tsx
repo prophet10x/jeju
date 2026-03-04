@@ -170,6 +170,9 @@ export default function RegisterAppForm() {
             ? '0x0000000000000000000000000000000000000000'
             : JEJU_TOKEN,
         stakeAmount: stakeAmount ?? 0n,
+        tags: validation.data.tags,
+        category: validation.data.tags[0],
+        serviceType: validation.data.a2aEndpoint ? 'agent' : 'app',
       }, { gasless: useGasless })
 
       setIsSubmitting(false)
@@ -181,6 +184,7 @@ export default function RegisterAppForm() {
         setA2aEndpoint('')
         setSelectedTags([])
         setSelectedTier(StakeTier.NONE)
+        window.dispatchEvent(new Event('navigate-to-registry-list'))
       } else {
         setError(result.error ?? 'Registration failed')
       }

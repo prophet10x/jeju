@@ -8,16 +8,15 @@ import {
   predictSimpleAccountAddress,
 } from '@jejunetwork/shared/gasless'
 import { useMemo } from 'react'
-import { usePublicClient } from 'wagmi'
-import { useAccount } from 'wagmi'
-import { CONTRACTS } from '../config'
+import { useAccount, usePublicClient } from 'wagmi'
+import { CONTRACTS } from '../../lib/config'
 
 export function useAgentId() {
   const { address, isConnected } = useAccount()
   const publicClient = usePublicClient()
 
   const { data, isLoading } = useQuery({
-    queryKey: ['agents', address, CONTRACTS.simpleAccountFactory],
+    queryKey: ['gateway-agents', address, CONTRACTS.simpleAccountFactory],
     queryFn: async () => {
       let smartAccountAddress: string | null = null
 

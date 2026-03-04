@@ -22,6 +22,10 @@ import {INodeStakingManager} from "./INodeStakingManager.sol";
  */
 contract MultiOracleConsensus is Ownable {
     INodeStakingManager public immutable stakingManager;
+    uint256 public immutable bootstrapStartBlock;
+    address public nextConsensus;
+    uint256 public advancedActivationDelayBlocks = 10_000_000;
+    uint256 public minimumBootstrapOraclesForUpgrade = 5;
 
     struct PerformanceSubmission {
         uint256 uptimeScore;
@@ -51,11 +55,14 @@ contract MultiOracleConsensus is Ownable {
     event OracleSubmitted(bytes32 indexed nodeId, address indexed oracle, uint256 uptimeScore);
     event ConsensusReached(bytes32 indexed nodeId, uint256 uptimeScore, uint256 requests);
     event PerformanceUpdated(bytes32 indexed nodeId);
+    event NextConsensusUpdated(address indexed oldConsensus, address indexed newConsensus);
+    event MigrationThresholdsUpdated(uint256 oldDelayBlocks, uint256 newDelayBlocks, uint256 oldMinOracles, uint256 newMinOracles);
 
     constructor(address _stakingManager, address[] memory _initialOracles, address initialOwner)
         Ownable(initialOwner)
     {
         stakingManager = INodeStakingManager(_stakingManager);
+        bootstrapStartBlock = block.number;
 
         for (uint256 i = 0; i < _initialOracles.length; i++) {
             authorizedOracles.push(_initialOracles[i]);
@@ -63,6 +70,16 @@ contract MultiOracleConsensus is Ownable {
         }
 
         require(authorizedOracles.length >= MIN_ORACLES_REQUIRED, "Need at least 3 oracles");
+    }
+
+    function authorizedOracleCount() external view returns (uint256) {
+        return authorizedOracles.length;
+    }
+
+    function canHandOffToNextConsensus() public view returns (bool) {
+        return nextConsensus != address(0)
+            && block.number >= bootstrapStartBlock + advancedActivationDelayBlocks
+            && authorizedOracles.length >= minimumBootstrapOraclesForUpgrade;
     }
 
     /**
@@ -192,5 +209,22 @@ contract MultiOracleConsensus is Ownable {
             authorizedOracles.push(oracle);
             isAuthorizedOracle[oracle] = true;
         }
+    }
+
+    function setNextConsensus(address newNextConsensus) external onlyOwner {
+        emit NextConsensusUpdated(nextConsensus, newNextConsensus);
+        nextConsensus = newNextConsensus;
+    }
+
+    function setMigrationThresholds(uint256 newDelayBlocks, uint256 newMinOracles) external onlyOwner {
+        require(newDelayBlocks > 0, "delay=0");
+        require(newMinOracles >= MIN_ORACLES_REQUIRED, "min<3");
+
+        emit MigrationThresholdsUpdated(
+            advancedActivationDelayBlocks, newDelayBlocks, minimumBootstrapOraclesForUpgrade, newMinOracles
+        );
+
+        advancedActivationDelayBlocks = newDelayBlocks;
+        minimumBootstrapOraclesForUpgrade = newMinOracles;
     }
 }

@@ -130,14 +130,14 @@ const SignResponseSchema = z.object({
   r: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   s: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   v: z.number().int().min(27).max(28),
-  mode: z.enum(['mpc', 'tee', 'development']),
+  mode: z.enum(['mpc', 'tee', 'development', 'frost']),
   keyId: z.string(),
 })
 
 const TransactionSignResponseSchema = z.object({
   signedTransaction: z.string().regex(/^0x[a-fA-F0-9]+$/),
   hash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
-  mode: z.enum(['mpc', 'tee', 'development']),
+  mode: z.enum(['mpc', 'tee', 'development', 'frost']),
 })
 
 const KeyInfoResponseSchema = z.object({
@@ -155,13 +155,13 @@ const KeyInfoResponseSchema = z.object({
 const HealthResponseSchema = z.union([
   z.object({
     healthy: z.boolean(),
-    mode: z.enum(['mpc', 'tee', 'development']).optional(),
+    mode: z.enum(['mpc', 'tee', 'development', 'frost']).optional(),
     threshold: z.number().optional(),
     activeParties: z.number().optional(),
   }),
   z.object({
     status: z.literal('healthy'),
-    mode: z.enum(['distributed', 'centralized']).optional(),
+    mode: z.enum(['distributed', 'centralized', 'frost']).optional(),
     distributedParties: z.number().optional(),
     config: z
       .object({
@@ -317,6 +317,8 @@ export class KMSSigner {
       mode:
         parsed.mode === 'development'
           ? 'local-dev'
+          : parsed.mode === 'frost'
+            ? 'mpc'
           : (parsed.mode as SigningMode),
       keyId: parsed.keyId,
       signedAt: Date.now(),
@@ -431,6 +433,8 @@ export class KMSSigner {
       mode:
         parsed.mode === 'development'
           ? 'local-dev'
+          : parsed.mode === 'frost'
+            ? 'mpc'
           : (parsed.mode as SigningMode),
     }
   }
@@ -750,12 +754,14 @@ export class KMSSigner {
         mode =
           parsed.mode === 'development'
             ? 'local-dev'
+            : parsed.mode === 'frost'
+              ? 'mpc'
             : (parsed.mode as SigningMode)
         threshold = parsed.threshold
         activeParties = parsed.activeParties
       } else {
         isHealthy = true
-        mode = 'mpc'
+        mode = parsed.mode === 'frost' ? 'mpc' : 'mpc'
         if (parsed.config) {
           threshold = parsed.config.defaultThreshold
           activeParties = parsed.config.defaultParties

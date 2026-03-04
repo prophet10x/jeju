@@ -13,7 +13,9 @@ contract DeployEntryPoint is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        // Deploy EntryPoint
+        // Deploy the vendored upstream account-abstraction EntryPoint.
+        // This script uses a plain CREATE deployment and does not produce the
+        // canonical deterministic 0x433708... address from upstream hardhat-deploy.
         EntryPoint entryPoint = new EntryPoint();
         console.log("EntryPoint deployed at:", address(entryPoint));
 

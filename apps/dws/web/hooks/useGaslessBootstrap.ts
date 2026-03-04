@@ -1,4 +1,4 @@
-import type { GaslessBootstrapResponse } from '@jejunetwork/shared'
+import type { GaslessBootstrapResponse } from '@jejunetwork/shared/gasless'
 import { useCallback, useMemo, useState } from 'react'
 import type { useGaslessSmartAccount } from './useGaslessSmartAccount'
 
