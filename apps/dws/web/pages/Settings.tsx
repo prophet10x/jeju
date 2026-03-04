@@ -63,6 +63,7 @@ export default function SettingsPage() {
   }
 
   const registeredNodes = providerStats?.nodes ?? []
+  const hasStakingActivity = (providerStats?.totalNodesActive ?? 0) > 0
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: <User size={16} /> },
@@ -213,8 +214,12 @@ export default function SettingsPage() {
                           <div style={{ fontWeight: 500 }}>
                             {(() => {
                               try {
-                                const parsed = tokenURI ? JSON.parse(tokenURI) : null
-                                return parsed?.name ? `${parsed.name} (ID: ${agentId})` : `Agent #${agentId}`
+                                const parsed = tokenURI
+                                  ? JSON.parse(tokenURI)
+                                  : null
+                                return parsed?.name
+                                  ? `${parsed.name} (ID: ${agentId})`
+                                  : `Agent #${agentId}`
                               } catch {
                                 return `Agent #${agentId}`
                               }
@@ -229,7 +234,9 @@ export default function SettingsPage() {
                           >
                             {(() => {
                               try {
-                                const parsed = tokenURI ? JSON.parse(tokenURI) : null
+                                const parsed = tokenURI
+                                  ? JSON.parse(tokenURI)
+                                  : null
                                 return parsed?.description || 'Registered agent'
                               } catch {
                                 return 'Registered agent'
@@ -526,13 +533,19 @@ export default function SettingsPage() {
               ) : registeredNodes.length === 0 ? (
                 <div className="empty-state" style={{ padding: '3rem' }}>
                   <Server size={48} />
-                  <h3>No nodes registered</h3>
-                  <p>Register a node to start earning rewards</p>
-                  <a
-                    href="/provider/node/register"
-                    className="btn btn-primary"
-                  >
-                    <Plus size={16} /> Register Node
+                  <h3>
+                    {hasStakingActivity
+                      ? 'Node metadata pending'
+                      : 'No nodes registered'}
+                  </h3>
+                  <p>
+                    {hasStakingActivity
+                      ? 'On-chain node activity exists for this operator, but details are still syncing.'
+                      : 'Register a node to start earning rewards'}
+                  </p>
+                  <a href="/provider/node/register" className="btn btn-primary">
+                    <Plus size={16} />{' '}
+                    {hasStakingActivity ? 'Refresh later' : 'Register Node'}
                   </a>
                 </div>
               ) : (
@@ -572,33 +585,41 @@ export default function SettingsPage() {
                               marginTop: '0.25rem',
                             }}
                           >
-                            {node.region} • {node.rpcUrl}
+                            {node.metadataPending
+                              ? 'On-chain node detected, metadata pending'
+                              : `${node.region} • ${node.rpcUrl}`}
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <span
                             className={`badge ${
-                              node.isActive
-                                ? 'badge-success'
-                                : node.isSlashed
-                                  ? 'badge-error'
-                                  : 'badge-warning'
+                              node.metadataPending
+                                ? 'badge-warning'
+                                : node.isActive
+                                  ? 'badge-success'
+                                  : node.isSlashed
+                                    ? 'badge-error'
+                                    : 'badge-warning'
                             }`}
                           >
-                            {node.isActive
-                              ? 'Active'
-                              : node.isSlashed
-                                ? 'Slashed'
-                                : 'Inactive'}
+                            {node.metadataPending
+                              ? 'Metadata pending'
+                              : node.isActive
+                                ? 'Active'
+                                : node.isSlashed
+                                  ? 'Slashed'
+                                  : 'Inactive'}
                           </span>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            title="Deregister node"
-                            onClick={() => handleDeregisterNode(node.nodeId)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {!node.metadataPending ? (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              title="Deregister node"
+                              onClick={() => handleDeregisterNode(node.nodeId)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                       <div
@@ -678,7 +699,6 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
-
     </div>
   )
 }

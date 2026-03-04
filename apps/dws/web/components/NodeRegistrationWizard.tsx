@@ -9,6 +9,7 @@ import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   fetchAgentWallet,
   getNodeRegisteredIdFromReceipt,
+  JEJU_NODE_REGISTRATION_SERVICE,
   NODE_SERVICE_DEFINITIONS,
   type NodeIdentityMetadata,
   type NodeRegistrationDraft,
@@ -23,10 +24,10 @@ import {
   type RegionValue,
   useNodeStaking,
 } from '@jejunetwork/ui/hooks/useNodeStaking'
-import { useWallet } from '@jejunetwork/ui/wallet'
 import {
   TransactionStatusModal,
   type TransactionStatusResult,
+  useWallet,
 } from '@jejunetwork/ui/wallet'
 import {
   AlertCircle,
@@ -60,16 +61,16 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, formatEther } from 'viem'
 import {
-  useSignMessage,
   usePublicClient,
+  useSignMessage,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
 import { CONTRACTS, EXPLORER_URL } from '../config'
 import { useAgentId } from '../hooks/useAgentId'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
-import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
+import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
 
 type WizardStep =
   | 'connect'
@@ -245,12 +246,11 @@ export default function NodeRegistrationWizard() {
   const [diskGb, setDiskGb] = useState('')
   const [customStakeAmount, setCustomStakeAmount] = useState('')
   const [useGasless, setUseGasless] = useState(true)
-  const [selectedAgentIdState, setSelectedAgentIdState] = useState<number | null>(
-    null,
-  )
-  const [proofChallenge, setProofChallenge] = useState<NodeProofChallenge | null>(
-    null,
-  )
+  const [selectedAgentIdState, setSelectedAgentIdState] = useState<
+    number | null
+  >(null)
+  const [proofChallenge, setProofChallenge] =
+    useState<NodeProofChallenge | null>(null)
   const [proofVerification, setProofVerification] =
     useState<NodeProofVerification | null>(null)
   const [isPreparingProof, setIsPreparingProof] = useState(false)
@@ -261,16 +261,18 @@ export default function NodeRegistrationWizard() {
   const [lastRegistrationHash, setLastRegistrationHash] = useState<
     `0x${string}` | undefined
   >()
-  const [submittedDraft, setSubmittedDraft] = useState<NodeRegistrationDraft | null>(
-    null,
-  )
+  const [submittedDraft, setSubmittedDraft] =
+    useState<NodeRegistrationDraft | null>(null)
   const [processedRegistrationHash, setProcessedRegistrationHash] = useState<
     `0x${string}` | null
   >(null)
   const [nodeRegistrationResult, setNodeRegistrationResult] =
     useState<NodeRegistrationResult | null>(null)
-  const [nodeIdentityError, setNodeIdentityError] = useState<string | null>(null)
-  const [isRegisteringNodeIdentity, setIsRegisteringNodeIdentity] = useState(false)
+  const [nodeIdentityError, setNodeIdentityError] = useState<string | null>(
+    null,
+  )
+  const [isRegisteringNodeIdentity, setIsRegisteringNodeIdentity] =
+    useState(false)
 
   const {
     writeContract: writeSetAgentWallet,
@@ -291,7 +293,9 @@ export default function NodeRegistrationWizard() {
   )
   const selectedAgent =
     selectedAgentIdState !== null
-      ? agents.find((candidate) => Number(candidate.id) === selectedAgentIdState)
+      ? agents.find(
+          (candidate) => Number(candidate.id) === selectedAgentIdState,
+        )
       : undefined
   const selectedAgentId =
     selectedAgentIdState !== null ? BigInt(selectedAgentIdState) : undefined
@@ -313,6 +317,7 @@ export default function NodeRegistrationWizard() {
   const isOwnershipVerified =
     proofVerification !== null &&
     proofVerification.challengeId === proofChallenge?.challengeId
+  const normalizedNodeRpcUrl = nodeRpcUrl.trim()
 
   // Calculate minimum required stake from contract's minStakeUSD
   const minimumStake = useMemo(() => {
@@ -324,9 +329,13 @@ export default function NodeRegistrationWizard() {
   const requiredStake = useMemo(() => {
     if (customStakeAmount) {
       try {
-        const customWei = BigInt(Math.floor(parseFloat(customStakeAmount) * 1e18))
+        const customWei = BigInt(
+          Math.floor(parseFloat(customStakeAmount) * 1e18),
+        )
         if (customWei >= minimumStake) return customWei
-      } catch { /* fall through to minimum */ }
+      } catch {
+        /* fall through to minimum */
+      }
     }
     return minimumStake
   }, [customStakeAmount, minimumStake])
@@ -375,6 +384,18 @@ export default function NodeRegistrationWizard() {
     )
   }, [])
 
+  const selectAllServices = useCallback(() => {
+    setServices((prev) =>
+      prev.map((service) => ({ ...service, selected: true })),
+    )
+  }, [])
+
+  const clearAllServices = useCallback(() => {
+    setServices((prev) =>
+      prev.map((service) => ({ ...service, selected: false })),
+    )
+  }, [])
+
   const handleNextStep = useCallback(() => {
     setError(null)
     if (step === 'connect' && isConnected) {
@@ -412,7 +433,6 @@ export default function NodeRegistrationWizard() {
     selectedAgentId,
     selectedServices.length,
     useGasless,
-    gaslessReadiness.isReady,
   ])
 
   const handlePrevStep = useCallback(() => {
@@ -446,7 +466,7 @@ export default function NodeRegistrationWizard() {
       setError('Staking manager not configured for this network')
       return
     }
-    if (!nodeRpcUrl) {
+    if (!normalizedNodeRpcUrl) {
       setError('Please enter your node RPC URL')
       return
     }
@@ -466,7 +486,7 @@ export default function NodeRegistrationWizard() {
       stakeAmount: requiredStake.toString(),
       stakingToken: DEFAULT_STAKING_TOKEN,
       rewardToken: DEFAULT_REWARD_TOKEN,
-      rpcUrl: nodeRpcUrl,
+      rpcUrl: normalizedNodeRpcUrl,
       region:
         [
           [Region.NorthAmerica, 'North America'],
@@ -495,7 +515,7 @@ export default function NodeRegistrationWizard() {
       }
       try {
         const txHash = await gasless.executeGaslessCalls({
-          serviceName: 'Jeju Node Registration',
+          serviceName: JEJU_NODE_REGISTRATION_SERVICE,
           requiredJejuBalance: requiredStake,
           calls: [
             {
@@ -515,7 +535,7 @@ export default function NodeRegistrationWizard() {
                   DEFAULT_STAKING_TOKEN,
                   requiredStake,
                   DEFAULT_REWARD_TOKEN,
-                  nodeRpcUrl,
+                  normalizedNodeRpcUrl,
                   selectedRegion,
                   selectedAgentId,
                 ],
@@ -540,13 +560,13 @@ export default function NodeRegistrationWizard() {
       stakingToken: DEFAULT_STAKING_TOKEN,
       stakeAmount: requiredStake,
       rewardToken: DEFAULT_REWARD_TOKEN,
-      rpcUrl: nodeRpcUrl,
+      rpcUrl: normalizedNodeRpcUrl,
       region: selectedRegion,
       operatorAgentId: selectedAgentId,
     })
   }, [
     stakingManagerAddress,
-    nodeRpcUrl,
+    normalizedNodeRpcUrl,
     selectedAgentId,
     requiredStake,
     selectedRegion,
@@ -555,6 +575,11 @@ export default function NodeRegistrationWizard() {
     gasless,
     gaslessReadiness.isReady,
     useGasless,
+    cpuCores,
+    diskGb,
+    memoryGb,
+    nodeName,
+    zone,
   ])
 
   const prepareOwnershipProof = useCallback(async () => {
@@ -562,12 +587,19 @@ export default function NodeRegistrationWizard() {
       setError('Connect the operator wallet and select an agent first.')
       return
     }
-    if (!nodeRpcUrl) {
+    if (!normalizedNodeRpcUrl) {
       setError('Enter the node endpoint URL before preparing proof.')
+      return
+    }
+    try {
+      new URL(normalizedNodeRpcUrl)
+    } catch {
+      setError('Enter a valid node endpoint URL (including https://).')
       return
     }
 
     setError(null)
+    setAuthorizeResult(null)
     setIsPreparingProof(true)
     setProofVerification(null)
 
@@ -578,28 +610,58 @@ export default function NodeRegistrationWizard() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          endpoint: nodeRpcUrl,
+          endpoint: normalizedNodeRpcUrl,
           operatorAddress: address,
           operatorAgentId: Number(selectedAgentId),
         }),
       })
 
-      const payload = (await response.json()) as
-        | NodeProofChallenge
-        | { error?: string }
-
-      if (!response.ok || 'error' in payload) {
-        throw new Error(payload.error ?? 'Failed to prepare node proof')
+      const rawPayload = await response.text()
+      let payload: NodeProofChallenge | { error?: string } | null = null
+      if (rawPayload) {
+        try {
+          payload = JSON.parse(rawPayload) as
+            | NodeProofChallenge
+            | { error?: string }
+        } catch {
+          throw new Error(
+            response.ok
+              ? 'Challenge endpoint returned invalid JSON.'
+              : `Prepare proof failed (HTTP ${response.status}).`,
+          )
+        }
       }
 
-      setProofChallenge(payload)
+      if (payload && 'error' in payload) {
+        throw new Error(payload.error ?? 'Failed to prepare node proof')
+      }
+      if (!response.ok) {
+        throw new Error(
+          `Failed to prepare node proof (HTTP ${response.status})`,
+        )
+      }
+
+      if (!payload || !('challengeId' in payload)) {
+        throw new Error('Challenge endpoint returned an unexpected response.')
+      }
+
+      const challengePayload = payload as NodeProofChallenge
+      setProofChallenge(challengePayload)
     } catch (err) {
       setProofChallenge(null)
-      setError(err instanceof Error ? err.message : 'Failed to prepare proof')
+      const message =
+        err instanceof Error ? err.message : 'Failed to prepare proof'
+      setAuthorizeResult({
+        status: 'error',
+        title: 'Prepare proof failed',
+        message,
+        explorerUrl: EXPLORER_URL,
+      })
+      setError(message)
     } finally {
       setIsPreparingProof(false)
     }
-  }, [address, nodeRpcUrl, selectedAgentId])
+  }, [address, normalizedNodeRpcUrl, selectedAgentId])
 
   const authorizeNodeWallet = useCallback(async () => {
     if (!proofChallenge || selectedAgentId === undefined) {
@@ -622,7 +684,7 @@ export default function NodeRegistrationWizard() {
 
       try {
         const txHash = await gasless.executeGaslessCalls({
-          serviceName: 'Jeju Node Registration',
+          serviceName: JEJU_NODE_REGISTRATION_SERVICE,
           calls: [
             {
               to: CONTRACTS.identityRegistry,
@@ -678,11 +740,15 @@ export default function NodeRegistrationWizard() {
           status: 'error',
           title: 'Authorization failed',
           message:
-            err instanceof Error ? err.message : 'Failed to authorize node wallet',
+            err instanceof Error
+              ? err.message
+              : 'Failed to authorize node wallet',
           explorerUrl: EXPLORER_URL,
         })
         setError(
-          err instanceof Error ? err.message : 'Failed to authorize node wallet',
+          err instanceof Error
+            ? err.message
+            : 'Failed to authorize node wallet',
         )
       } finally {
         setIsAuthorizingNodeWallet(false)
@@ -731,13 +797,34 @@ export default function NodeRegistrationWizard() {
         }),
       })
 
-      const payload = (await response.json()) as
-        | NodeProofVerification
-        | { error?: string }
+      const rawPayload = await response.text()
+      let payload: NodeProofVerification | { error?: string } | null = null
+      if (rawPayload) {
+        try {
+          payload = JSON.parse(rawPayload) as
+            | NodeProofVerification
+            | { error?: string }
+        } catch {
+          throw new Error(
+            response.ok
+              ? 'Verify endpoint returned invalid JSON.'
+              : `Failed to verify node proof (HTTP ${response.status}).`,
+          )
+        }
+      }
 
-      if (!response.ok || 'error' in payload) {
+      if (payload && 'error' in payload) {
         throw new Error(payload.error ?? 'Failed to verify node proof')
       }
+      if (!response.ok) {
+        throw new Error(`Failed to verify node proof (HTTP ${response.status})`)
+      }
+
+      if (!payload || !('verified' in payload)) {
+        throw new Error('Verify endpoint returned an unexpected response.')
+      }
+
+      const verificationPayload = payload as NodeProofVerification
 
       const onChainAgentWallet = await fetchAgentWallet({
         publicClient,
@@ -745,7 +832,7 @@ export default function NodeRegistrationWizard() {
         agentId: selectedAgentId,
       })
 
-      setProofVerification(payload)
+      setProofVerification(verificationPayload)
       setProofChallenge((current) =>
         current
           ? {
@@ -754,18 +841,31 @@ export default function NodeRegistrationWizard() {
               requiresDelegatedWalletUpdate:
                 !onChainAgentWallet ||
                 onChainAgentWallet.toLowerCase() !==
-                  payload.nodeWalletAddress.toLowerCase(),
+                  verificationPayload.nodeWalletAddress.toLowerCase(),
             }
           : current,
       )
+      setAuthorizeResult({
+        status: 'success',
+        title: 'Endpoint ownership verified',
+        message: 'Proof document and operator authorization were verified.',
+        explorerUrl: EXPLORER_URL,
+      })
     } catch (err) {
       setProofVerification(null)
+      setAuthorizeResult({
+        status: 'error',
+        title: 'Verification failed',
+        message: err instanceof Error ? err.message : 'Failed to verify proof',
+        explorerUrl: EXPLORER_URL,
+      })
       setError(err instanceof Error ? err.message : 'Failed to verify proof')
     } finally {
       setIsVerifyingProof(false)
     }
   }, [proofChallenge, publicClient, selectedAgentId, signMessageAsync])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset proof state when endpoint/operator selection changes
   useEffect(() => {
     setProofChallenge(null)
     setProofVerification(null)
@@ -886,10 +986,19 @@ export default function NodeRegistrationWizard() {
     if (step === 'confirm' && nodeIdentityError && processedRegistrationHash) {
       setStep('complete')
     }
-  }, [step, nodeRegistrationResult, nodeIdentityError, processedRegistrationHash])
+  }, [
+    step,
+    nodeRegistrationResult,
+    nodeIdentityError,
+    processedRegistrationHash,
+  ])
 
   useEffect(() => {
-    if (!effectiveRegistrationHash || !effectiveRegistrationReceipt || !submittedDraft) {
+    if (
+      !effectiveRegistrationHash ||
+      !effectiveRegistrationReceipt ||
+      !submittedDraft
+    ) {
       return
     }
     if (processedRegistrationHash === effectiveRegistrationHash) return
@@ -923,24 +1032,26 @@ export default function NodeRegistrationWizard() {
     }
 
     setIsRegisteringNodeIdentity(true)
-    void registerNodeIdentity(metadata, { gasless: useGasless }).then((result) => {
-      setIsRegisteringNodeIdentity(false)
+    void registerNodeIdentity(metadata, { gasless: useGasless }).then(
+      (result) => {
+        setIsRegisteringNodeIdentity(false)
 
-      if (!result.success) {
-        setNodeIdentityError(
-          result.error ??
-            'Node identity registration failed after staking succeeded.',
-        )
-        return
-      }
+        if (!result.success) {
+          setNodeIdentityError(
+            result.error ??
+              'Node identity registration failed after staking succeeded.',
+          )
+          return
+        }
 
-      setNodeRegistrationResult({
-        operatorAgentId: submittedDraft.operatorAgentId,
-        nodeId,
-        nodeIdentityId: result.agentId?.toString(),
-        txHash: effectiveRegistrationHash,
-      })
-    })
+        setNodeRegistrationResult({
+          operatorAgentId: submittedDraft.operatorAgentId,
+          nodeId,
+          nodeIdentityId: result.agentId?.toString(),
+          txHash: effectiveRegistrationHash,
+        })
+      },
+    )
   }, [
     effectiveRegistrationHash,
     effectiveRegistrationReceipt,
@@ -1228,7 +1339,9 @@ export default function NodeRegistrationWizard() {
             }}
           >
             <div>
-              <div style={{ fontWeight: 600 }}>JEJU gasless node registration</div>
+              <div style={{ fontWeight: 600 }}>
+                JEJU gasless node registration
+              </div>
               <div
                 style={{
                   color: 'var(--text-secondary)',
@@ -1272,7 +1385,7 @@ export default function NodeRegistrationWizard() {
               <strong>Gasless wallet (SimpleAccount):</strong>{' '}
               {gasless.isLoadingSmartAccount
                 ? 'Deriving...'
-                : gasless.smartAccountAddress ?? 'Unavailable'}
+                : (gasless.smartAccountAddress ?? 'Unavailable')}
             </div>
             {gasless.smartAccountDerivationError && (
               <div style={{ color: 'var(--danger)' }}>
@@ -1347,10 +1460,7 @@ export default function NodeRegistrationWizard() {
             type="button"
             className="btn btn-primary"
             onClick={handleNextStep}
-            disabled={
-              isAgentLoading ||
-              !hasAgent
-            }
+            disabled={isAgentLoading || !hasAgent}
             style={{ padding: '0.875rem 2rem' }}
           >
             Continue <ArrowRight size={16} />
@@ -1368,9 +1478,8 @@ export default function NodeRegistrationWizard() {
             color: 'var(--warning)',
           }}
         >
-          Node registration now expects an ERC-8004 operator identity. Create
-          an agent identity first, then come back to stake and register the
-          node.
+          Node registration now expects an ERC-8004 operator identity. Create an
+          agent identity first, then come back to stake and register the node.
         </div>
       )}
     </div>
@@ -1390,6 +1499,33 @@ export default function NodeRegistrationWizard() {
       >
         Choose which services you want to provide.
       </p>
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+          marginBottom: '0.75rem',
+        }}
+      >
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={selectAllServices}
+          disabled={selectedServices.length === services.length}
+        >
+          Pick all
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={clearAllServices}
+          disabled={selectedServices.length === 0}
+        >
+          Unpick all
+        </button>
+      </div>
 
       <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {services.map((service) => (
@@ -1509,7 +1645,11 @@ export default function NodeRegistrationWizard() {
         <div style={{ marginBottom: '1.5rem' }}>
           <label
             htmlFor="node-name"
-            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: 500,
+            }}
           >
             Node Name{' '}
             <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
@@ -1540,7 +1680,11 @@ export default function NodeRegistrationWizard() {
         <div style={{ marginBottom: '1.5rem' }}>
           <label
             htmlFor="node-rpc-url"
-            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: 500,
+            }}
           >
             Node RPC URL
           </label>
@@ -1629,7 +1773,9 @@ export default function NodeRegistrationWizard() {
                 >
                   Delegated Node Wallet
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+                <div
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+                >
                   {proofChallenge.nodeWalletAddress}
                 </div>
               </div>
@@ -1662,7 +1808,9 @@ export default function NodeRegistrationWizard() {
                 >
                   Agent Delegated Wallet
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+                <div
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+                >
                   {proofChallenge.currentAgentWallet &&
                   proofChallenge.currentAgentWallet !== ZERO_ADDRESS
                     ? proofChallenge.currentAgentWallet
@@ -1706,7 +1854,7 @@ export default function NodeRegistrationWizard() {
               type="button"
               className="btn btn-secondary"
               onClick={() => void prepareOwnershipProof()}
-              disabled={!nodeRpcUrl || isPreparingProof}
+              disabled={!normalizedNodeRpcUrl || isPreparingProof}
             >
               {isPreparingProof ? (
                 <>
@@ -1718,8 +1866,7 @@ export default function NodeRegistrationWizard() {
               )}
             </button>
 
-            {proofChallenge &&
-              proofChallenge.delegatedWalletContractReady &&
+            {proofChallenge?.delegatedWalletContractReady &&
               !nodeWalletAuthorized && (
                 <button
                   type="button"
@@ -1744,8 +1891,7 @@ export default function NodeRegistrationWizard() {
                 </button>
               )}
 
-            {proofChallenge &&
-              proofChallenge.delegatedWalletContractReady &&
+            {proofChallenge?.delegatedWalletContractReady &&
               nodeWalletAuthorized &&
               !isOwnershipVerified && (
                 <button
@@ -1789,7 +1935,9 @@ export default function NodeRegistrationWizard() {
               }}
             >
               <div style={{ fontWeight: 700 }}>{authorizeResult.title}</div>
-              <div style={{ fontSize: '0.9rem' }}>{authorizeResult.message}</div>
+              <div style={{ fontSize: '0.9rem' }}>
+                {authorizeResult.message}
+              </div>
               {authorizeResult.txHash ? (
                 <a
                   href={`${EXPLORER_URL}/tx/${authorizeResult.txHash}`}
@@ -1823,7 +1971,11 @@ export default function NodeRegistrationWizard() {
           <div>
             <label
               htmlFor="region-select"
-              style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+              style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                fontWeight: 500,
+              }}
             >
               Region
             </label>
@@ -1847,7 +1999,11 @@ export default function NodeRegistrationWizard() {
           <div>
             <label
               htmlFor="node-zone"
-              style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+              style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                fontWeight: 500,
+              }}
             >
               Zone{' '}
               <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
@@ -1868,7 +2024,11 @@ export default function NodeRegistrationWizard() {
         {/* Hardware Specs */}
         <div style={{ marginBottom: '1.5rem' }}>
           <div
-            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: 500,
+            }}
           >
             Hardware Specs{' '}
             <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
@@ -2005,7 +2165,11 @@ export default function NodeRegistrationWizard() {
           <div>
             <label
               htmlFor="stake-amount"
-              style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}
+              style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                fontWeight: 500,
+              }}
             >
               Stake Amount (JEJU)
             </label>
@@ -2017,9 +2181,7 @@ export default function NodeRegistrationWizard() {
               value={customStakeAmount}
               onChange={(e) => setCustomStakeAmount(e.target.value)}
               placeholder={
-                minStakeUSD
-                  ? Number(formatEther(minimumStake)).toString()
-                  : '0'
+                minStakeUSD ? Number(formatEther(minimumStake)).toString() : '0'
               }
               style={inputStyle}
             />
@@ -2063,10 +2225,7 @@ export default function NodeRegistrationWizard() {
             gap: '0.75rem',
           }}
         >
-          <Coins
-            size={18}
-            style={{ color: 'var(--info)', marginTop: '2px' }}
-          />
+          <Coins size={18} style={{ color: 'var(--info)', marginTop: '2px' }} />
           <div style={{ fontSize: '0.9rem' }}>
             <strong>Estimated Monthly Earnings:</strong>{' '}
             {estimatedMonthlyReward}
@@ -2313,7 +2472,13 @@ export default function NodeRegistrationWizard() {
 
         {nodeName && (
           <div style={{ marginBottom: '1rem' }}>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+            <div
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                marginBottom: '0.25rem',
+              }}
+            >
               Node Name
             </div>
             <div style={{ fontSize: '0.9rem' }}>{nodeName}</div>
@@ -2321,7 +2486,13 @@ export default function NodeRegistrationWizard() {
         )}
 
         <div style={{ marginBottom: '1rem' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '0.25rem',
+            }}
+          >
             Services
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -2334,7 +2505,13 @@ export default function NodeRegistrationWizard() {
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '0.25rem',
+            }}
+          >
             Node RPC URL
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
@@ -2344,7 +2521,13 @@ export default function NodeRegistrationWizard() {
 
         {proofVerification && (
           <div style={{ marginBottom: '1rem' }}>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+            <div
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                marginBottom: '0.25rem',
+              }}
+            >
               Delegated Node Wallet
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
@@ -2353,9 +2536,24 @@ export default function NodeRegistrationWizard() {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '1rem',
+            marginBottom: '1rem',
+          }}
+        >
           <div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Region</div>
+            <div
+              style={{
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                marginBottom: '0.25rem',
+              }}
+            >
+              Region
+            </div>
             <div style={{ fontSize: '0.9rem' }}>
               {[
                 [Region.NorthAmerica, 'North America'],
@@ -2370,29 +2568,68 @@ export default function NodeRegistrationWizard() {
           </div>
           {zone && (
             <div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Zone</div>
+              <div
+                style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-muted)',
+                  marginBottom: '0.25rem',
+                }}
+              >
+                Zone
+              </div>
               <div style={{ fontSize: '0.9rem' }}>{zone}</div>
             </div>
           )}
         </div>
 
         {(cpuCores || memoryGb || diskGb) && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '1rem',
+              marginBottom: '1rem',
+            }}
+          >
             {cpuCores && (
               <div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>CPU Cores</div>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  CPU Cores
+                </div>
                 <div style={{ fontSize: '0.9rem' }}>{cpuCores}</div>
               </div>
             )}
             {memoryGb && (
               <div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Memory</div>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Memory
+                </div>
                 <div style={{ fontSize: '0.9rem' }}>{memoryGb} GB</div>
               </div>
             )}
             {diskGb && (
               <div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Disk</div>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Disk
+                </div>
                 <div style={{ fontSize: '0.9rem' }}>{diskGb} GB</div>
               </div>
             )}
@@ -2400,10 +2637,22 @@ export default function NodeRegistrationWizard() {
         )}
 
         <div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '0.25rem',
+            }}
+          >
             Total Stake
           </div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>
+          <div
+            style={{
+              fontSize: '1.25rem',
+              fontWeight: 700,
+              color: 'var(--accent)',
+            }}
+          >
             {formatStakeAmount(requiredStake)}
           </div>
         </div>
@@ -2578,8 +2827,13 @@ export default function NodeRegistrationWizard() {
               gap: '0.5rem',
             }}
           >
-            {(nodeRegistrationResult?.txHash ?? effectiveRegistrationHash)?.slice(0, 10)}...
-            {(nodeRegistrationResult?.txHash ?? effectiveRegistrationHash)?.slice(-8)}
+            {(
+              nodeRegistrationResult?.txHash ?? effectiveRegistrationHash
+            )?.slice(0, 10)}
+            ...
+            {(
+              nodeRegistrationResult?.txHash ?? effectiveRegistrationHash
+            )?.slice(-8)}
             <ExternalLink size={14} />
           </a>
         </div>

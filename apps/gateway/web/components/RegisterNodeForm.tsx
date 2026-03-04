@@ -2,8 +2,9 @@ import {
   calculateUsdValue as calculateUSDValue,
   fetchAgentWallet,
   formatTokenUsd as formatUSD,
-  getNodeServiceMinimumStakeUsd,
   getNodeRegisteredIdFromReceipt,
+  getNodeServiceMinimumStakeUsd,
+  JEJU_NODE_REGISTRATION_SERVICE,
   NODE_SERVICE_DEFINITIONS,
   type NodeIdentityMetadata,
   type NodeRegistrationDraft,
@@ -13,28 +14,28 @@ import {
   waitForAgentWallet,
 } from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
-import { useEffect, useMemo, useState } from 'react'
-import { type Address, encodeFunctionData, formatUnits, parseEther } from 'viem'
-import {
-  calculateMonthlyRewardEstimate,
-  REGION_NAMES,
-  Region,
-} from '../../lib/nodeStaking'
-import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
-import { useAgentId } from '../hooks/useAgentId'
-import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
-import { useNodeStaking } from '../hooks/useNodeStaking'
-import { useProtocolTokens } from '../hooks/useProtocolTokens'
 import {
   TransactionStatusModal,
   type TransactionStatusResult,
 } from '@jejunetwork/ui/wallet'
+import { useEffect, useMemo, useState } from 'react'
+import { type Address, encodeFunctionData, formatUnits, parseEther } from 'viem'
 import {
   usePublicClient,
   useSignMessage,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
+import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
+import {
+  calculateMonthlyRewardEstimate,
+  REGION_NAMES,
+  Region,
+} from '../../lib/nodeStaking'
+import { useAgentId } from '../hooks/useAgentId'
+import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
+import { useNodeStaking } from '../hooks/useNodeStaking'
+import { useProtocolTokens } from '../hooks/useProtocolTokens'
 import type { TokenOption } from './TokenSelector'
 import TokenSelector from './TokenSelector'
 
@@ -110,19 +111,20 @@ export default function RegisterNodeForm() {
   const [useGasless, setUseGasless] = useState(true)
   const [step, setStep] = useState<RegistrationStep>('identity')
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [submittedDraft, setSubmittedDraft] = useState<NodeRegistrationDraft | null>(
-    null,
-  )
+  const [submittedDraft, setSubmittedDraft] =
+    useState<NodeRegistrationDraft | null>(null)
   const [processedRegistrationHash, setProcessedRegistrationHash] = useState<
     `0x${string}` | null
   >(null)
   const [nodeRegistrationResult, setNodeRegistrationResult] =
     useState<NodeRegistrationResult | null>(null)
-  const [nodeIdentityError, setNodeIdentityError] = useState<string | null>(null)
-  const [isRegisteringNodeIdentity, setIsRegisteringNodeIdentity] = useState(false)
-  const [proofChallenge, setProofChallenge] = useState<NodeProofChallenge | null>(
+  const [nodeIdentityError, setNodeIdentityError] = useState<string | null>(
     null,
   )
+  const [isRegisteringNodeIdentity, setIsRegisteringNodeIdentity] =
+    useState(false)
+  const [proofChallenge, setProofChallenge] =
+    useState<NodeProofChallenge | null>(null)
   const [proofVerification, setProofVerification] =
     useState<NodeProofVerification | null>(null)
   const [isPreparingProof, setIsPreparingProof] = useState(false)
@@ -131,14 +133,17 @@ export default function RegisterNodeForm() {
   const [authorizeResult, setAuthorizeResult] =
     useState<TransactionStatusResult | null>(null)
 
-  const { signMessageAsync, isPending: isSigningOperatorMessage } = useSignMessage()
+  const { signMessageAsync, isPending: isSigningOperatorMessage } =
+    useSignMessage()
   const {
     writeContract: writeSetAgentWallet,
     data: setAgentWalletHash,
     isPending: isSetAgentWalletPending,
   } = useWriteContract()
-  const { isSuccess: isSetAgentWalletSuccess, isLoading: isSetAgentWalletConfirming } =
-    useWaitForTransactionReceipt({ hash: setAgentWalletHash })
+  const {
+    isSuccess: isSetAgentWalletSuccess,
+    isLoading: isSetAgentWalletConfirming,
+  } = useWaitForTransactionReceipt({ hash: setAgentWalletHash })
 
   const tokenOptions = tokens.map((t) => ({
     symbol: t.symbol,
@@ -208,7 +213,10 @@ export default function RegisterNodeForm() {
   const selectedOperatorAgent = useMemo(
     () =>
       parsedOperatorAgentId !== null && parsedOperatorAgentId !== undefined
-        ? agents.find((candidate) => Number(candidate.id) === Number(parsedOperatorAgentId))
+        ? agents.find(
+            (candidate) =>
+              Number(candidate.id) === Number(parsedOperatorAgentId),
+          )
         : undefined,
     [agents, parsedOperatorAgentId],
   )
@@ -250,9 +258,12 @@ export default function RegisterNodeForm() {
     }
     if (!rewardToken) return 'Select a reward token'
     if (!rpcUrl.startsWith('http')) return 'Enter a valid RPC URL'
-    if (hasAgent && !operatorAgentId.trim()) return 'Select an operator identity'
-    if (parsedOperatorAgentId === null) return 'Operator agent ID must be a number'
-    if (!isOwnershipVerified) return 'Verify endpoint ownership before registering'
+    if (hasAgent && !operatorAgentId.trim())
+      return 'Select an operator identity'
+    if (parsedOperatorAgentId === null)
+      return 'Operator agent ID must be a number'
+    if (!isOwnershipVerified)
+      return 'Verify endpoint ownership before registering'
     if (useGasless && !gaslessSupportsSelectedToken) {
       return 'Gasless node registration currently supports JEJU staking only'
     }
@@ -268,7 +279,6 @@ export default function RegisterNodeForm() {
     gasless.smartAccountDerivationError,
     gaslessReadiness.isReady,
     gaslessSupportsSelectedToken,
-    maxNodes,
     minStakeUSD,
     hasAgent,
     operatorAgentId,
@@ -292,6 +302,14 @@ export default function RegisterNodeForm() {
     )
   }
 
+  const selectAllServices = () => {
+    setSelectedServices(NODE_SERVICE_DEFINITIONS.map((service) => service.id))
+  }
+
+  const clearAllServices = () => {
+    setSelectedServices([])
+  }
+
   useEffect(() => {
     if (!hasAgent) return
 
@@ -300,10 +318,11 @@ export default function RegisterNodeForm() {
         return current
       }
 
-      return agentId ? String(agentId) : agents[0]?.id ?? ''
+      return agentId ? String(agentId) : (agents[0]?.id ?? '')
     })
   }, [agentId, agents, hasAgent])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset proof state when endpoint/operator selection changes
   useEffect(() => {
     setProofChallenge(null)
     setProofVerification(null)
@@ -334,7 +353,7 @@ export default function RegisterNodeForm() {
     if (
       !isSetAgentWalletSuccess ||
       !publicClient ||
-      parsedOperatorAgentId === undefined ||
+      parsedOperatorAgentId == null ||
       !proofChallenge ||
       selectedOperatorOwnedBySmartAccount
     ) {
@@ -410,7 +429,7 @@ export default function RegisterNodeForm() {
   ])
 
   const prepareOwnershipProof = async () => {
-    if (!gasless.ownerAddress || parsedOperatorAgentId === undefined) {
+    if (!gasless.ownerAddress || parsedOperatorAgentId == null) {
       setSubmitError('Connect the operator wallet and select an agent first.')
       return
     }
@@ -436,12 +455,35 @@ export default function RegisterNodeForm() {
         }),
       })
 
-      const payload = (await response.json()) as NodeProofChallenge | { error?: string }
-      if (!response.ok || 'error' in payload) {
+      const rawPayload = await response.text()
+      let payload: NodeProofChallenge | { error?: string } | null = null
+      if (rawPayload) {
+        try {
+          payload = JSON.parse(rawPayload) as
+            | NodeProofChallenge
+            | { error?: string }
+        } catch {
+          throw new Error(
+            response.ok
+              ? 'Challenge endpoint returned invalid JSON.'
+              : `Failed to prepare node proof (HTTP ${response.status}).`,
+          )
+        }
+      }
+      if (payload && 'error' in payload) {
         throw new Error(payload.error ?? 'Failed to prepare node proof')
       }
+      if (!response.ok) {
+        throw new Error(
+          `Failed to prepare node proof (HTTP ${response.status})`,
+        )
+      }
+      if (!payload || !('challengeId' in payload)) {
+        throw new Error('Challenge endpoint returned an unexpected response.')
+      }
 
-      setProofChallenge(payload)
+      const challengePayload = payload as NodeProofChallenge
+      setProofChallenge(challengePayload)
     } catch (error) {
       setProofChallenge(null)
       setSubmitError(
@@ -453,7 +495,7 @@ export default function RegisterNodeForm() {
   }
 
   const authorizeNodeWallet = async () => {
-    if (!proofChallenge || parsedOperatorAgentId === undefined) {
+    if (!proofChallenge || parsedOperatorAgentId == null) {
       setSubmitError('Prepare the node proof challenge first.')
       return
     }
@@ -473,7 +515,7 @@ export default function RegisterNodeForm() {
 
       try {
         const hash = await gasless.executeGaslessCalls({
-          serviceName: 'Jeju Node Registration',
+          serviceName: JEJU_NODE_REGISTRATION_SERVICE,
           calls: [
             {
               to: CONTRACTS.identityRegistry,
@@ -534,9 +576,7 @@ export default function RegisterNodeForm() {
           message,
           explorerUrl: EXPLORER_URL,
         })
-        setSubmitError(
-          message,
-        )
+        setSubmitError(message)
       } finally {
         setIsAuthorizingNodeWallet(false)
       }
@@ -552,7 +592,7 @@ export default function RegisterNodeForm() {
   }
 
   const verifyOwnershipProof = async () => {
-    if (!proofChallenge || parsedOperatorAgentId === undefined || !publicClient) {
+    if (!proofChallenge || parsedOperatorAgentId == null || !publicClient) {
       setSubmitError('Prepare the node proof challenge first.')
       return
     }
@@ -576,13 +616,33 @@ export default function RegisterNodeForm() {
         }),
       })
 
-      const payload = (await response.json()) as
-        | NodeProofVerification
-        | { error?: string }
+      const rawPayload = await response.text()
+      let payload: NodeProofVerification | { error?: string } | null = null
+      if (rawPayload) {
+        try {
+          payload = JSON.parse(rawPayload) as
+            | NodeProofVerification
+            | { error?: string }
+        } catch {
+          throw new Error(
+            response.ok
+              ? 'Verify endpoint returned invalid JSON.'
+              : `Failed to verify node proof (HTTP ${response.status}).`,
+          )
+        }
+      }
 
-      if (!response.ok || 'error' in payload) {
+      if (payload && 'error' in payload) {
         throw new Error(payload.error ?? 'Failed to verify node proof')
       }
+      if (!response.ok) {
+        throw new Error(`Failed to verify node proof (HTTP ${response.status})`)
+      }
+      if (!payload || !('verified' in payload)) {
+        throw new Error('Verify endpoint returned an unexpected response.')
+      }
+
+      const verificationPayload = payload as NodeProofVerification
 
       const onChainAgentWallet = await fetchAgentWallet({
         publicClient,
@@ -590,7 +650,7 @@ export default function RegisterNodeForm() {
         agentId: parsedOperatorAgentId,
       })
 
-      setProofVerification(payload)
+      setProofVerification(verificationPayload)
       setProofChallenge((current) =>
         current
           ? {
@@ -599,12 +659,25 @@ export default function RegisterNodeForm() {
               requiresDelegatedWalletUpdate:
                 !onChainAgentWallet ||
                 onChainAgentWallet.toLowerCase() !==
-                  payload.nodeWalletAddress.toLowerCase(),
+                  verificationPayload.nodeWalletAddress.toLowerCase(),
             }
           : current,
       )
+      setAuthorizeResult({
+        status: 'success',
+        title: 'Endpoint ownership verified',
+        message: 'Proof document and operator authorization were verified.',
+        explorerUrl: EXPLORER_URL,
+      })
     } catch (error) {
       setProofVerification(null)
+      setAuthorizeResult({
+        status: 'error',
+        title: 'Verification failed',
+        message:
+          error instanceof Error ? error.message : 'Failed to verify proof',
+        explorerUrl: EXPLORER_URL,
+      })
       setSubmitError(
         error instanceof Error ? error.message : 'Failed to verify proof',
       )
@@ -665,7 +738,9 @@ export default function RegisterNodeForm() {
     setProcessedRegistrationHash(registrationHash)
 
     if (!nodeId) {
-      setNodeIdentityError('Node registered, but the node ID could not be decoded.')
+      setNodeIdentityError(
+        'Node registered, but the node ID could not be decoded.',
+      )
       return
     }
 
@@ -688,22 +763,25 @@ export default function RegisterNodeForm() {
     }
 
     setIsRegisteringNodeIdentity(true)
-    void registerNodeIdentity(metadata, { gasless: useGasless }).then((result) => {
-      setIsRegisteringNodeIdentity(false)
-      if (!result.success) {
-        setNodeIdentityError(
-          result.error ?? 'Node identity registration failed after staking succeeded.',
-        )
-        return
-      }
+    void registerNodeIdentity(metadata, { gasless: useGasless }).then(
+      (result) => {
+        setIsRegisteringNodeIdentity(false)
+        if (!result.success) {
+          setNodeIdentityError(
+            result.error ??
+              'Node identity registration failed after staking succeeded.',
+          )
+          return
+        }
 
-      setNodeRegistrationResult({
-        operatorAgentId: submittedDraft.operatorAgentId,
-        nodeId,
-        nodeIdentityId: result.agentId?.toString(),
-        txHash: registrationHash,
-      })
-    })
+        setNodeRegistrationResult({
+          operatorAgentId: submittedDraft.operatorAgentId,
+          nodeId,
+          nodeIdentityId: result.agentId?.toString(),
+          txHash: registrationHash,
+        })
+      },
+    )
   }, [
     processedRegistrationHash,
     registerNodeIdentity,
@@ -730,7 +808,8 @@ export default function RegisterNodeForm() {
   const currentStepIndex = steps.findIndex(({ key }) => key === step)
   const selectedOperatorReady =
     parsedOperatorAgentId !== null && parsedOperatorAgentId !== undefined
-  const identityStepReady = Boolean(gasless.ownerAddress) && selectedOperatorReady
+  const identityStepReady =
+    Boolean(gasless.ownerAddress) && selectedOperatorReady
   const stakeStepReady =
     Boolean(stakingToken) &&
     Boolean(rewardToken) &&
@@ -744,7 +823,9 @@ export default function RegisterNodeForm() {
 
     if (step === 'identity') {
       if (!identityStepReady) {
-        setSubmitError('Connect the operator wallet and select an identity first.')
+        setSubmitError(
+          'Connect the operator wallet and select an identity first.',
+        )
         return
       }
       setStep('services')
@@ -762,7 +843,9 @@ export default function RegisterNodeForm() {
 
     if (step === 'stake') {
       if (!stakeStepReady) {
-        setSubmitError(disabledReason ?? 'Complete the node details before continuing.')
+        setSubmitError(
+          disabledReason ?? 'Complete the node details before continuing.',
+        )
         return
       }
       setStep('confirm')
@@ -843,7 +926,7 @@ export default function RegisterNodeForm() {
             <strong>Gasless wallet (SimpleAccount):</strong>{' '}
             {gasless.isLoadingSmartAccount
               ? 'Deriving...'
-              : gasless.smartAccountAddress ?? 'Unavailable'}
+              : (gasless.smartAccountAddress ?? 'Unavailable')}
           </div>
           {gasless.smartAccountDerivationError && (
             <div style={{ color: 'var(--error)' }}>
@@ -948,7 +1031,7 @@ export default function RegisterNodeForm() {
 
   const renderServicesStep = () => (
     <div style={{ marginBottom: '1.5rem' }}>
-      <label
+      <div
         style={{
           display: 'block',
           marginBottom: '0.5rem',
@@ -956,7 +1039,33 @@ export default function RegisterNodeForm() {
         }}
       >
         Services
-      </label>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+          marginBottom: '0.75rem',
+        }}
+      >
+        <button
+          type="button"
+          className="button button-secondary"
+          onClick={selectAllServices}
+          disabled={selectedServices.length === NODE_SERVICE_DEFINITIONS.length}
+        >
+          Pick all
+        </button>
+        <button
+          type="button"
+          className="button button-secondary"
+          onClick={clearAllServices}
+          disabled={selectedServices.length === 0}
+        >
+          Unpick all
+        </button>
+      </div>
       <div
         style={{
           display: 'grid',
@@ -1176,7 +1285,9 @@ export default function RegisterNodeForm() {
         </div>
 
         {proofChallenge ? (
-          <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div
+            style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem' }}
+          >
             <div>
               <div
                 style={{
@@ -1187,7 +1298,9 @@ export default function RegisterNodeForm() {
               >
                 Delegated Node Wallet
               </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+              <div
+                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+              >
                 {proofChallenge.nodeWalletAddress}
               </div>
             </div>
@@ -1201,7 +1314,11 @@ export default function RegisterNodeForm() {
               >
                 Proof Document
               </div>
-              <a href={proofChallenge.proofUrl} target="_blank" rel="noreferrer">
+              <a
+                href={proofChallenge.proofUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {proofChallenge.proofUrl}
               </a>
             </div>
@@ -1215,7 +1332,9 @@ export default function RegisterNodeForm() {
               >
                 Agent Delegated Wallet
               </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+              <div
+                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+              >
                 {proofChallenge.currentAgentWallet &&
                 proofChallenge.currentAgentWallet !== ZERO_ADDRESS
                   ? proofChallenge.currentAgentWallet
@@ -1262,8 +1381,7 @@ export default function RegisterNodeForm() {
             {isPreparingProof ? 'Preparing...' : 'Prepare Proof'}
           </button>
 
-          {proofChallenge &&
-            proofChallenge.delegatedWalletContractReady &&
+          {proofChallenge?.delegatedWalletContractReady &&
             !nodeWalletAuthorized && (
               <button
                 type="button"
@@ -1283,8 +1401,7 @@ export default function RegisterNodeForm() {
               </button>
             )}
 
-          {proofChallenge &&
-            proofChallenge.delegatedWalletContractReady &&
+          {proofChallenge?.delegatedWalletContractReady &&
             nodeWalletAuthorized &&
             !isOwnershipVerified && (
               <button
@@ -1334,7 +1451,11 @@ export default function RegisterNodeForm() {
         <div>
           <label
             htmlFor="cpu-cores"
-            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '600',
+            }}
           >
             CPU Cores
           </label>
@@ -1353,7 +1474,11 @@ export default function RegisterNodeForm() {
         <div>
           <label
             htmlFor="memory-gb"
-            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '600',
+            }}
           >
             Memory (GB)
           </label>
@@ -1372,7 +1497,11 @@ export default function RegisterNodeForm() {
         <div>
           <label
             htmlFor="disk-gb"
-            style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}
+            style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '600',
+            }}
           >
             Disk (GB)
           </label>
@@ -1444,8 +1573,9 @@ export default function RegisterNodeForm() {
           ) : (
             <>
               <p style={{ margin: 0, color: 'var(--warning)' }}>
-                Prepare this smart account with enough JEJU for the node stake plus
-                either paymaster allowance or JEJU credit before submitting.
+                Prepare this smart account with enough JEJU for the node stake
+                plus either paymaster allowance or JEJU credit before
+                submitting.
               </p>
               <p style={{ margin: '0.5rem 0 0 0', color: 'var(--warning)' }}>
                 Recommended JEJU on smart account:{' '}
@@ -1645,10 +1775,17 @@ export default function RegisterNodeForm() {
                   textAlign: 'center',
                 }}
               >
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
                   {index + 1}
                 </div>
-                <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{label}</div>
+                <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                  {label}
+                </div>
               </div>
             )
           })}
@@ -1670,7 +1807,8 @@ export default function RegisterNodeForm() {
             }}
           >
             <p style={{ color: 'var(--primary)', margin: 0 }}>
-              Linking a dedicated node identity and persisting selected services...
+              Linking a dedicated node identity and persisting selected
+              services...
             </p>
           </div>
         )}

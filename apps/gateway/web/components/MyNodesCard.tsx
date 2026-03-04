@@ -19,19 +19,53 @@ interface NodeCardProps {
 }
 
 function NodeCard({ nodeId }: NodeCardProps) {
-  const { nodeInfo } = useNodeInfo(nodeId)
+  const { nodeInfo, isLoading: isNodeInfoLoading } = useNodeInfo(nodeId)
   const { pendingRewardsUSD, claimRewards, isClaiming, isClaimSuccess } =
     useNodeRewards(nodeId)
   const { deregisterNode, isDeregistering } = useNodeStaking()
   const { getToken } = useProtocolTokens()
 
-  if (!nodeInfo) {
+  if (!nodeInfo && isNodeInfoLoading) {
     return (
       <div
         className="card"
         style={{ padding: '1rem', background: 'var(--surface-hover)' }}
       >
         <p style={{ color: 'var(--text-muted)', margin: 0 }}>Loading node...</p>
+      </div>
+    )
+  }
+
+  if (!nodeInfo) {
+    return (
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'start',
+            marginBottom: '0.75rem',
+          }}
+        >
+          <div>
+            <h3 style={{ fontSize: '1rem', margin: 0 }}>
+              Node {nodeId.slice(0, 10)}...
+            </h3>
+            <p
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--text-muted)',
+                margin: '0.25rem 0 0',
+              }}
+            >
+              On-chain node found, richer metadata is still syncing.
+            </p>
+          </div>
+          <span className="badge badge-warning">Metadata pending</span>
+        </div>
+        <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+          {nodeId}
+        </code>
       </div>
     )
   }
@@ -274,7 +308,8 @@ function NodeCard({ nodeId }: NodeCardProps) {
 }
 
 export default function MyNodesCard() {
-  const { operatorNodeIds } = useNodeStaking()
+  const { operatorNodeIds, operatorStats } = useNodeStaking()
+  const hasStakingActivity = Number(operatorStats?.totalNodesActive ?? 0n) > 0
 
   if (!operatorNodeIds || operatorNodeIds.length === 0) {
     return (
@@ -290,7 +325,9 @@ export default function MyNodesCard() {
           No Nodes Yet
         </h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-          Stake tokens and register a node to start earning rewards
+          {hasStakingActivity
+            ? 'On-chain node activity exists for this operator, but node details are still syncing.'
+            : 'Stake tokens and register a node to start earning rewards'}
         </p>
       </div>
     )

@@ -93,6 +93,7 @@
     "deploy:all": "bun run jeju -- start",
     "deploy:testnet": "bun run jeju -- deploy testnet-full",
     "deploy:mainnet": "bun run jeju -- deploy mainnet",
+    "verify:paymaster-services": "bun run scripts/check-paymaster-services.ts",
     "ci": "biome check packages apps && bun run typecheck && bun run test"
   },
   "dependencies": {

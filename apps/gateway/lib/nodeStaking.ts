@@ -36,6 +36,61 @@ export const NODE_STAKING_MANAGER_ABI = [
   },
   {
     type: 'function',
+    name: 'increaseStake',
+    inputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'updateNodeConfig',
+    inputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'updateNodeServices',
+    inputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'servicesHash', type: 'bytes32' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'setNodeMetadataURI',
+    inputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'metadataURI', type: 'string' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'getNodeServicesHash',
+    inputs: [{ name: 'nodeId', type: 'bytes32' }],
+    outputs: [{ name: 'servicesHash', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getNodeMetadataURI',
+    inputs: [{ name: 'nodeId', type: 'bytes32' }],
+    outputs: [{ name: 'metadataURI', type: 'string' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'updatePerformance',
     inputs: [
       { name: 'nodeId', type: 'bytes32' },

@@ -188,6 +188,7 @@ export default function NodeOperatorDashboard() {
 
   const isLoading = statsLoading || aggregateLoading
   const nodes = operatorStats?.nodes ?? []
+  const hasStakingActivity = (operatorStats?.totalNodesActive ?? 0) > 0
 
   return (
     <div>
@@ -278,7 +279,10 @@ export default function NodeOperatorDashboard() {
             <h3 className="card-title">
               <HardDrive size={18} /> Your Nodes
             </h3>
-            <a href="/provider/node/register" className="btn btn-sm btn-primary">
+            <a
+              href="/provider/node/register"
+              className="btn btn-sm btn-primary"
+            >
               <Server size={14} /> Register Node
             </a>
           </div>
@@ -286,14 +290,24 @@ export default function NodeOperatorDashboard() {
           {nodes.length === 0 ? (
             <div className="empty-state" style={{ padding: '2rem' }}>
               <Server size={48} />
-              <h4>No nodes registered</h4>
-              <p>Register a node to start earning rewards</p>
+              <h4>
+                {hasStakingActivity
+                  ? 'Node metadata pending'
+                  : 'No nodes registered'}
+              </h4>
+              <p>
+                {hasStakingActivity
+                  ? 'On-chain node activity exists for this operator, but details are still syncing.'
+                  : 'Register a node to start earning rewards'}
+              </p>
               <a
                 href="/provider/node/register"
                 className="btn btn-primary"
                 style={{ marginTop: '1rem' }}
               >
-                Register Your First Node
+                {hasStakingActivity
+                  ? 'Register another node'
+                  : 'Register Your First Node'}
               </a>
             </div>
           ) : (
@@ -574,11 +588,15 @@ function NodeRow({
       </td>
       <td>{node.region}</td>
       <td>
-        <span
-          className={`badge ${node.isActive ? 'badge-success' : node.isSlashed ? 'badge-error' : 'badge-warning'}`}
-        >
-          {node.isActive ? 'Active' : node.isSlashed ? 'Slashed' : 'Inactive'}
-        </span>
+        {node.metadataPending ? (
+          <span className="badge badge-warning">Metadata pending</span>
+        ) : (
+          <span
+            className={`badge ${node.isActive ? 'badge-success' : node.isSlashed ? 'badge-error' : 'badge-warning'}`}
+          >
+            {node.isActive ? 'Active' : node.isSlashed ? 'Slashed' : 'Inactive'}
+          </span>
+        )}
       </td>
       <td>
         <span
@@ -738,6 +756,7 @@ function NodeDetailsPanel({
   if (!node) return null
 
   const hasPendingRewards = parseFloat(node.pendingRewards) > 0
+  const metadataPending = Boolean(node.metadataPending)
   const nodeName = node.nodeId.slice(0, 10)
 
   return (
@@ -788,13 +807,23 @@ function NodeDetailsPanel({
           <DetailRow
             label="Status"
             value={
-              node.isActive ? 'Active' : node.isSlashed ? 'Slashed' : 'Inactive'
+              metadataPending
+                ? 'Metadata pending'
+                : node.isActive
+                  ? 'Active'
+                  : node.isSlashed
+                    ? 'Slashed'
+                    : 'Inactive'
             }
           />
           <DetailRow label="RPC URL" value={node.rpcUrl} mono small />
           <DetailRow
             label="Registered"
-            value={new Date(node.registrationTime * 1000).toLocaleDateString()}
+            value={
+              metadataPending || node.registrationTime === 0
+                ? 'Pending metadata'
+                : new Date(node.registrationTime * 1000).toLocaleDateString()
+            }
           />
         </div>
 
@@ -813,7 +842,11 @@ function NodeDetailsPanel({
           <DetailRow label="Reward Token" value={node.rewardToken} mono small />
           <DetailRow
             label="Last Claim"
-            value={new Date(node.lastClaimTime * 1000).toLocaleDateString()}
+            value={
+              metadataPending || node.lastClaimTime === 0
+                ? 'Pending metadata'
+                : new Date(node.lastClaimTime * 1000).toLocaleDateString()
+            }
           />
           <DetailRow
             label="Total Claimed"
@@ -839,9 +872,13 @@ function NodeDetailsPanel({
           />
           <DetailRow
             label="Last Update"
-            value={new Date(
-              node.performance.lastUpdateTime * 1000,
-            ).toLocaleString()}
+            value={
+              metadataPending || node.performance.lastUpdateTime === 0
+                ? 'Pending metadata'
+                : new Date(
+                    node.performance.lastUpdateTime * 1000,
+                  ).toLocaleString()
+            }
           />
           <DetailRow
             label="Pending Rewards"
@@ -856,7 +893,7 @@ function NodeDetailsPanel({
           type="button"
           className="btn btn-primary"
           onClick={() => onClaim(node.nodeId, nodeName)}
-          disabled={!hasPendingRewards || isClaiming}
+          disabled={!hasPendingRewards || isClaiming || metadataPending}
         >
           {isClaiming ? (
             'Claiming...'
@@ -870,7 +907,7 @@ function NodeDetailsPanel({
           type="button"
           className="btn btn-secondary"
           onClick={() => onUpdatePerformance(node.nodeId, nodeName)}
-          disabled={isUpdating}
+          disabled={isUpdating || metadataPending}
         >
           {isUpdating ? (
             'Updating...'
@@ -880,7 +917,7 @@ function NodeDetailsPanel({
             </>
           )}
         </button>
-        {!node.isSlashed && (
+        {!node.isSlashed && !metadataPending && (
           <button
             type="button"
             className="btn btn-secondary"

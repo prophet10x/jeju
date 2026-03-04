@@ -1,8 +1,13 @@
+import {
+  getConfiguredAddress,
+  predictSimpleAccountAddress,
+} from '@jejunetwork/shared/gasless'
 import type { JsonRecord } from '@jejunetwork/types'
+import { ZERO_ADDRESS } from '@jejunetwork/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useAccount } from 'wagmi'
+import { useAccount, usePublicClient } from 'wagmi'
 import { z } from 'zod'
-import { DWS_API_URL } from '../config'
+import { CONTRACTS, DWS_API_URL } from '../config'
 import { fetchApi, postApi, uploadFile } from '../lib/eden'
 import type {
   APIListing,
@@ -27,6 +32,7 @@ import type {
   WorkerdWorker,
   WorkerFunction,
 } from '../types'
+import { useGaslessSmartAccount } from './useGaslessSmartAccount'
 
 // Zod schemas for runtime validation of fetch responses
 const S3ListObjectsResponseSchema = z.object({
@@ -733,8 +739,11 @@ export function useCreateKey() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (params: { name?: string; threshold?: number; totalParties?: number }) =>
-      postApi<KMSKey>('/kms/keys', params, { address }),
+    mutationFn: (params: {
+      name?: string
+      threshold?: number
+      totalParties?: number
+    }) => postApi<KMSKey>('/kms/keys', params, { address }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kms-keys'] })
     },
@@ -941,6 +950,7 @@ interface OperatorNode {
   operatorAgentId: number
   isActive: boolean
   isSlashed: boolean
+  metadataPending?: boolean
   performance: {
     uptimeScore: number
     requestsServed: number
@@ -949,6 +959,16 @@ interface OperatorNode {
   }
   pendingRewards: string
 }
+
+const NODE_STAKING_OPERATOR_ABI = [
+  {
+    type: 'function',
+    name: 'getOperatorNodes',
+    inputs: [{ name: 'operator', type: 'address' }],
+    outputs: [{ name: 'nodeIds', type: 'bytes32[]' }],
+    stateMutability: 'view',
+  },
+] as const
 
 interface OperatorStats {
   totalNodesActive: number
@@ -959,10 +979,147 @@ interface OperatorStats {
 
 export function useProviderStats() {
   const { address } = useAccount()
+  const publicClient = usePublicClient()
+  const gasless = useGaslessSmartAccount()
+  const { data: predictedSmartAccountAddress } = useQuery({
+    queryKey: [
+      'provider-stats',
+      'predicted-smart-account',
+      address,
+      CONTRACTS.simpleAccountFactory,
+    ],
+    queryFn: async () => {
+      if (!address || !publicClient) return null
+      const factoryAddress = getConfiguredAddress(
+        CONTRACTS.simpleAccountFactory,
+      )
+      if (!factoryAddress) return null
+      try {
+        return await predictSimpleAccountAddress({
+          publicClient,
+          factoryAddress,
+          ownerAddress: address,
+        })
+      } catch {
+        return null
+      }
+    },
+    enabled: Boolean(address && publicClient),
+    staleTime: 60_000,
+  })
+  const operatorAddresses = Array.from(
+    new Set(
+      [address, gasless.smartAccountAddress, predictedSmartAccountAddress]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLowerCase()),
+    ),
+  )
   return useQuery({
-    queryKey: ['provider-stats', address],
-    queryFn: () => fetchApi<OperatorStats>(`/staking/operator/${address}`),
-    enabled: !!address,
+    queryKey: ['provider-stats', operatorAddresses],
+    queryFn: async () => {
+      const [stats, onChainNodeIdsPerOperator] = await Promise.all([
+        Promise.all(
+          operatorAddresses.map((operatorAddress) =>
+            fetchApi<OperatorStats>(`/staking/operator/${operatorAddress}`),
+          ),
+        ),
+        Promise.all(
+          operatorAddresses.map(async (operatorAddress) => {
+            if (
+              !publicClient ||
+              !CONTRACTS.nodeStakingManager ||
+              CONTRACTS.nodeStakingManager === ZERO_ADDRESS
+            ) {
+              return [] as `0x${string}`[]
+            }
+
+            try {
+              return (await publicClient.readContract({
+                address: CONTRACTS.nodeStakingManager,
+                abi: NODE_STAKING_OPERATOR_ABI,
+                functionName: 'getOperatorNodes',
+                args: [operatorAddress as `0x${string}`],
+              })) as `0x${string}`[]
+            } catch {
+              return [] as `0x${string}`[]
+            }
+          }),
+        ),
+      ])
+
+      const mergedStats = stats.reduce<OperatorStats>(
+        (acc, current) => ({
+          totalNodesActive: acc.totalNodesActive + current.totalNodesActive,
+          totalStakedUSD: (
+            BigInt(acc.totalStakedUSD) + BigInt(current.totalStakedUSD)
+          ).toString(),
+          lifetimeRewardsUSD: (
+            BigInt(acc.lifetimeRewardsUSD) + BigInt(current.lifetimeRewardsUSD)
+          ).toString(),
+          nodes: [
+            ...acc.nodes,
+            ...current.nodes.filter(
+              (node) =>
+                !acc.nodes.some((existing) => existing.nodeId === node.nodeId),
+            ),
+          ],
+        }),
+        {
+          totalNodesActive: 0,
+          totalStakedUSD: '0',
+          lifetimeRewardsUSD: '0',
+          nodes: [],
+        },
+      )
+
+      const onChainNodeIds = Array.from(
+        new Set(
+          onChainNodeIdsPerOperator
+            .flat()
+            .map((nodeId) => nodeId.toLowerCase()),
+        ),
+      )
+      const existingNodeIds = new Set(
+        mergedStats.nodes.map((node) => node.nodeId.toLowerCase()),
+      )
+
+      const fallbackNodes: OperatorNode[] = onChainNodeIds
+        .filter((nodeId) => !existingNodeIds.has(nodeId))
+        .map((nodeId) => ({
+          nodeId,
+          operator: '',
+          stakedToken: ZERO_ADDRESS,
+          stakedAmount: '0',
+          stakedValueUSD: '0',
+          rewardToken: ZERO_ADDRESS,
+          rpcUrl: 'Metadata pending',
+          region: 'Global',
+          registrationTime: 0,
+          lastClaimTime: 0,
+          totalRewardsClaimed: '0',
+          operatorAgentId: 0,
+          isActive: false,
+          isSlashed: false,
+          metadataPending: true,
+          performance: {
+            uptimeScore: 0,
+            requestsServed: 0,
+            avgResponseTime: 0,
+            lastUpdateTime: 0,
+          },
+          pendingRewards: '0',
+        }))
+
+      return {
+        ...mergedStats,
+        totalNodesActive: Math.max(
+          mergedStats.totalNodesActive,
+          mergedStats.nodes.length + fallbackNodes.length,
+        ),
+        nodes: [...mergedStats.nodes, ...fallbackNodes],
+      }
+    },
+    enabled: operatorAddresses.length > 0,
     refetchInterval: 30000,
   })
 }

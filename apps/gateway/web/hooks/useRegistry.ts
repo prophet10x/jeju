@@ -1,6 +1,15 @@
+import {
+  JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+  JEJU_AGENT_REGISTRATION_SERVICE,
+} from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
 import { useState } from 'react'
-import { type Address, decodeEventLog, encodeFunctionData } from 'viem'
+import {
+  type Address,
+  decodeEventLog,
+  encodeFunctionData,
+  type TransactionReceipt,
+} from 'viem'
 import {
   usePublicClient,
   useReadContract,
@@ -323,18 +332,40 @@ interface RegisterAppOptions {
 function encodeStringMetadata(value: string): `0x${string}` {
   const encoder = new TextEncoder()
   const bytes = encoder.encode(value)
-  return `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')}`
+  return `0x${Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`
 }
 
 const REGISTERED_EVENT_ABI = [
   {
     anonymous: false,
     inputs: [
-      { indexed: true, internalType: 'uint256', name: 'agentId', type: 'uint256' },
-      { indexed: true, internalType: 'address', name: 'owner', type: 'address' },
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'agentId',
+        type: 'uint256',
+      },
+      {
+        indexed: true,
+        internalType: 'address',
+        name: 'owner',
+        type: 'address',
+      },
       { indexed: false, internalType: 'uint8', name: 'tier', type: 'uint8' },
-      { indexed: false, internalType: 'uint256', name: 'stakedAmount', type: 'uint256' },
-      { indexed: false, internalType: 'string', name: 'tokenURI', type: 'string' },
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'stakedAmount',
+        type: 'uint256',
+      },
+      {
+        indexed: false,
+        internalType: 'string',
+        name: 'tokenURI',
+        type: 'string',
+      },
     ],
     name: 'Registered',
     type: 'event',
@@ -346,7 +377,10 @@ function resolveServiceType(a2aEndpoint: string, requested?: string): string {
   return a2aEndpoint ? 'agent' : 'app'
 }
 
-function resolveCategory(tags: string[] | undefined, requested?: string): string {
+function resolveCategory(
+  tags: string[] | undefined,
+  requested?: string,
+): string {
   if (requested && requested.length > 0) return requested
   return tags?.[0] ?? ''
 }
@@ -359,7 +393,7 @@ export function useRegistry() {
   const gasless = useGaslessSmartAccount()
 
   function getRegisteredAgentIdFromReceipt(
-    receipt: Awaited<ReturnType<typeof publicClient.waitForTransactionReceipt>>,
+    receipt: TransactionReceipt,
   ): bigint | undefined {
     for (const log of receipt.logs) {
       try {
@@ -380,12 +414,20 @@ export function useRegistry() {
 
   async function persistAgentPresentation(
     agentId: bigint,
-    params: { tags?: string[]; category?: string; serviceType?: string; a2aEndpoint: string },
+    params: {
+      tags?: string[]
+      category?: string
+      serviceType?: string
+      a2aEndpoint: string
+    },
     options: RegisterAppOptions,
   ) {
     const tags = params.tags?.filter(Boolean) ?? []
     const category = resolveCategory(tags, params.category)
-    const serviceType = resolveServiceType(params.a2aEndpoint, params.serviceType)
+    const serviceType = resolveServiceType(
+      params.a2aEndpoint,
+      params.serviceType,
+    )
 
     if (options.gasless) {
       const calls: GaslessCall[] = []
@@ -425,7 +467,7 @@ export function useRegistry() {
 
       if (calls.length > 0) {
         const hash = await gasless.executeGaslessCalls({
-          serviceName: 'Jeju Agent Registration Metadata',
+          serviceName: JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
           calls,
         })
         setLastTx(hash)
@@ -509,7 +551,8 @@ export function useRegistry() {
       if (tier !== StakeTier.NONE && stakeToken !== CONTRACTS.jeju) {
         return {
           success: false,
-          error: 'Gasless registry registration currently supports JEJU staking only.',
+          error:
+            'Gasless registry registration currently supports JEJU staking only.',
         }
       }
 
@@ -543,7 +586,7 @@ export function useRegistry() {
       })
 
       const hash = await gasless.executeGaslessCalls({
-        serviceName: 'Jeju Agent Registration',
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
         calls,
         requiredJejuBalance: tier === StakeTier.NONE ? 0n : stakeAmount,
       })
@@ -783,16 +826,25 @@ export function useRegistryAppDetails(agentId: bigint) {
       const parsed = JSON.parse(tokenURI)
       if (parsed.name) parsedName = parsed.name
       if (parsed.description) parsedDescription = parsed.description
-    } catch { /* not JSON */ }
+    } catch {
+      /* not JSON */
+    }
   }
 
   // Extract stake info from agents mapping result
   // agentData is a tuple: [agentId, owner, tier, stakedToken, stakedAmount, registeredAt, lastActivityAt, isBanned, isSlashed]
   const tier = agentData ? Number((agentData as readonly unknown[])[2]) : 0
-  const stakedToken = agentData ? String((agentData as readonly unknown[])[3]) : ZERO_ADDRESS
-  const stakedAmount = agentData ? BigInt(String((agentData as readonly unknown[])[4])) : 0n
-  const registeredAt = agentData ? BigInt(String((agentData as readonly unknown[])[5])) : 0n
-  const stakeAmountFormatted = stakedAmount > 0n ? (Number(stakedAmount) / 1e18).toString() : '0'
+  const stakedToken = agentData
+    ? String((agentData as readonly unknown[])[3])
+    : ZERO_ADDRESS
+  const stakedAmount = agentData
+    ? BigInt(String((agentData as readonly unknown[])[4]))
+    : 0n
+  const registeredAt = agentData
+    ? BigInt(String((agentData as readonly unknown[])[5]))
+    : 0n
+  const stakeAmountFormatted =
+    stakedAmount > 0n ? (Number(stakedAmount) / 1e18).toString() : '0'
 
   const app: RegisteredApp | null = owner
     ? {
@@ -810,7 +862,13 @@ export function useRegistryAppDetails(agentId: bigint) {
     : null
 
   const refetch = async () => {
-    await Promise.all([refetchOwner(), refetchTokenURI(), refetchAgent(), refetchTags(), refetchEndpoint()])
+    await Promise.all([
+      refetchOwner(),
+      refetchTokenURI(),
+      refetchAgent(),
+      refetchTags(),
+      refetchEndpoint(),
+    ])
   }
 
   return {

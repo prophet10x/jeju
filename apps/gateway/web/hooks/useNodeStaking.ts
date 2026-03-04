@@ -1,6 +1,11 @@
+import { JEJU_NODE_REGISTRATION_SERVICE } from '@jejunetwork/shared'
+import {
+  getConfiguredAddress,
+  predictSimpleAccountAddress,
+} from '@jejunetwork/shared/gasless'
+import { useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, type Hex } from 'viem'
-import { useState } from 'react'
-import { useAccount, useReadContract } from 'wagmi'
+import { useAccount, usePublicClient, useReadContract } from 'wagmi'
 import { CONTRACTS } from '../../lib/config'
 import {
   getNodeStakingAddress,
@@ -34,21 +39,100 @@ const NODE_STAKING_WITH_AGENT_ABI = [
 export function useNodeStaking() {
   const stakingManager = getNodeStakingAddress()
   const { address: userAddress } = useAccount()
+  const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
+  const [predictedSmartAccountAddress, setPredictedSmartAccountAddress] =
+    useState<Address>()
   const [lastRegistrationHash, setLastRegistrationHash] = useState<Hex>()
+  const resolvedSmartAccountAddress =
+    gasless.smartAccountAddress ?? predictedSmartAccountAddress
 
-  const { data: operatorNodeIds, refetch: refetchNodes } = useReadContract({
-    address: stakingManager,
-    abi: NODE_STAKING_MANAGER_ABI,
-    functionName: 'getOperatorNodes',
-    args: userAddress ? [userAddress] : undefined,
-  })
+  useEffect(() => {
+    let cancelled = false
 
-  const { data: operatorStats } = useReadContract({
+    async function resolveSmartAccountAddress() {
+      if (!publicClient || !userAddress) {
+        setPredictedSmartAccountAddress(undefined)
+        return
+      }
+
+      const factoryAddress = getConfiguredAddress(
+        CONTRACTS.simpleAccountFactory,
+      )
+      if (!factoryAddress) {
+        setPredictedSmartAccountAddress(undefined)
+        return
+      }
+
+      try {
+        const predictedAddress = await predictSimpleAccountAddress({
+          publicClient,
+          factoryAddress,
+          ownerAddress: userAddress,
+        })
+        if (!cancelled) {
+          setPredictedSmartAccountAddress(predictedAddress)
+        }
+      } catch {
+        if (!cancelled) {
+          setPredictedSmartAccountAddress(undefined)
+        }
+      }
+    }
+
+    void resolveSmartAccountAddress()
+
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, userAddress])
+
+  const operatorAddresses = useMemo(() => {
+    const addresses = [
+      userAddress,
+      gasless.smartAccountAddress,
+      predictedSmartAccountAddress,
+    ].filter((address): address is Address => Boolean(address))
+    return Array.from(
+      new Set(addresses.map((address) => address.toLowerCase())),
+    ).map((address) => address as Address)
+  }, [gasless.smartAccountAddress, predictedSmartAccountAddress, userAddress])
+
+  const { data: eoaOperatorNodeIds, refetch: refetchEoaNodes } =
+    useReadContract({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'getOperatorNodes',
+      args: userAddress ? [userAddress] : undefined,
+    })
+
+  const { data: smartOperatorNodeIds, refetch: refetchSmartNodes } =
+    useReadContract({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'getOperatorNodes',
+      args:
+        resolvedSmartAccountAddress &&
+        resolvedSmartAccountAddress !== userAddress
+          ? [resolvedSmartAccountAddress]
+          : undefined,
+    })
+
+  const { data: eoaOperatorStats } = useReadContract({
     address: stakingManager,
     abi: NODE_STAKING_MANAGER_ABI,
     functionName: 'getOperatorStats',
     args: userAddress ? [userAddress] : undefined,
+  })
+
+  const { data: smartOperatorStats } = useReadContract({
+    address: stakingManager,
+    abi: NODE_STAKING_MANAGER_ABI,
+    functionName: 'getOperatorStats',
+    args:
+      resolvedSmartAccountAddress && resolvedSmartAccountAddress !== userAddress
+        ? [resolvedSmartAccountAddress]
+        : undefined,
   })
 
   const { data: networkStats } = useReadContract({
@@ -66,9 +150,7 @@ export function useNodeStaking() {
     receipt: registerReceipt,
   } = useTypedWriteContract()
 
-  const {
-    writeAsync: approveAsync,
-  } = useTypedWriteContract()
+  const { writeAsync: approveAsync } = useTypedWriteContract()
 
   const registerNode = async (
     stakingToken: Address,
@@ -126,7 +208,7 @@ export function useNodeStaking() {
       ]
 
       await gasless.executeGaslessCalls({
-        serviceName: 'Jeju Node Registration',
+        serviceName: JEJU_NODE_REGISTRATION_SERVICE,
         calls,
         requiredJejuBalance: stakeAmount,
       })
@@ -176,6 +258,32 @@ export function useNodeStaking() {
     isSuccess: isDeregisterSuccess,
   } = useTypedWriteContract()
 
+  const operatorNodeIds = useMemo(() => {
+    const nodeIds = [
+      ...((eoaOperatorNodeIds as `0x${string}`[] | undefined) ?? []),
+      ...((smartOperatorNodeIds as `0x${string}`[] | undefined) ?? []),
+    ]
+    return Array.from(new Set(nodeIds))
+  }, [eoaOperatorNodeIds, smartOperatorNodeIds])
+
+  const operatorStats = useMemo<OperatorStats | undefined>(() => {
+    const stats = [eoaOperatorStats, smartOperatorStats].filter(
+      (value): value is OperatorStats => Boolean(value),
+    )
+    if (stats.length === 0) return undefined
+    return stats.reduce<OperatorStats>(
+      (acc, current) => ({
+        totalNodesActive: acc.totalNodesActive + current.totalNodesActive,
+        totalStakedUSD: acc.totalStakedUSD + current.totalStakedUSD,
+        lifetimeRewardsUSD: acc.lifetimeRewardsUSD + current.lifetimeRewardsUSD,
+      }),
+      { totalNodesActive: 0n, totalStakedUSD: 0n, lifetimeRewardsUSD: 0n },
+    )
+  }, [eoaOperatorStats, smartOperatorStats])
+
+  const refetchNodes = () =>
+    Promise.all([refetchEoaNodes(), refetchSmartNodes()])
+
   const deregisterNode = async (nodeId: string) => {
     deregister({
       address: stakingManager,
@@ -186,16 +294,16 @@ export function useNodeStaking() {
   }
 
   return {
-    operatorNodeIds: operatorNodeIds
-      ? [...(operatorNodeIds as `0x${string}`[])]
-      : [],
-    operatorStats: operatorStats as OperatorStats | undefined,
+    operatorAddresses,
+    operatorNodeIds,
+    operatorStats,
     networkStats: networkStats as [bigint, bigint, bigint] | undefined,
     registerNode,
     deregisterNode,
     isRegistering: isRegistering || isConfirmingRegister || gasless.isExecuting,
     isDeregistering: isDeregistering || isConfirmingDeregister,
-    isRegisterSuccess: isRegisterSuccess || Boolean(gasless.lastTransactionReceipt),
+    isRegisterSuccess:
+      isRegisterSuccess || Boolean(gasless.lastTransactionReceipt),
     registrationHash:
       (registerHash as Hex | undefined) ??
       lastRegistrationHash ??
@@ -210,7 +318,12 @@ export function useNodeStaking() {
 export function useNodeInfo(nodeId: string | undefined) {
   const stakingManager = getNodeStakingAddress()
 
-  const { data: nodeInfo, refetch } = useReadContract({
+  const {
+    data: nodeInfo,
+    refetch,
+    isLoading,
+    isError,
+  } = useReadContract({
     address: stakingManager,
     abi: NODE_STAKING_MANAGER_ABI,
     functionName: 'getNodeInfo',
@@ -220,6 +333,8 @@ export function useNodeInfo(nodeId: string | undefined) {
   return {
     nodeInfo: nodeInfo as [NodeStake, PerformanceMetrics, bigint] | undefined,
     refetch,
+    isLoading,
+    isError,
   }
 }
 

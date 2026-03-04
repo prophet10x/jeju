@@ -15,13 +15,19 @@ export function TransactionStatusModal({
   result,
   onClose,
 }: TransactionStatusModalProps) {
+  const statusColor =
+    result.status === 'error'
+      ? '#fca5a5'
+      : result.status === 'success'
+        ? '#86efac'
+        : '#bfdbfe'
+
   return (
     <div
-      onClick={onClose}
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.55)',
+        background: 'rgba(2, 6, 23, 0.78)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -29,37 +35,47 @@ export function TransactionStatusModal({
         zIndex: 2000,
       }}
     >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close transaction status"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          border: 'none',
+          background: 'transparent',
+          cursor: 'default',
+        }}
+      />
       <div
-        onClick={(event) => event.stopPropagation()}
         style={{
           width: 'min(440px, 100%)',
           borderRadius: '16px',
-          border: '1px solid var(--border, #374151)',
-          background: 'var(--surface, #111827)',
-          boxShadow: '0 22px 50px rgba(0,0,0,0.45)',
-          padding: '1rem',
+          border: `1px solid ${statusColor}`,
+          background:
+            'linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(2,6,23,0.98) 100%)',
+          boxShadow: '0 26px 60px rgba(2,6,23,0.6)',
+          padding: '1.1rem',
           display: 'grid',
-          gap: '0.8rem',
+          gap: '0.9rem',
+          position: 'relative',
         }}
       >
         <div
           style={{
-            color:
-              result.status === 'error'
-                ? '#fca5a5'
-                : result.status === 'success'
-                  ? '#86efac'
-                  : '#bfdbfe',
+            color: statusColor,
             fontWeight: 700,
             fontSize: '1rem',
+            letterSpacing: '0.01em',
           }}
         >
           {result.title}
         </div>
         <div
           style={{
-            color: 'var(--text-secondary, #cbd5e1)',
+            color: 'var(--text-secondary, #e2e8f0)',
             fontSize: '0.9rem',
+            lineHeight: 1.5,
           }}
         >
           {result.message}
@@ -69,8 +85,12 @@ export function TransactionStatusModal({
             style={{
               color: 'var(--text-primary, #f8fafc)',
               fontFamily: 'monospace',
-              fontSize: '0.8rem',
+              fontSize: '0.82rem',
               wordBreak: 'break-all',
+              background: 'rgba(15, 23, 42, 0.92)',
+              border: '1px solid rgba(148, 163, 184, 0.45)',
+              borderRadius: '10px',
+              padding: '0.65rem 0.75rem',
             }}
           >
             Tx: {result.txHash}
@@ -82,8 +102,9 @@ export function TransactionStatusModal({
             target="_blank"
             rel="noreferrer"
             style={{
-              color: '#93c5fd',
-              fontSize: '0.85rem',
+              color: '#7dd3fc',
+              fontSize: '0.87rem',
+              fontWeight: 600,
               textDecoration: 'underline',
             }}
           >
@@ -97,10 +118,11 @@ export function TransactionStatusModal({
             justifySelf: 'end',
             padding: '0.7rem 1rem',
             borderRadius: '10px',
-            border: '1px solid var(--border, #374151)',
-            background: 'var(--surface-hover, rgba(255,255,255,0.04))',
+            border: '1px solid rgba(148, 163, 184, 0.55)',
+            background: 'rgba(148, 163, 184, 0.16)',
             color: 'var(--text-primary, #f8fafc)',
             cursor: 'pointer',
+            fontWeight: 600,
           }}
         >
           Close

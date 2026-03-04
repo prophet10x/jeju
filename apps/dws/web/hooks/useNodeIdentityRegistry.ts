@@ -4,6 +4,8 @@ import {
   buildNodeIdentityTokenUri,
   getRegisteredAgentIdFromReceipt,
   IDENTITY_REGISTRY_ABI,
+  JEJU_NODE_IDENTITY_METADATA_SERVICE,
+  JEJU_NODE_IDENTITY_REGISTRATION_SERVICE,
   type NodeIdentityMetadata,
 } from '@jejunetwork/shared'
 import { useCallback } from 'react'
@@ -81,7 +83,7 @@ export function useNodeIdentityRegistry() {
 
       if (options.gasless) {
         const hash = await gasless.executeGaslessCalls({
-          serviceName: 'Jeju Node Identity Metadata',
+          serviceName: JEJU_NODE_IDENTITY_METADATA_SERVICE,
           calls,
         })
         await waitForSuccessfulReceipt(hash)
@@ -127,7 +129,7 @@ export function useNodeIdentityRegistry() {
 
         if (options.gasless) {
           hash = await gasless.executeGaslessCalls({
-            serviceName: 'Jeju Node Identity Registration',
+            serviceName: JEJU_NODE_IDENTITY_REGISTRATION_SERVICE,
             calls: [
               {
                 to: CONTRACTS.identityRegistry,

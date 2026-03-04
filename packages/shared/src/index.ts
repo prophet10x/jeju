@@ -96,6 +96,7 @@ export {
   getTestnetChain,
   inferChainFromRpcUrl,
 } from './chains'
+export * from './paymaster-services'
 // Components
 export {
   BanBanner,
