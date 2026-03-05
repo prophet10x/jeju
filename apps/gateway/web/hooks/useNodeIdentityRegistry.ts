@@ -2,6 +2,7 @@ import {
   buildNodeIdentityMetadataEntries,
   buildNodeIdentityPresentation,
   buildNodeIdentityTokenUri,
+  describeNodeRegistrationError,
   getRegisteredAgentIdFromReceipt,
   IDENTITY_REGISTRY_ABI,
   JEJU_NODE_IDENTITY_METADATA_SERVICE,
@@ -159,7 +160,9 @@ export function useNodeIdentityRegistry() {
         const receipt = await waitForSuccessfulReceipt(publicClient, hash)
         const agentId = getRegisteredAgentIdFromReceipt(receipt)
         if (agentId === undefined) {
-          throw new Error('Failed to decode node identity agent ID from receipt')
+          throw new Error(
+            'Failed to decode node identity agent ID from receipt',
+          )
         }
 
         await persistNodePresentation(agentId, metadata, options)
@@ -168,10 +171,10 @@ export function useNodeIdentityRegistry() {
       } catch (error) {
         return {
           success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Node identity registration failed',
+          error: describeNodeRegistrationError(
+            error,
+            'Node identity registration failed',
+          ),
         }
       }
     },

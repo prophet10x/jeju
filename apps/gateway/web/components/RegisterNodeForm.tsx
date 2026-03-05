@@ -1,5 +1,6 @@
 import {
   calculateUsdValue as calculateUSDValue,
+  describeNodeRegistrationError,
   fetchAgentWallet,
   formatTokenUsd as formatUSD,
   getNodeRegisteredIdFromReceipt,
@@ -765,9 +766,7 @@ export default function RegisterNodeForm() {
         { gasless: useGasless },
       )
     } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : 'Node registration failed',
-      )
+      setSubmitError(describeNodeRegistrationError(error))
     }
   }
 

@@ -7,6 +7,7 @@
 
 import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  describeNodeRegistrationError,
   fetchAgentWallet,
   getNodeRegisteredIdFromReceipt,
   JEJU_NODE_REGISTRATION_SERVICE,
@@ -547,23 +548,28 @@ export default function NodeRegistrationWizard() {
         return
       } catch (registrationError) {
         setError(
-          registrationError instanceof Error
-            ? registrationError.message
-            : 'Gasless registration failed',
+          describeNodeRegistrationError(
+            registrationError,
+            'Gasless registration failed',
+          ),
         )
         return
       }
     }
 
     setLastRegistrationHash(undefined)
-    registerNode({
-      stakingToken: DEFAULT_STAKING_TOKEN,
-      stakeAmount: requiredStake,
-      rewardToken: DEFAULT_REWARD_TOKEN,
-      rpcUrl: normalizedNodeRpcUrl,
-      region: selectedRegion,
-      operatorAgentId: selectedAgentId,
-    })
+    try {
+      registerNode({
+        stakingToken: DEFAULT_STAKING_TOKEN,
+        stakeAmount: requiredStake,
+        rewardToken: DEFAULT_REWARD_TOKEN,
+        rpcUrl: normalizedNodeRpcUrl,
+        region: selectedRegion,
+        operatorAgentId: selectedAgentId,
+      })
+    } catch (registrationError) {
+      setError(describeNodeRegistrationError(registrationError))
+    }
   }, [
     stakingManagerAddress,
     normalizedNodeRpcUrl,

@@ -899,3 +899,4 @@ export {
   type NodeProofSigner,
   type NodeProofVerification,
 } from './node-proof'
+export * from './node-registration-errors'
