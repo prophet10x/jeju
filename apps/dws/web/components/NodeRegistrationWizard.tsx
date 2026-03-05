@@ -70,7 +70,11 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS, EXPLORER_URL } from '../config'
+import {
+  CONTRACTS,
+  EXPLORER_URL,
+  resolveNodeStakingWriteAddress,
+} from '../config'
 import { useAgentId } from '../hooks/useAgentId'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
@@ -239,14 +243,9 @@ export default function NodeRegistrationWizard() {
   const { registerNodeIdentity } = useNodeIdentityRegistry()
 
   // Get staking manager address from config
-  const stakingManagerAddress =
-    CONTRACTS.nodeStakingRouter !== ZERO_ADDRESS
-      ? CONTRACTS.nodeStakingRouter
-      : CONTRACTS.nodeStakingManagerV2 !== ZERO_ADDRESS
-      ? CONTRACTS.nodeStakingManagerV2
-      : CONTRACTS.nodeStakingManager !== ZERO_ADDRESS
-        ? CONTRACTS.nodeStakingManager
-        : undefined
+  const stakingManagerAddress = resolveNodeStakingWriteAddress(
+    gasless.smartAccountAddress ?? address,
+  )
   const stakingApprovalSpenderAddress =
     stakingManagerAddress === CONTRACTS.nodeStakingRouter &&
     CONTRACTS.nodeStakingVault !== ZERO_ADDRESS

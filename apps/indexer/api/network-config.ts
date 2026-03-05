@@ -45,6 +45,8 @@ export interface ContractAddresses {
   poolManager: string | null
   swapRouter: string | null
   nodeStakingManager: string | null
+  nodeStakingManagerV2: string | null
+  nodeStakingLegacyManagerV1: string | null
   nodeStakingRegistry: string | null
   nodeStakingVault: string | null
   nodeStakingRouter: string | null
@@ -159,6 +161,12 @@ export function loadNetworkConfig(network?: NetworkType): NetworkConfig {
 
     // Node staking contracts
     nodeStakingManager: safeGetContract('nodeStaking', 'manager', net),
+    nodeStakingManagerV2: safeGetContract('nodeStaking', 'managerV2', net),
+    nodeStakingLegacyManagerV1: safeGetContract(
+      'nodeStaking',
+      'legacyManagerV1',
+      net,
+    ),
     nodeStakingRegistry: safeGetContract('nodeStaking', 'registry', net),
     nodeStakingVault: safeGetContract('nodeStaking', 'vault', net),
     nodeStakingRouter: safeGetContract('nodeStaking', 'router', net),

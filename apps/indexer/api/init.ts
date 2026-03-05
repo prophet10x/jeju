@@ -38,6 +38,8 @@ const CONTRACT_TYPES: Record<string, ContractInfo['type']> = {
   poolManager: 'defi',
   swapRouter: 'defi',
   nodeStakingManager: 'node',
+  nodeStakingManagerV2: 'node',
+  nodeStakingLegacyManagerV1: 'node',
   nodeStakingRegistry: 'node',
   nodeStakingVault: 'node',
   nodeStakingRouter: 'node',

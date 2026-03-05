@@ -2,11 +2,12 @@ import { JEJU_NODE_REGISTRATION_SERVICE } from '@jejunetwork/shared'
 import { useCallback, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, type Hex } from 'viem'
 import {
+  useAccount,
   usePublicClient,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS } from '../config'
+import { CONTRACTS, resolveNodeStakingWriteAddress } from '../config'
 import { useGaslessSmartAccount } from './useGaslessSmartAccount'
 
 const NODE_STAKING_MUTATION_ABI = [
@@ -58,25 +59,18 @@ interface NodeMutationOptions {
 }
 
 export function useNodeManagement() {
-  const nodeStakingManagerAddress =
-    CONTRACTS.nodeStakingRouter &&
-    CONTRACTS.nodeStakingRouter !==
-      '0x0000000000000000000000000000000000000000'
-      ? CONTRACTS.nodeStakingRouter
-      : CONTRACTS.nodeStakingManagerV2 &&
-          CONTRACTS.nodeStakingManagerV2 !==
-      '0x0000000000000000000000000000000000000000'
-        ? CONTRACTS.nodeStakingManagerV2
-        : CONTRACTS.nodeStakingManager
+  const { address } = useAccount()
+  const gasless = useGaslessSmartAccount()
+  const nodeStakingManagerAddress = resolveNodeStakingWriteAddress(
+    gasless.smartAccountAddress ?? address,
+  )
   const stakeSpenderAddress =
     nodeStakingManagerAddress === CONTRACTS.nodeStakingRouter &&
     CONTRACTS.nodeStakingVault &&
-    CONTRACTS.nodeStakingVault !==
-      '0x0000000000000000000000000000000000000000'
+    CONTRACTS.nodeStakingVault !== '0x0000000000000000000000000000000000000000'
       ? CONTRACTS.nodeStakingVault
       : nodeStakingManagerAddress
   const publicClient = usePublicClient()
-  const gasless = useGaslessSmartAccount()
   const [lastHash, setLastHash] = useState<Hex>()
   const [lastError, setLastError] = useState<string | null>(null)
 

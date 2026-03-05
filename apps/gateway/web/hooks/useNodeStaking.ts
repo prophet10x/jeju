@@ -73,15 +73,6 @@ const NODE_STAKING_WITH_AGENT_ABI = [
 ] as const
 
 export function useNodeStaking() {
-  const stakingManager = getNodeStakingAddress()
-  const stakeSpenderAddress =
-    CONTRACTS.nodeStakingRouter &&
-    CONTRACTS.nodeStakingRouter === stakingManager &&
-    CONTRACTS.nodeStakingVault &&
-    CONTRACTS.nodeStakingVault !==
-      '0x0000000000000000000000000000000000000000'
-      ? CONTRACTS.nodeStakingVault
-      : stakingManager
   const { address: userAddress } = useAccount()
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
@@ -94,6 +85,21 @@ export function useNodeStaking() {
   ] = useState<boolean | null>(null)
   const resolvedSmartAccountAddress =
     gasless.smartAccountAddress ?? predictedSmartAccountAddress
+  const stakingManager = useMemo(
+    () => getNodeStakingAddress(resolvedSmartAccountAddress ?? userAddress),
+    [resolvedSmartAccountAddress, userAddress],
+  )
+  const stakeSpenderAddress = useMemo(
+    () =>
+      CONTRACTS.nodeStakingRouter &&
+      CONTRACTS.nodeStakingRouter === stakingManager &&
+      CONTRACTS.nodeStakingVault &&
+      CONTRACTS.nodeStakingVault !==
+        '0x0000000000000000000000000000000000000000'
+        ? CONTRACTS.nodeStakingVault
+        : stakingManager,
+    [stakingManager],
+  )
 
   useEffect(() => {
     if (stakingManager) {

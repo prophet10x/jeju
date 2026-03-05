@@ -376,17 +376,12 @@ export const REGION_NAMES = {
   [Region.Oceania]: 'Oceania',
 }
 
-import { CONTRACTS } from './config'
+import { resolveNodeStakingWriteAddress } from './config'
 
-export function getNodeStakingAddress(): Address {
-  if (
-    CONTRACTS.nodeStakingRouter &&
-    CONTRACTS.nodeStakingRouter !==
-      '0x0000000000000000000000000000000000000000'
-  ) {
-    return CONTRACTS.nodeStakingRouter
-  }
-  return CONTRACTS.nodeStakingManager
+export function getNodeStakingAddress(
+  operatorAddress?: Address | string | null,
+): Address {
+  return resolveNodeStakingWriteAddress(operatorAddress)
 }
 
 export function formatUptimeScore(score: bigint): string {

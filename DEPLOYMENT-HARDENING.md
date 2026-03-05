@@ -163,6 +163,23 @@ Operational policy:
 
 Fail release if bootstrap settings are not explicitly verified and documented in release notes.
 
+## 5.2) V3 Router Canary Gate
+
+When rolling out V3 router writes, enable canary mode before full cutover:
+
+- `NODE_STAKING_WRITE_PATH=router-canary`
+- `NODE_STAKING_CANARY_OPERATORS=<comma-separated lowercase operator addresses>`
+- For Vite builds, also set:
+  - `VITE_NODE_STAKING_WRITE_PATH=router-canary`
+  - `VITE_NODE_STAKING_CANARY_OPERATORS=<same list>`
+
+Expected behavior:
+- canary operators write through `nodeStaking.router`
+- non-canary operators continue writing through `managerV2` (fallback `manager`)
+- read paths continue aggregating legacy + v2 + router where required
+
+Fail release if canary operators are not explicitly listed or if non-canary operators are routed to router unexpectedly.
+
 ## 6) Node Listing Parity Gate
 
 For same wallet/operator on both apps:

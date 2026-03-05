@@ -85,6 +85,101 @@ export const CONTRACTS = {
   ),
 } as const
 
+export type NodeStakingWritePath =
+  | 'auto'
+  | 'router'
+  | 'v2'
+  | 'v1'
+  | 'router-canary'
+
+function readEnvVar(key: string): string | undefined {
+  try {
+    const importMeta = import.meta as unknown as {
+      env?: Record<string, string | undefined>
+    }
+    const fromImportMeta =
+      importMeta?.env?.[key] ??
+      importMeta?.env?.[`VITE_${key}`] ??
+      importMeta?.env?.[`PUBLIC_${key}`]
+    if (fromImportMeta) return fromImportMeta
+  } catch {
+    // Ignore import.meta access failures outside Vite contexts.
+  }
+
+  if (typeof process !== 'undefined' && process.env) {
+    return (
+      process.env[key] ??
+      process.env[`VITE_${key}`] ??
+      process.env[`PUBLIC_${key}`]
+    )
+  }
+
+  return undefined
+}
+
+function parseNodeStakingWritePath(
+  value: string | undefined,
+): NodeStakingWritePath {
+  const normalized = (value ?? '').trim().toLowerCase()
+  switch (normalized) {
+    case 'router':
+    case 'v2':
+    case 'v1':
+    case 'router-canary':
+      return normalized as NodeStakingWritePath
+    default:
+      return 'auto'
+  }
+}
+
+function parseCanaryOperators(value: string | undefined): Set<string> {
+  if (!value) return new Set()
+  return new Set(
+    value
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0),
+  )
+}
+
+export const NODE_STAKING_WRITE_PATH = parseNodeStakingWritePath(
+  readEnvVar('NODE_STAKING_WRITE_PATH'),
+)
+export const NODE_STAKING_CANARY_OPERATORS = parseCanaryOperators(
+  readEnvVar('NODE_STAKING_CANARY_OPERATORS'),
+)
+
+export function resolveNodeStakingWriteAddress(
+  operatorAddress?: Address | string | null,
+): Address {
+  const router = CONTRACTS.nodeStakingRouter
+  const v2 = CONTRACTS.nodeStakingManagerV2
+  const v1 = CONTRACTS.nodeStakingLegacyManagerV1
+  const operator = operatorAddress?.toLowerCase() ?? null
+  const hasRouter = router && router !== ZERO_ADDRESS
+  const hasV2 = v2 && v2 !== ZERO_ADDRESS
+  const hasV1 = v1 && v1 !== ZERO_ADDRESS
+
+  if (NODE_STAKING_WRITE_PATH === 'router-canary') {
+    const useRouterForOperator =
+      hasRouter &&
+      operator !== null &&
+      NODE_STAKING_CANARY_OPERATORS.has(operator)
+    if (useRouterForOperator) return router
+    if (hasV2) return v2
+    if (hasV1) return v1
+    return router
+  }
+
+  if (NODE_STAKING_WRITE_PATH === 'router' && hasRouter) return router
+  if (NODE_STAKING_WRITE_PATH === 'v2' && hasV2) return v2
+  if (NODE_STAKING_WRITE_PATH === 'v1' && hasV1) return v1
+
+  if (hasRouter) return router
+  if (hasV2) return v2
+  return v1
+}
+
 export const BUNDLER_URL =
   typeof window !== 'undefined'
     ? `${window.location.origin}/bundler`
