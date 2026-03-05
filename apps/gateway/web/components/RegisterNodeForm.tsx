@@ -114,6 +114,9 @@ export default function RegisterNodeForm() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submittedDraft, setSubmittedDraft] =
     useState<NodeRegistrationDraft | null>(null)
+  const [pendingNodeIdentityId, setPendingNodeIdentityId] = useState<
+    string | null
+  >(null)
   const [processedRegistrationHash, setProcessedRegistrationHash] = useState<
     `0x${string}` | null
   >(null)
@@ -731,6 +734,7 @@ export default function RegisterNodeForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitError(null)
+    let createdNodeIdentityId: string | null = null
 
     if (disabledReason || !stakingToken || !rewardToken) {
       if (disabledReason) setSubmitError(disabledReason)
@@ -756,6 +760,49 @@ export default function RegisterNodeForm() {
       setSubmittedDraft(nextDraft)
       setNodeIdentityError(null)
       setNodeRegistrationResult(null)
+      setPendingNodeIdentityId(null)
+
+      const preStakeNodeIdentity: NodeIdentityMetadata = {
+        nodeName: nextDraft.nodeName,
+        operatorAgentId: nextDraft.operatorAgentId,
+        rpcUrl: nextDraft.rpcUrl,
+        region: nextDraft.region,
+        services: nextDraft.services,
+        serviceTags: [...nextDraft.services],
+        cpuCores: nextDraft.cpuCores,
+        memoryGb: nextDraft.memoryGb,
+        diskGb: nextDraft.diskGb,
+        zone: nextDraft.zone,
+        stakingToken: nextDraft.stakingToken,
+        stakeAmount: nextDraft.stakeAmount,
+        rewardToken: nextDraft.rewardToken,
+        status: 'draft',
+      }
+
+      setIsRegisteringNodeIdentity(true)
+      const nodeIdentityResult = await registerNodeIdentity(
+        preStakeNodeIdentity,
+        {
+          gasless: useGasless,
+        },
+      )
+      setIsRegisteringNodeIdentity(false)
+
+      if (
+        !nodeIdentityResult.success ||
+        nodeIdentityResult.agentId === undefined
+      ) {
+        const message =
+          nodeIdentityResult.error ??
+          'Required node identity registration failed. Staking was blocked.'
+        setNodeIdentityError(message)
+        setSubmitError(message)
+        return
+      }
+
+      createdNodeIdentityId = nodeIdentityResult.agentId.toString()
+      setPendingNodeIdentityId(createdNodeIdentityId)
+
       await registerNode(
         stakingToken.address as `0x${string}`,
         parsedStakeAmount,
@@ -766,7 +813,13 @@ export default function RegisterNodeForm() {
         { gasless: useGasless },
       )
     } catch (error) {
-      setSubmitError(describeNodeRegistrationError(error))
+      setIsRegisteringNodeIdentity(false)
+      const message = describeNodeRegistrationError(error)
+      setSubmitError(
+        createdNodeIdentityId
+          ? `${message} Node identity #${createdNodeIdentityId} remains registered.`
+          : message,
+      )
     }
   }
 
@@ -779,56 +832,30 @@ export default function RegisterNodeForm() {
 
     if (!nodeId) {
       setNodeIdentityError(
-        'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh My Nodes and the explorer to confirm on-chain state.',
+        pendingNodeIdentityId
+          ? `Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Node Identity #${pendingNodeIdentityId} was created. Refresh My Nodes and the explorer to confirm on-chain state.`
+          : 'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh My Nodes and the explorer to confirm on-chain state.',
       )
+      setNodeRegistrationResult({
+        operatorAgentId: submittedDraft.operatorAgentId,
+        nodeIdentityId: pendingNodeIdentityId ?? undefined,
+        txHash: registrationHash,
+      })
       return
     }
 
-    const metadata: NodeIdentityMetadata = {
-      nodeName: submittedDraft.nodeName,
+    setNodeRegistrationResult({
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
-      rpcUrl: submittedDraft.rpcUrl,
-      region: submittedDraft.region,
-      services: submittedDraft.services,
-      serviceTags: [...submittedDraft.services],
-      cpuCores: submittedDraft.cpuCores,
-      memoryGb: submittedDraft.memoryGb,
-      diskGb: submittedDraft.diskGb,
-      zone: submittedDraft.zone,
-      stakingToken: submittedDraft.stakingToken,
-      stakeAmount: submittedDraft.stakeAmount,
-      rewardToken: submittedDraft.rewardToken,
-      status: 'active',
-    }
-
-    setIsRegisteringNodeIdentity(true)
-    void registerNodeIdentity(metadata, { gasless: useGasless }).then(
-      (result) => {
-        setIsRegisteringNodeIdentity(false)
-        if (!result.success) {
-          setNodeIdentityError(
-            result.error ??
-              'Node identity registration failed after staking succeeded.',
-          )
-          return
-        }
-
-        setNodeRegistrationResult({
-          operatorAgentId: submittedDraft.operatorAgentId,
-          nodeId,
-          nodeIdentityId: result.agentId?.toString(),
-          txHash: registrationHash,
-        })
-      },
-    )
+      nodeIdentityId: pendingNodeIdentityId ?? undefined,
+      txHash: registrationHash,
+    })
   }, [
+    pendingNodeIdentityId,
     processedRegistrationHash,
-    registerNodeIdentity,
     registrationHash,
     registrationReceipt,
     submittedDraft,
-    useGasless,
   ])
 
   useEffect(() => {
@@ -839,7 +866,12 @@ export default function RegisterNodeForm() {
     if (step === 'confirm' && nodeIdentityError && processedRegistrationHash) {
       setStep('complete')
     }
-  }, [nodeRegistrationResult, nodeIdentityError, processedRegistrationHash, step])
+  }, [
+    nodeRegistrationResult,
+    nodeIdentityError,
+    processedRegistrationHash,
+    step,
+  ])
 
   const steps: Array<{ key: RegistrationStep; label: string }> = [
     { key: 'identity', label: 'Identity' },
@@ -1754,11 +1786,14 @@ export default function RegisterNodeForm() {
           }}
         >
           {nodeIdentityError
-            ? '⚠️ Node staking succeeded with follow-up issues.'
+            ? '⚠️ Node staking completed with warnings.'
             : '✅ Node registered successfully!'}
-          {nodeRegistrationResult?.nodeIdentityId
+          {nodeRegistrationResult?.nodeIdentityId &&
+          nodeRegistrationResult?.nodeId
             ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} is linked to ${nodeRegistrationResult.nodeId}.`
-            : ''}
+            : nodeRegistrationResult?.nodeIdentityId
+              ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} was created.`
+              : ''}
         </p>
       </div>
 
@@ -1865,8 +1900,7 @@ export default function RegisterNodeForm() {
             }}
           >
             <p style={{ color: 'var(--primary)', margin: 0 }}>
-              Linking a dedicated node identity and persisting selected
-              services...
+              Creating required on-chain node identity before staking...
             </p>
           </div>
         )}
@@ -1911,7 +1945,11 @@ export default function RegisterNodeForm() {
             <button
               type="button"
               className="button button-secondary"
-              disabled={step === 'identity' || isRegistering}
+              disabled={
+                step === 'identity' ||
+                isRegistering ||
+                isRegisteringNodeIdentity
+              }
               onClick={handlePreviousStep}
             >
               Back
@@ -1921,20 +1959,27 @@ export default function RegisterNodeForm() {
               <button
                 type="submit"
                 className="button"
-                disabled={!isValid || isRegistering || !!disabledReason}
+                disabled={
+                  !isValid ||
+                  isRegistering ||
+                  isRegisteringNodeIdentity ||
+                  !!disabledReason
+                }
               >
-                {isRegistering
-                  ? 'Staking & Registering...'
-                  : useGasless
-                    ? 'Stake & Register Node (JEJU gasless)'
-                    : 'Stake & Register Node'}
+                {isRegisteringNodeIdentity
+                  ? 'Creating Required Node Identity...'
+                  : isRegistering
+                    ? 'Staking & Registering...'
+                    : useGasless
+                      ? 'Stake & Register Node (JEJU gasless)'
+                      : 'Stake & Register Node'}
               </button>
             ) : (
               <button
                 type="button"
                 className="button"
                 onClick={handleNextStep}
-                disabled={isRegistering}
+                disabled={isRegistering || isRegisteringNodeIdentity}
               >
                 Continue
               </button>

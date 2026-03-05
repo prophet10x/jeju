@@ -266,6 +266,9 @@ export default function NodeRegistrationWizard() {
   >()
   const [submittedDraft, setSubmittedDraft] =
     useState<NodeRegistrationDraft | null>(null)
+  const [pendingNodeIdentityId, setPendingNodeIdentityId] = useState<
+    string | null
+  >(null)
   const [processedRegistrationHash, setProcessedRegistrationHash] = useState<
     `0x${string}` | null
   >(null)
@@ -465,6 +468,7 @@ export default function NodeRegistrationWizard() {
   }, [stakingManagerAddress, requiredStake, approveStaking])
 
   const handleRegister = useCallback(async () => {
+    let createdNodeIdentityId: string | null = null
     if (!stakingManagerAddress) {
       setError('Staking manager not configured for this network')
       return
@@ -482,6 +486,7 @@ export default function NodeRegistrationWizard() {
     setError(null)
     setNodeIdentityError(null)
     setNodeRegistrationResult(null)
+    setPendingNodeIdentityId(null)
 
     const nextDraft: NodeRegistrationDraft = {
       operatorAgentId: selectedAgentId.toString(),
@@ -508,6 +513,46 @@ export default function NodeRegistrationWizard() {
     }
 
     setSubmittedDraft(nextDraft)
+    const preStakeNodeIdentity: NodeIdentityMetadata = {
+      nodeName: nextDraft.nodeName,
+      operatorAgentId: nextDraft.operatorAgentId,
+      rpcUrl: nextDraft.rpcUrl,
+      region: nextDraft.region,
+      services: nextDraft.services,
+      serviceTags: [...nextDraft.services],
+      cpuCores: nextDraft.cpuCores,
+      memoryGb: nextDraft.memoryGb,
+      diskGb: nextDraft.diskGb,
+      zone: nextDraft.zone,
+      stakingToken: nextDraft.stakingToken,
+      stakeAmount: nextDraft.stakeAmount,
+      rewardToken: nextDraft.rewardToken,
+      status: 'draft',
+    }
+
+    setIsRegisteringNodeIdentity(true)
+    const nodeIdentityResult = await registerNodeIdentity(
+      preStakeNodeIdentity,
+      {
+        gasless: useGasless,
+      },
+    )
+    setIsRegisteringNodeIdentity(false)
+
+    if (
+      !nodeIdentityResult.success ||
+      nodeIdentityResult.agentId === undefined
+    ) {
+      const message =
+        nodeIdentityResult.error ??
+        'Required node identity registration failed. Staking was blocked.'
+      setNodeIdentityError(message)
+      setError(message)
+      return
+    }
+
+    createdNodeIdentityId = nodeIdentityResult.agentId.toString()
+    setPendingNodeIdentityId(createdNodeIdentityId)
 
     if (useGasless) {
       if (!gaslessReadiness.isReady) {
@@ -552,7 +597,9 @@ export default function NodeRegistrationWizard() {
         setError(
           describeNodeRegistrationError(
             registrationError,
-            'Gasless registration failed',
+            createdNodeIdentityId
+              ? `Gasless registration failed. Node identity #${createdNodeIdentityId} remains registered.`
+              : 'Gasless registration failed',
           ),
         )
         return
@@ -570,9 +617,15 @@ export default function NodeRegistrationWizard() {
         operatorAgentId: selectedAgentId,
       })
     } catch (registrationError) {
-      setError(describeNodeRegistrationError(registrationError))
+      const message = describeNodeRegistrationError(registrationError)
+      setError(
+        createdNodeIdentityId
+          ? `${message} Node identity #${createdNodeIdentityId} remains registered.`
+          : message,
+      )
     }
   }, [
+    registerNodeIdentity,
     stakingManagerAddress,
     normalizedNodeRpcUrl,
     selectedAgentId,
@@ -1053,57 +1106,30 @@ export default function NodeRegistrationWizard() {
 
     if (!nodeId) {
       setNodeIdentityError(
-        'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh your nodes view and explorer to confirm on-chain state.',
+        pendingNodeIdentityId
+          ? `Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Node Identity #${pendingNodeIdentityId} was created. Refresh your nodes view and explorer to confirm on-chain state.`
+          : 'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh your nodes view and explorer to confirm on-chain state.',
       )
+      setNodeRegistrationResult({
+        operatorAgentId: submittedDraft.operatorAgentId,
+        nodeIdentityId: pendingNodeIdentityId ?? undefined,
+        txHash: effectiveRegistrationHash,
+      })
       return
     }
 
-    const metadata: NodeIdentityMetadata = {
-      nodeName: submittedDraft.nodeName,
+    setNodeRegistrationResult({
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
-      rpcUrl: submittedDraft.rpcUrl,
-      region: submittedDraft.region,
-      services: submittedDraft.services,
-      serviceTags: [...submittedDraft.services],
-      cpuCores: submittedDraft.cpuCores,
-      memoryGb: submittedDraft.memoryGb,
-      diskGb: submittedDraft.diskGb,
-      zone: submittedDraft.zone,
-      stakingToken: submittedDraft.stakingToken,
-      stakeAmount: submittedDraft.stakeAmount,
-      rewardToken: submittedDraft.rewardToken,
-      status: 'active',
-    }
-
-    setIsRegisteringNodeIdentity(true)
-    void registerNodeIdentity(metadata, { gasless: useGasless }).then(
-      (result) => {
-        setIsRegisteringNodeIdentity(false)
-
-        if (!result.success) {
-          setNodeIdentityError(
-            result.error ??
-              'Node identity registration failed after staking succeeded.',
-          )
-          return
-        }
-
-        setNodeRegistrationResult({
-          operatorAgentId: submittedDraft.operatorAgentId,
-          nodeId,
-          nodeIdentityId: result.agentId?.toString(),
-          txHash: effectiveRegistrationHash,
-        })
-      },
-    )
+      nodeIdentityId: pendingNodeIdentityId ?? undefined,
+      txHash: effectiveRegistrationHash,
+    })
   }, [
     effectiveRegistrationHash,
     effectiveRegistrationReceipt,
+    pendingNodeIdentityId,
     processedRegistrationHash,
-    registerNodeIdentity,
     submittedDraft,
-    useGasless,
   ])
 
   const renderStepIndicator = () => {
@@ -2742,7 +2768,7 @@ export default function NodeRegistrationWizard() {
           type="button"
           className="btn btn-secondary"
           onClick={handlePrevStep}
-          disabled={isRegistering}
+          disabled={isRegistering || isRegisteringNodeIdentity}
         >
           Back
         </button>
@@ -2750,9 +2776,14 @@ export default function NodeRegistrationWizard() {
           type="button"
           className="btn btn-primary"
           onClick={handleRegister}
-          disabled={isRegistering}
+          disabled={isRegistering || isRegisteringNodeIdentity}
         >
-          {isRegistering ? (
+          {isRegisteringNodeIdentity ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              Creating Required Node Identity...
+            </>
+          ) : isRegistering ? (
             <>
               <Loader2 size={18} className="animate-spin" />
               Registering...
@@ -2776,7 +2807,7 @@ export default function NodeRegistrationWizard() {
             color: 'var(--info)',
           }}
         >
-          Creating node identity and persisting selected services...
+          Creating required on-chain node identity before staking...
         </div>
       )}
 
@@ -2904,8 +2935,7 @@ export default function NodeRegistrationWizard() {
             color: 'var(--warning)',
           }}
         >
-          Node staking succeeded, but the node identity metadata could not be
-          finalized: {nodeIdentityError}
+          Node staking completed with warnings: {nodeIdentityError}
         </div>
       )}
 
