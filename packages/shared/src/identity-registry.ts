@@ -292,12 +292,17 @@ async function readContractsWithFallback<T>(params: {
 export function buildNodeIdentityPresentation(
   services: NodeServiceId[],
 ): NodeIdentityPresentation {
+  const MAX_ONCHAIN_TAGS = 10
   const uniqueServices = Array.from(new Set(services.filter(Boolean)))
+  const tags = Array.from(new Set(['node', ...uniqueServices])).slice(
+    0,
+    MAX_ONCHAIN_TAGS,
+  )
 
   return {
     category: 'service',
     serviceType: uniqueServices[0] ?? 'node',
-    tags: Array.from(new Set(['node', ...uniqueServices])),
+    tags,
   }
 }
 

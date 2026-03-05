@@ -11,6 +11,14 @@ const NODE_STAKING_ERROR_ABI = [
   },
 ] as const
 
+const IDENTITY_REGISTRY_ERROR_ABI = [
+  {
+    type: 'error',
+    name: 'TooManyTags',
+    inputs: [],
+  },
+] as const
+
 const PAYMASTER_ERROR_ABI = [
   {
     type: 'error',
@@ -20,6 +28,7 @@ const PAYMASTER_ERROR_ABI = [
 ] as const
 
 const NETWORK_OWNERSHIP_EXCEEDED_SELECTOR = '0x7d246ea2'
+const TOO_MANY_TAGS_SELECTOR = '0xee39e855'
 const SERVICE_NOT_AVAILABLE_SELECTOR = '0x47df41de'
 
 function formatBpsAsPercent(bps: bigint): string {
@@ -113,6 +122,21 @@ function decodeServiceNotAvailable(message: string): string | null {
   }
 }
 
+function isTooManyTagsError(message: string): boolean {
+  const encoded = extractEncodedErrorData(message, TOO_MANY_TAGS_SELECTOR)
+  if (!encoded) return false
+
+  try {
+    const decoded = decodeErrorResult({
+      abi: IDENTITY_REGISTRY_ERROR_ABI,
+      data: encoded,
+    })
+    return decoded.errorName === 'TooManyTags'
+  } catch {
+    return false
+  }
+}
+
 export function describeNodeRegistrationError(
   error: unknown,
   fallback = 'Node registration failed',
@@ -132,6 +156,10 @@ export function describeNodeRegistrationError(
   const unavailableService = decodeServiceNotAvailable(message)
   if (unavailableService) {
     return `Paymaster service unavailable: "${unavailableService}". Ask the network operator to register this service in ServiceRegistry, then retry.`
+  }
+
+  if (isTooManyTagsError(message)) {
+    return 'Node identity metadata update exceeded the on-chain tag limit. Retry after reducing tag count (max 10), or use the latest app build which auto-limits on-chain tags.'
   }
 
   if (message.includes('UserOperation reverted during simulation')) {
