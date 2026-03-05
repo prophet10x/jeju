@@ -882,6 +882,7 @@ export {
   getNodeRegisteredIdFromReceipt,
   getRegisteredAgentIdFromReceipt,
   IDENTITY_REGISTRY_ABI,
+  isNodeIdentityAgent,
   REGISTERED_EVENT_ABI,
   NODE_REGISTERED_EVENT_ABI,
   waitForAgentWallet,

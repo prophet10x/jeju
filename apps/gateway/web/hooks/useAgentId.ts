@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   fetchOwnedAgentIdentities,
+  isNodeIdentityAgent,
   type OwnedAgentIdentity,
 } from '@jejunetwork/shared'
 import {
@@ -54,15 +55,19 @@ export function useAgentId() {
   })
 
   const myAgents = useMemo<OwnedAgentIdentity[]>(() => data?.agents ?? [], [data?.agents])
+  const operatorAgents = useMemo<OwnedAgentIdentity[]>(
+    () => myAgents.filter((agent) => !isNodeIdentityAgent(agent)),
+    [myAgents],
+  )
 
-  const firstAgent = myAgents[0]
+  const firstAgent = operatorAgents[0]
 
   return {
-    hasAgent: myAgents.length > 0,
+    hasAgent: operatorAgents.length > 0,
     agentId: firstAgent ? Number(firstAgent.id) : null,
     tokenURI: firstAgent?.tokenURI ?? null,
     isLoading,
-    agents: myAgents,
+    agents: operatorAgents,
     smartAccountAddress: data?.smartAccountAddress ?? null,
   }
 }

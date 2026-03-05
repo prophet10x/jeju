@@ -192,6 +192,13 @@ export interface NodeIdentityPresentation {
   tags: string[]
 }
 
+function hasOwnRecordKey(
+  value: Record<string, unknown>,
+  key: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
 type ContractReadResult<T> =
   | { status: 'success'; result: T }
   | { status: 'failure'; error: unknown }
@@ -246,6 +253,29 @@ function parseAgentName(tokenURI: string): string {
   const parsed = parseTokenUriJson(tokenURI)
   const rawName = parsed?.name
   return typeof rawName === 'string' ? rawName : ''
+}
+
+export function isNodeIdentityAgent(
+  agent: Pick<OwnedAgentIdentity, 'tokenURI'>,
+): boolean {
+  const parsed = parseTokenUriJson(agent.tokenURI)
+  if (!parsed) return false
+
+  const description =
+    typeof parsed.description === 'string'
+      ? parsed.description.toLowerCase()
+      : ''
+
+  if (description.includes('node identity for operator agent')) {
+    return true
+  }
+
+  const hasOperatorAgentId = hasOwnRecordKey(parsed, 'operatorAgentId')
+  const hasNodeId = hasOwnRecordKey(parsed, 'nodeId')
+  const hasServices = Array.isArray(parsed.services)
+  const hasEndpoint = hasOwnRecordKey(parsed, 'rpcUrl')
+
+  return hasOperatorAgentId && (hasNodeId || hasServices || hasEndpoint)
 }
 
 function definedString(value: bigint | number | string | undefined): string {
@@ -417,7 +447,10 @@ export async function fetchOwnedAgentIdentities(params: {
       ])
 
       for (const log of registeredLogs) {
-        discoveredAgentIds.add(log.args.agentId)
+        const agentId = log.args.agentId
+        if (agentId !== undefined) {
+          discoveredAgentIds.add(agentId)
+        }
       }
 
       for (const log of receivedTransferLogs) {
@@ -446,7 +479,7 @@ export async function fetchOwnedAgentIdentities(params: {
     })),
   })
 
-  const ownedAgentIds = allAgentIds.filter((agentId, index) => {
+  const ownedAgentIds = allAgentIds.filter((_, index) => {
     const ownerResult = ownerResults[index]
     return (
       ownerResult.status === 'success' &&
@@ -518,9 +551,9 @@ export async function fetchOwnedAgentIdentities(params: {
     ])
 
   return ownedAgentIds
-    .map((agentId, index) => {
+    .map<OwnedAgentIdentity | null>((agentId, index) => {
       const ownerResult = ownerResults[allAgentIds.indexOf(agentId)]
-      if (ownerResult.status !== 'success') return null
+      if (!ownerResult || ownerResult.status !== 'success') return null
 
       const tokenURI =
         tokenUriResults[index]?.status === 'success'
@@ -550,7 +583,7 @@ export async function fetchOwnedAgentIdentities(params: {
         category,
         tags,
         tier: String(tierValue),
-      } satisfies OwnedAgentIdentity
+      }
     })
     .filter((agent): agent is OwnedAgentIdentity => agent !== null)
 }
