@@ -56,6 +56,7 @@ const NODE_STAKING_MUTATION_ABI = [
 
 interface NodeMutationOptions {
   gasless?: boolean
+  managerAddress?: Address
 }
 
 export function useNodeManagement() {
@@ -64,12 +65,15 @@ export function useNodeManagement() {
   const nodeStakingManagerAddress = resolveNodeStakingWriteAddress(
     gasless.smartAccountAddress ?? address,
   )
-  const stakeSpenderAddress =
-    nodeStakingManagerAddress === CONTRACTS.nodeStakingRouter &&
-    CONTRACTS.nodeStakingVault &&
-    CONTRACTS.nodeStakingVault !== '0x0000000000000000000000000000000000000000'
-      ? CONTRACTS.nodeStakingVault
-      : nodeStakingManagerAddress
+  const resolveStakeSpender = useCallback(
+    (managerAddress: Address) =>
+      managerAddress === CONTRACTS.nodeStakingRouter &&
+      CONTRACTS.nodeStakingVault &&
+      CONTRACTS.nodeStakingVault !== '0x0000000000000000000000000000000000000000'
+        ? CONTRACTS.nodeStakingVault
+        : managerAddress,
+    [],
+  )
   const publicClient = usePublicClient()
   const [lastHash, setLastHash] = useState<Hex>()
   const [lastError, setLastError] = useState<string | null>(null)
@@ -83,6 +87,7 @@ export function useNodeManagement() {
 
   const runDirectWrite = useCallback(
     async (args: {
+      managerAddress: Address
       functionName:
         | 'increaseStake'
         | 'updateNodeConfig'
@@ -91,7 +96,7 @@ export function useNodeManagement() {
       args: readonly unknown[]
     }) => {
       const txHash = await writeContractAsync({
-        address: nodeStakingManagerAddress,
+        address: args.managerAddress,
         abi: NODE_STAKING_MUTATION_ABI,
         functionName: args.functionName,
         args: args.args,
@@ -99,7 +104,7 @@ export function useNodeManagement() {
       setLastHash(txHash)
       return txHash
     },
-    [nodeStakingManagerAddress, writeContractAsync],
+    [writeContractAsync],
   )
 
   const increaseNodeStake = useCallback(
@@ -116,6 +121,9 @@ export function useNodeManagement() {
       setLastError(null)
 
       try {
+        const targetManager = options?.managerAddress ?? nodeStakingManagerAddress
+        const targetSpender = resolveStakeSpender(targetManager)
+
         if (options?.gasless) {
           const txHash = await gasless.executeGaslessCalls({
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
@@ -125,11 +133,11 @@ export function useNodeManagement() {
                 data: encodeFunctionData({
                   abi: erc20Abi,
                   functionName: 'approve',
-                  args: [stakeSpenderAddress, amount],
+                  args: [targetSpender, amount],
                 }),
               },
               {
-                to: nodeStakingManagerAddress,
+                to: targetManager,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'increaseStake',
@@ -150,7 +158,7 @@ export function useNodeManagement() {
           address: stakingToken,
           abi: erc20Abi,
           functionName: 'approve',
-          args: [stakeSpenderAddress, amount],
+          args: [targetSpender, amount],
         })
 
         if (publicClient) {
@@ -158,6 +166,7 @@ export function useNodeManagement() {
         }
 
         return runDirectWrite({
+          managerAddress: targetManager,
           functionName: 'increaseStake',
           args: [nodeId, amount],
         })
@@ -171,7 +180,7 @@ export function useNodeManagement() {
     [
       gasless,
       nodeStakingManagerAddress,
-      stakeSpenderAddress,
+      resolveStakeSpender,
       publicClient,
       runDirectWrite,
       writeContractAsync,
@@ -189,12 +198,14 @@ export function useNodeManagement() {
       setLastError(null)
 
       try {
+        const targetManager = options?.managerAddress ?? nodeStakingManagerAddress
+
         if (options?.gasless) {
           const txHash = await gasless.executeGaslessCalls({
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
             calls: [
               {
-                to: nodeStakingManagerAddress,
+                to: targetManager,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'updateNodeConfig',
@@ -208,6 +219,7 @@ export function useNodeManagement() {
         }
 
         return runDirectWrite({
+          managerAddress: targetManager,
           functionName: 'updateNodeConfig',
           args: [nodeId, rpcUrl, region],
         })
@@ -231,12 +243,14 @@ export function useNodeManagement() {
       setLastError(null)
 
       try {
+        const targetManager = options?.managerAddress ?? nodeStakingManagerAddress
+
         if (options?.gasless) {
           const txHash = await gasless.executeGaslessCalls({
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
             calls: [
               {
-                to: nodeStakingManagerAddress,
+                to: targetManager,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'updateNodeServices',
@@ -250,6 +264,7 @@ export function useNodeManagement() {
         }
 
         return runDirectWrite({
+          managerAddress: targetManager,
           functionName: 'updateNodeServices',
           args: [nodeId, servicesHash],
         })
@@ -271,12 +286,14 @@ export function useNodeManagement() {
       setLastError(null)
 
       try {
+        const targetManager = options?.managerAddress ?? nodeStakingManagerAddress
+
         if (options?.gasless) {
           const txHash = await gasless.executeGaslessCalls({
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
             calls: [
               {
-                to: nodeStakingManagerAddress,
+                to: targetManager,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'setNodeMetadataURI',
@@ -290,6 +307,7 @@ export function useNodeManagement() {
         }
 
         return runDirectWrite({
+          managerAddress: targetManager,
           functionName: 'setNodeMetadataURI',
           args: [nodeId, metadataUri],
         })

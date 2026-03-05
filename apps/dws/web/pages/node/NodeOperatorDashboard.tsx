@@ -78,7 +78,60 @@ const PRICE_ORACLE_ABI = [
   },
 ] as const;
 
+const NODE_STAKING_READ_ABI = [
+  {
+    type: "function",
+    name: "getNodeInfo",
+    inputs: [{ name: "nodeId", type: "bytes32" }],
+    outputs: [
+      {
+        name: "node",
+        type: "tuple",
+        components: [{ name: "nodeId", type: "bytes32" }],
+      },
+      {
+        name: "perf",
+        type: "tuple",
+        components: [{ name: "uptimeScore", type: "uint256" }],
+      },
+      { name: "pendingRewardsUSD", type: "uint256" },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getNodeServicesHash",
+    inputs: [{ name: "nodeId", type: "bytes32" }],
+    outputs: [{ name: "servicesHash", type: "bytes32" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getNodeMetadataURI",
+    inputs: [{ name: "nodeId", type: "bytes32" }],
+    outputs: [{ name: "metadataURI", type: "string" }],
+    stateMutability: "view",
+  },
+] as const;
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const ZERO_NODE_ID =
+  "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+function getNodeStakingReadManagers(): Address[] {
+  const candidates = [
+    CONTRACTS.nodeStakingRouter,
+    CONTRACTS.nodeStakingManagerV2,
+    CONTRACTS.nodeStakingLegacyManagerV1,
+    CONTRACTS.nodeStakingManager,
+  ]
+    .filter(
+      (address): address is Address =>
+        Boolean(address) && address !== ZERO_ADDRESS,
+    )
+    .map((address) => address.toLowerCase() as Address);
+  return Array.from(new Set(candidates));
+}
 
 function formatNodeVersionLabel(node: NodeInfo): string {
   if (typeof node.stateVersion === "number" && node.stateVersion > 0) {
@@ -982,6 +1035,13 @@ function NodeDetailsPanel({
   );
   const [metadataUri, setMetadataUri] = useState("");
   const [selectedServices, setSelectedServices] = useState<NodeServiceId[]>([]);
+  const [currentServicesHash, setCurrentServicesHash] = useState<Hex | null>(
+    null,
+  );
+  const [currentMetadataUri, setCurrentMetadataUri] = useState("");
+  const [nodeManagerAddress, setNodeManagerAddress] = useState<Address | null>(
+    null,
+  );
   const [actionResult, setActionResult] =
     useState<TransactionStatusResult | null>(null);
 
@@ -995,7 +1055,98 @@ function NodeDetailsPanel({
     if (!node) return;
     setEditRpcUrl(node.rpcUrl);
     setEditRegion(REGION_TO_VALUE[node.region] ?? REGION_TO_VALUE.Global);
+    setCurrentServicesHash(null);
+    setCurrentMetadataUri("");
+    setNodeManagerAddress(null);
   }, [node]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNodeMetadataContext() {
+      if (!publicClient || !node) return;
+
+      const managers = getNodeStakingReadManagers();
+      let resolvedManager: Address | null = null;
+
+      for (const manager of managers) {
+        try {
+          const info = (await publicClient.readContract({
+            address: manager,
+            abi: NODE_STAKING_READ_ABI,
+            functionName: "getNodeInfo",
+            args: [node.nodeId as Hex],
+          })) as unknown;
+
+          let resolvedNodeId: string | undefined;
+          if (Array.isArray(info)) {
+            const nodeTuple = info[0] as { nodeId?: string } | undefined;
+            resolvedNodeId = nodeTuple?.nodeId;
+          } else if (info && typeof info === "object") {
+            const infoRecord = info as {
+              node?: { nodeId?: string };
+              0?: { nodeId?: string };
+            };
+            resolvedNodeId = infoRecord.node?.nodeId ?? infoRecord[0]?.nodeId;
+          }
+
+          if (
+            resolvedNodeId &&
+            resolvedNodeId.toLowerCase() !== ZERO_NODE_ID.toLowerCase()
+          ) {
+            resolvedManager = manager;
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      if (!resolvedManager || cancelled) return;
+
+      try {
+        const [servicesHashResult, metadataUriResult] = await Promise.all([
+          publicClient.readContract({
+            address: resolvedManager,
+            abi: NODE_STAKING_READ_ABI,
+            functionName: "getNodeServicesHash",
+            args: [node.nodeId as Hex],
+          }),
+          publicClient.readContract({
+            address: resolvedManager,
+            abi: NODE_STAKING_READ_ABI,
+            functionName: "getNodeMetadataURI",
+            args: [node.nodeId as Hex],
+          }),
+        ]);
+
+        if (cancelled) return;
+
+        const resolvedHash = servicesHashResult as Hex;
+        const resolvedMetadataUri = metadataUriResult as string;
+        setNodeManagerAddress(resolvedManager);
+        setCurrentServicesHash(
+          resolvedHash.toLowerCase() === ZERO_NODE_ID.toLowerCase()
+            ? null
+            : resolvedHash,
+        );
+        setCurrentMetadataUri(resolvedMetadataUri);
+        if (!metadataUri && resolvedMetadataUri) {
+          setMetadataUri(resolvedMetadataUri);
+        }
+      } catch {
+        if (!cancelled) {
+          setNodeManagerAddress(resolvedManager);
+        }
+      }
+    }
+
+    void loadNodeMetadataContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [metadataUri, node, publicClient]);
 
   if (!node) return null;
 
@@ -1107,7 +1258,7 @@ function NodeDetailsPanel({
           node.nodeId as Hex,
           node.stakedToken as Address,
           amount,
-          { gasless: isSmartAccountOperator },
+          { gasless: isSmartAccountOperator, managerAddress: nodeManagerAddress ?? undefined },
         ),
       submittedTitle: "Stake increase submitted",
       submittedMessage: "Increasing node stake on-chain.",
@@ -1142,6 +1293,7 @@ function NodeDetailsPanel({
       action: () =>
         updateNodeConfig(node.nodeId as Hex, editRpcUrl.trim(), editRegion, {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress ?? undefined,
         }),
       submittedTitle: "Node config update submitted",
       submittedMessage: "Updating endpoint and region on-chain.",
@@ -1176,6 +1328,7 @@ function NodeDetailsPanel({
       action: () =>
         updateNodeServices(node.nodeId as Hex, servicesHash, {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress ?? undefined,
         }),
       submittedTitle: "Service update submitted",
       submittedMessage: "Updating service hash on-chain.",
@@ -1210,6 +1363,7 @@ function NodeDetailsPanel({
       action: () =>
         updateNodeMetadataURI(node.nodeId as Hex, metadataUri.trim(), {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress ?? undefined,
         }),
       submittedTitle: "Metadata update submitted",
       submittedMessage: "Updating metadata URI pointer on-chain.",
@@ -1557,6 +1711,16 @@ function NodeDetailsPanel({
           >
             New hash: {servicesHash ?? "not set"}
           </div>
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.75rem",
+              color: "var(--text-muted)",
+              wordBreak: "break-all",
+            }}
+          >
+            Current hash: {currentServicesHash ?? "not set"}
+          </div>
 
           <button
             type="button"
@@ -1579,6 +1743,16 @@ function NodeDetailsPanel({
             onChange={(event) => setMetadataUri(event.target.value)}
             placeholder="ipfs://... or https://..."
           />
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.75rem",
+              color: "var(--text-muted)",
+              wordBreak: "break-all",
+            }}
+          >
+            Current metadata URI: {currentMetadataUri || "not set"}
+          </div>
           <button
             type="button"
             className="btn btn-secondary"
