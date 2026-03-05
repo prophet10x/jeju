@@ -16,6 +16,12 @@
 
 ## API smoke checks
 
+Automated command used for wallet-independent checks:
+
+```bash
+bun scripts/smoke-v3-rollout.ts
+```
+
 1. `POST https://jeju-testnet.fartbag.fun/gateway/api/node-registration/challenge` with `{}`:
 - PASS (JSON validation error returned, no empty/no-op response)
 

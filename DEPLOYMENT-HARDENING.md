@@ -228,6 +228,14 @@ Run after each deploy:
   - DWS `Settings > Nodes`
 6. Register app with category/tags; verify card primary badge + detail categories.
 
+Automation helper:
+
+```bash
+bun scripts/smoke-v3-rollout.ts
+```
+
+This script verifies the wallet-independent gates (challenge/verify validation responses, DWS staking health, and node/operator listing endpoints).
+
 ## 9) Common Failure Signatures and Fixes
 
 - `KMS service unavailable ...`:
