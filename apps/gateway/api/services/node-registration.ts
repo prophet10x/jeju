@@ -45,7 +45,9 @@ function normalizeOrigin(endpoint: string) {
 
 function resolveRequestOrigin(request: Request): string {
   const requestUrl = new URL(request.url)
-  const forwardedHost = request.headers.get('x-forwarded-host')?.trim()
+  const forwardedHost =
+    request.headers.get('x-forwarded-host')?.trim() ??
+    request.headers.get('host')?.trim()
   const forwardedProto = request.headers.get('x-forwarded-proto')?.trim()
   if (forwardedHost) {
     const protocol = forwardedProto && forwardedProto.length > 0
