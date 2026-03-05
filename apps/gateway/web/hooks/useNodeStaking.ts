@@ -11,10 +11,9 @@ import { type Address, encodeFunctionData, erc20Abi, type Hex } from 'viem'
 import {
   useAccount,
   usePublicClient,
-  useReadContract,
   useReadContracts,
 } from 'wagmi'
-import { CONTRACTS } from '../../lib/config'
+import { CONTRACTS, NETWORK } from '../../lib/config'
 import {
   getNodeStakingAddress,
   getNodeStakingReadAddresses,
@@ -101,6 +100,39 @@ function toOperatorStats(value: unknown): OperatorStats | null {
       }
     }
   }
+  return null
+}
+
+function toNetworkStats(value: unknown): [bigint, bigint, bigint] | null {
+  if (!value) return null
+
+  if (Array.isArray(value)) {
+    return [
+      BigInt(value[0] ?? 0),
+      BigInt(value[1] ?? 0),
+      BigInt(value[2] ?? 0),
+    ]
+  }
+
+  if (typeof value === 'object') {
+    const tuple = value as {
+      totalNodesActive?: bigint
+      totalStakedUSD?: bigint
+      totalRewardsClaimedUSD?: bigint
+    }
+    if (
+      typeof tuple.totalNodesActive === 'bigint' &&
+      typeof tuple.totalStakedUSD === 'bigint' &&
+      typeof tuple.totalRewardsClaimedUSD === 'bigint'
+    ) {
+      return [
+        tuple.totalNodesActive,
+        tuple.totalStakedUSD,
+        tuple.totalRewardsClaimedUSD,
+      ]
+    }
+  }
+
   return null
 }
 
@@ -258,6 +290,16 @@ export function useNodeStaking() {
     [operatorAddresses, stakingReadManagers],
   )
 
+  const networkStatsContracts = useMemo(
+    () =>
+      stakingReadManagers.map((managerAddress) => ({
+        address: managerAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        functionName: 'getNetworkStats' as const,
+      })),
+    [stakingReadManagers],
+  )
+
   const { data: operatorNodeResults, refetch: refetchOperatorNodes } =
     useReadContracts({
       contracts: operatorNodeContracts,
@@ -267,10 +309,8 @@ export function useNodeStaking() {
     contracts: operatorStatsContracts,
   })
 
-  const { data: networkStats } = useReadContract({
-    address: stakingManager,
-    abi: NODE_STAKING_MANAGER_ABI,
-    functionName: 'getNetworkStats',
+  const { data: networkStatsResults } = useReadContracts({
+    contracts: networkStatsContracts,
   })
 
   const {
@@ -484,6 +524,105 @@ export function useNodeStaking() {
     )
   }, [operatorStatsResults])
 
+  const networkStats = useMemo<[bigint, bigint, bigint] | undefined>(() => {
+    if (!networkStatsResults) return undefined
+
+    const stats = networkStatsResults
+      .filter(
+        (
+          result,
+        ): result is {
+          status: 'success'
+          result: unknown
+        } => result.status === 'success',
+      )
+      .map((result) => toNetworkStats(result.result))
+      .filter((value): value is [bigint, bigint, bigint] => Boolean(value))
+
+    if (stats.length === 0) return undefined
+
+    return stats.reduce<[bigint, bigint, bigint]>(
+      (acc, current) => [
+        acc[0] + current[0],
+        acc[1] + current[1],
+        acc[2] + current[2],
+      ],
+      [0n, 0n, 0n],
+    )
+  }, [networkStatsResults])
+
+  const operatorNodeInfoContracts = useMemo(
+    () =>
+      operatorNodeIds.flatMap((nodeId) =>
+        stakingReadManagers.map((managerAddress) => ({
+          address: managerAddress,
+          abi: NODE_STAKING_MANAGER_ABI,
+          functionName: 'getNodeInfo' as const,
+          args: [nodeId] as const,
+        })),
+      ),
+    [operatorNodeIds, stakingReadManagers],
+  )
+
+  const { data: operatorNodeInfoResults } = useReadContracts({
+    contracts: operatorNodeInfoContracts,
+  })
+
+  const operatorNodeInfoById = useMemo(() => {
+    const result = new Map<string, NodeStake>()
+    if (!operatorNodeInfoResults || operatorNodeIds.length === 0) {
+      return result
+    }
+
+    const managersPerNode = stakingReadManagers.length
+    if (managersPerNode === 0) return result
+
+    for (let nodeIndex = 0; nodeIndex < operatorNodeIds.length; nodeIndex += 1) {
+      const nodeId = operatorNodeIds[nodeIndex]
+      for (
+        let managerIndex = 0;
+        managerIndex < managersPerNode;
+        managerIndex += 1
+      ) {
+        const resultIndex = nodeIndex * managersPerNode + managerIndex
+        const readResult = operatorNodeInfoResults[resultIndex]
+        if (!readResult || readResult.status !== 'success') continue
+        const parsed = parseNodeInfoTuple(readResult.result)
+        if (!parsed) continue
+        const [node] = parsed
+        if (
+          typeof node.nodeId === 'string' &&
+          /^0x0{64}$/i.test(node.nodeId as string)
+        ) {
+          continue
+        }
+        result.set(nodeId.toLowerCase(), node)
+        break
+      }
+    }
+
+    return result
+  }, [operatorNodeIds, operatorNodeInfoResults, stakingReadManagers])
+
+  const operatorStakeDisplayUSD = useMemo(() => {
+    if (operatorNodeInfoById.size === 0) return undefined
+    const jejuAddress = CONTRACTS.jeju.toLowerCase()
+    let total = 0n
+    for (const node of operatorNodeInfoById.values()) {
+      const useTestnetPeggedValue =
+        NETWORK === 'testnet' && node.stakedToken.toLowerCase() === jejuAddress
+      total += useTestnetPeggedValue ? node.stakedAmount : node.stakedValueUSD
+    }
+    return total
+  }, [operatorNodeInfoById])
+
+  const operatorNodeCountDisplay = useMemo(() => {
+    if (operatorNodeInfoById.size > 0) {
+      return BigInt(operatorNodeInfoById.size)
+    }
+    return BigInt(operatorNodeIds.length)
+  }, [operatorNodeIds, operatorNodeInfoById])
+
   const refetchNodes = () => refetchOperatorNodes()
 
   const deregisterNode = async (
@@ -671,7 +810,9 @@ export function useNodeStaking() {
       supportsAtomicNodeIdentityRegistration !== null,
     operatorNodeIds,
     operatorStats,
-    networkStats: networkStats as [bigint, bigint, bigint] | undefined,
+    operatorStakeDisplayUSD,
+    operatorNodeCountDisplay,
+    networkStats,
     registerNode,
     deregisterNode,
     increaseNodeStake,

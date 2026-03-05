@@ -352,6 +352,24 @@ export default function NodeOperatorDashboard() {
     return Number.isFinite(snapshotUsd) ? snapshotUsd : 0;
   };
 
+  const operatorDisplayTotalStakedUsd = nodes.reduce(
+    (sum, node) => sum + getDisplayStakedUsd(node),
+    0,
+  );
+  const networkSnapshotTotalStakedUsd = Number(
+    stats?.network.totalStakedUSD ?? "0",
+  );
+  const networkDisplayTotalStakedUsd = Math.max(
+    networkSnapshotTotalStakedUsd,
+    operatorDisplayTotalStakedUsd,
+  );
+  const networkSnapshotTotalNodes = Number(stats?.network.totalNodes ?? 0);
+  const networkDisplayTotalNodes = Math.max(networkSnapshotTotalNodes, nodes.length);
+  const operatorDisplayNetworkSharePercent =
+    networkDisplayTotalNodes > 0
+      ? (nodes.length / networkDisplayTotalNodes) * 100
+      : Number(stats?.operator.networkSharePercent ?? "0");
+
   if (!isConnected || !address) {
     return (
       <div className="empty-state" style={{ paddingTop: "4rem" }}>
@@ -408,14 +426,14 @@ export default function NodeOperatorDashboard() {
               iconClass="compute"
               label="Active Nodes"
               value={stats?.operator.nodesActive.toString() ?? "0"}
-              change={`${stats?.operator.networkSharePercent ?? "0"}% of network`}
+              change={`${operatorDisplayNetworkSharePercent.toFixed(2)}% of network`}
               changeType="neutral"
             />
             <StatCard
               icon={<DollarSign size={24} />}
               iconClass="storage"
               label="Total Staked"
-              value={`$${formatNumber(stats?.operator.totalStakedUSD ?? "0")}`}
+              value={`$${formatNumber(operatorDisplayTotalStakedUsd)}`}
               change="USD value"
               changeType="neutral"
             />
@@ -623,11 +641,11 @@ export default function NodeOperatorDashboard() {
             <div style={{ display: "grid", gap: "0.75rem" }}>
               <NetworkStat
                 label="Total Nodes"
-                value={stats?.network.totalNodes.toString() ?? "0"}
+                value={networkDisplayTotalNodes.toString()}
               />
               <NetworkStat
                 label="Total Staked"
-                value={`$${formatNumber(stats?.network.totalStakedUSD ?? "0")}`}
+                value={`$${formatNumber(networkDisplayTotalStakedUsd)}`}
               />
               <NetworkStat
                 label="Min. Stake"

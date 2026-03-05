@@ -15,7 +15,12 @@ const GlobeIcon = Globe as ComponentType<LucideProps>
 const AlertTriangleIcon = AlertTriangle as ComponentType<LucideProps>
 
 export default function NetworkStatsCard() {
-  const { networkStats, operatorStats } = useNodeStaking()
+  const {
+    networkStats,
+    operatorStats,
+    operatorStakeDisplayUSD,
+    operatorNodeCountDisplay,
+  } = useNodeStaking()
 
   if (!networkStats) {
     return (
@@ -25,10 +30,16 @@ export default function NetworkStatsCard() {
     )
   }
 
-  const [totalNodes, totalStakedUSD, totalRewardsClaimedUSD] = networkStats
+  const [rawTotalNodes, rawTotalStakedUSD, totalRewardsClaimedUSD] = networkStats
 
-  const operatorStakeUSD = Number(operatorStats?.totalStakedUSD ?? 0n) / 1e18
-  const totalStakeUSD = Number(totalStakedUSD) / 1e18
+  const operatorStakeUSD =
+    Number(operatorStakeDisplayUSD ?? operatorStats?.totalStakedUSD ?? 0n) /
+    1e18
+  const totalNodes = Math.max(
+    Number(rawTotalNodes),
+    Number(operatorNodeCountDisplay ?? operatorStats?.totalNodesActive ?? 0n),
+  )
+  const totalStakeUSD = Math.max(Number(rawTotalStakedUSD) / 1e18, operatorStakeUSD)
   const operatorOwnershipPercent =
     totalStakeUSD > 0 ? (operatorStakeUSD / totalStakeUSD) * 100 : 0
 
@@ -74,7 +85,7 @@ export default function NetworkStatsCard() {
                 margin: 0,
               }}
             >
-              {Number(totalNodes)}
+              {totalNodes}
             </p>
           </div>
 
@@ -106,7 +117,7 @@ export default function NetworkStatsCard() {
                 margin: 0,
               }}
             >
-              {formatUSD(Number(totalStakedUSD) / 1e18)}
+              {formatUSD(totalStakeUSD)}
             </p>
           </div>
 
