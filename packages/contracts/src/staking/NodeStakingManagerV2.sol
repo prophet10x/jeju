@@ -40,9 +40,7 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         if (!tokenRegistry.isSupported(node.stakedToken)) revert TokenNotRegistered(node.stakedToken);
         if (!paymasterFactory.isDeployed(node.stakedToken)) revert NoPaymasterForToken(node.stakedToken);
 
-        (uint256 tokenPrice,) = priceOracle.getPrice(node.stakedToken);
-        if (tokenPrice == 0) revert("Invalid token price");
-        uint256 addedStakeUSD = (amount * tokenPrice) / 1e18;
+        uint256 addedStakeUSD = _calculateStakeValueUSD(node.stakedToken, amount);
 
         _enforceOwnershipCap(msg.sender, addedStakeUSD);
 
@@ -56,6 +54,35 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         totalStakedUSD += addedStakeUSD;
 
         emit NodeStakeIncreased(nodeId, msg.sender, amount, node.stakedAmount);
+    }
+
+    function revalueNode(bytes32 nodeId)
+        external
+        whenNotPaused
+        returns (uint256 previousStakedValueUSD, uint256 newStakedValueUSD)
+    {
+        NodeStake storage node = nodes[nodeId];
+
+        if (node.operator == address(0)) revert NodeNotFound(nodeId);
+        if (!node.isActive) revert NodeNotActive();
+        if (node.isSlashed) revert NodeAlreadySlashed();
+
+        return _revalueActiveNode(nodeId);
+    }
+
+    function revalueNodes(bytes32[] calldata nodeIds) external whenNotPaused returns (uint256 updatedCount) {
+        uint256 length = nodeIds.length;
+        for (uint256 i = 0; i < length; i++) {
+            bytes32 nodeId = nodeIds[i];
+            NodeStake storage node = nodes[nodeId];
+
+            if (node.operator == address(0) || !node.isActive || node.isSlashed) {
+                continue;
+            }
+
+            _revalueActiveNode(nodeId);
+            updatedCount++;
+        }
     }
 
     function updateNodeConfig(bytes32 nodeId, string calldata rpcUrl, Region region) external whenNotPaused {
@@ -120,11 +147,50 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         return _nodeMetadataURI[nodeId];
     }
 
+    function getCurrentStakeValueUSD(bytes32 nodeId) external view returns (uint256 currentStakeValueUSD) {
+        NodeStake storage node = nodes[nodeId];
+
+        if (node.operator == address(0)) revert NodeNotFound(nodeId);
+        return _calculateStakeValueUSD(node.stakedToken, node.stakedAmount);
+    }
+
     function _enforceOwnershipCap(address operator, uint256 additionalStakeUSD) internal view override {
         if (bootstrapOwnershipCapExemptionEnabled && allNodeIds.length < bootstrapOwnershipCapExemptionNodeThreshold) {
             return;
         }
 
         super._enforceOwnershipCap(operator, additionalStakeUSD);
+    }
+
+    function _revalueActiveNode(bytes32 nodeId)
+        internal
+        returns (uint256 previousStakedValueUSD, uint256 newStakedValueUSD)
+    {
+        NodeStake storage node = nodes[nodeId];
+
+        previousStakedValueUSD = node.stakedValueUSD;
+        newStakedValueUSD = _calculateStakeValueUSD(node.stakedToken, node.stakedAmount);
+
+        if (newStakedValueUSD > previousStakedValueUSD) {
+            uint256 increase = newStakedValueUSD - previousStakedValueUSD;
+            operatorStats[node.operator].totalStakedUSD += increase;
+            tokenDistribution[node.stakedToken].totalStakedUSD += increase;
+            totalStakedUSD += increase;
+        } else if (previousStakedValueUSD > newStakedValueUSD) {
+            uint256 decrease = previousStakedValueUSD - newStakedValueUSD;
+            operatorStats[node.operator].totalStakedUSD -= decrease;
+            tokenDistribution[node.stakedToken].totalStakedUSD -= decrease;
+            totalStakedUSD -= decrease;
+        }
+
+        node.stakedValueUSD = newStakedValueUSD;
+
+        emit NodeStakeRevalued(nodeId, node.operator, node.stakedToken, previousStakedValueUSD, newStakedValueUSD);
+    }
+
+    function _calculateStakeValueUSD(address stakingToken, uint256 stakeAmount) internal view returns (uint256) {
+        (uint256 tokenPrice,) = priceOracle.getPrice(stakingToken);
+        if (tokenPrice == 0) revert("Invalid token price");
+        return (stakeAmount * tokenPrice) / 1e18;
     }
 }

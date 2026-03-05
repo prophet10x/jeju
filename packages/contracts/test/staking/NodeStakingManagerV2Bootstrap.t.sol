@@ -218,5 +218,57 @@ contract NodeStakingManagerV2BootstrapTest is Test {
         manager.increaseStake(nodeId, STAKE_AMOUNT);
         vm.stopPrank();
     }
-}
 
+    function test_RevalueNode_UpdatesNodeAndAggregatesAfterOraclePriceChange() public {
+        vm.startPrank(alice);
+        bytes32 nodeId = manager.registerNode(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-revalue.jeju.test",
+            INodeStakingManager.Region.NorthAmerica
+        );
+        vm.stopPrank();
+
+        priceOracle.setPrice(address(token), 2 ether);
+
+        (uint256 previousValue, uint256 newValue) = manager.revalueNode(nodeId);
+        assertEq(previousValue, 1000 ether);
+        assertEq(newValue, 2000 ether);
+
+        (INodeStakingManager.NodeStake memory node,,) = manager.getNodeInfo(nodeId);
+        assertEq(node.stakedValueUSD, 2000 ether);
+
+        INodeStakingManager.OperatorStats memory stats = manager.getOperatorStats(alice);
+        assertEq(stats.totalStakedUSD, 2000 ether);
+        assertEq(manager.totalStakedUSD(), 2000 ether);
+
+        INodeStakingManager.TokenDistribution memory distribution = manager.getTokenDistribution(address(token));
+        assertEq(distribution.totalStakedUSD, 2000 ether);
+    }
+
+    function test_RevalueNodes_BatchSkipsMissingNodes() public {
+        vm.startPrank(alice);
+        bytes32 nodeId = manager.registerNode(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-batch.jeju.test",
+            INodeStakingManager.Region.NorthAmerica
+        );
+        vm.stopPrank();
+
+        bytes32 missingNodeId = keccak256("missing-node-id");
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = nodeId;
+        ids[1] = missingNodeId;
+
+        priceOracle.setPrice(address(token), 1500000000000000000);
+
+        uint256 updatedCount = manager.revalueNodes(ids);
+        assertEq(updatedCount, 1);
+
+        (INodeStakingManager.NodeStake memory node,,) = manager.getNodeInfo(nodeId);
+        assertEq(node.stakedValueUSD, 1500 ether);
+    }
+}
