@@ -261,7 +261,7 @@
       "bountyRegistry": "0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926"
     },
     "nodeStaking": {
-      "manager": "0x67d90BcC44D55269881597C84CD96d00D8Ca96F8",
+      "manager": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
       "performanceOracle": "0xbb0a3554af6792436609d21bcd703b9ef70ee7aa",
       "autoSlasher": "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1",
       "serviceStaking": "0x2bdCC0de6bE1f7D2ee689a0342D76F52E8EFABa3"
