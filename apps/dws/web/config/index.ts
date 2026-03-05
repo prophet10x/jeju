@@ -52,6 +52,7 @@ export const CONTRACTS = {
   x402Facilitator: optionalAddr(contracts.payments.x402Facilitator),
   creditManager: optionalAddr(contracts.payments.creditManager),
   multiTokenPaymaster: optionalAddr(contracts.payments.multiTokenPaymaster),
+  priceOracle: optionalAddr(contracts.payments?.priceOracle),
   // Use nodeStaking.manager to match contracts.json structure
   nodeStakingManager: optionalAddr(contracts.nodeStaking?.manager),
   nodeStakingManagerV2: optionalAddr(

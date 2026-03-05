@@ -13,7 +13,7 @@ import type { ComponentType } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { type Hex, keccak256, parseUnits, toBytes } from 'viem'
 import { usePublicClient } from 'wagmi'
-import { EXPLORER_URL } from '../../lib/config'
+import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
 import {
   formatUptimeScore,
   getNodeStakingAddress,
@@ -29,6 +29,20 @@ import {
 import { useProtocolTokens } from '../hooks/useProtocolTokens'
 
 const ServerIcon = Server as ComponentType<LucideProps>
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
+const PRICE_ORACLE_ABI = [
+  {
+    type: 'function',
+    name: 'getPrice',
+    inputs: [{ name: 'token', type: 'address' }],
+    outputs: [
+      { name: 'price', type: 'uint256' },
+      { name: 'decimals', type: 'uint8' },
+    ],
+    stateMutability: 'view',
+  },
+] as const
 
 interface NodeCardProps {
   nodeId: string
@@ -62,6 +76,9 @@ function NodeCard({ nodeId }: NodeCardProps) {
   const [selectedServices, setSelectedServices] = useState<NodeServiceId[]>([])
   const [storedServicesHash, setStoredServicesHash] = useState<Hex | null>(null)
   const [storedMetadataUri, setStoredMetadataUri] = useState('')
+  const [liveStakeValueUsdWei, setLiveStakeValueUsdWei] = useState<
+    bigint | null
+  >(null)
   const [isConfigInitialized, setIsConfigInitialized] = useState(false)
   const [actionResult, setActionResult] =
     useState<TransactionStatusResult | null>(null)
@@ -167,6 +184,44 @@ function NodeCard({ nodeId }: NodeCardProps) {
     }
   }, [metadataUri, nodeId, publicClient])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadLiveStakeValueUsd() {
+      if (!publicClient || !nodeInfo || CONTRACTS.priceOracle === ZERO_ADDRESS)
+        return
+      const [node] = nodeInfo
+
+      try {
+        const [tokenPrice] = (await publicClient.readContract({
+          address: CONTRACTS.priceOracle,
+          abi: PRICE_ORACLE_ABI,
+          functionName: 'getPrice',
+          args: [node.stakedToken],
+        })) as readonly [bigint, number]
+
+        if (cancelled) return
+
+        if (tokenPrice > 0n) {
+          setLiveStakeValueUsdWei((node.stakedAmount * tokenPrice) / 10n ** 18n)
+          return
+        }
+      } catch {
+        // Fall back to on-chain snapshot value for this node
+      }
+
+      if (!cancelled) {
+        setLiveStakeValueUsdWei(null)
+      }
+    }
+
+    void loadLiveStakeValueUsd()
+
+    return () => {
+      cancelled = true
+    }
+  }, [nodeInfo, publicClient])
+
   if (!nodeInfo && isNodeInfoLoading) {
     return (
       <div
@@ -213,6 +268,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
   }
 
   const [node, perf] = nodeInfo
+  const displayStakedValueUsdWei = liveStakeValueUsdWei ?? node.stakedValueUSD
   const stakingTokenInfo = getToken(node.stakedToken)
   const rewardTokenInfo = getToken(node.rewardToken)
 
@@ -469,7 +525,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
               margin: 0,
             }}
           >
-            ≈ {formatUSD(Number(node.stakedValueUSD) / 1e18)}
+            ≈ {formatUSD(Number(displayStakedValueUsdWei) / 1e18)}
           </p>
         </div>
 

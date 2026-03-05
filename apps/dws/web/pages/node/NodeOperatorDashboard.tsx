@@ -28,7 +28,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
 import { SkeletonStatCard } from '../../components/Skeleton'
-import { EXPLORER_URL } from '../../config'
+import { CONTRACTS, EXPLORER_URL } from '../../config'
 import { useConfirm, useToast } from '../../context/AppContext'
 import {
   useClaimRewards,
@@ -64,6 +64,21 @@ const REGION_OPTIONS = [
   { value: REGION_TO_VALUE.Global, label: 'Global' },
 ] as const
 
+const PRICE_ORACLE_ABI = [
+  {
+    type: 'function',
+    name: 'getPrice',
+    inputs: [{ name: 'token', type: 'address' }],
+    outputs: [
+      { name: 'price', type: 'uint256' },
+      { name: 'decimals', type: 'uint8' },
+    ],
+    stateMutability: 'view',
+  },
+] as const
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
 export default function NodeOperatorDashboard() {
   const { isConnected, address } = useAccount()
   const { showSuccess, showError } = useToast()
@@ -78,6 +93,10 @@ export default function NodeOperatorDashboard() {
   } = useOperatorStats()
   const { isLoading: aggregateLoading, data: stats } = useAggregateStats()
   const { data: earningsHistory } = useEarningsHistory()
+  const publicClient = usePublicClient()
+  const [tokenPricesUsd, setTokenPricesUsd] = useState<Record<string, number>>(
+    {},
+  )
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [claimingNode, setClaimingNode] = useState<string | null>(null)
   const [updatingNode, setUpdatingNode] = useState<string | null>(null)
@@ -204,6 +223,87 @@ export default function NodeOperatorDashboard() {
     }
   }
 
+  const isLoading = statsLoading || aggregateLoading
+  const nodes = operatorStats?.nodes ?? []
+  const hasStakingActivity = (operatorStats?.totalNodesActive ?? 0) > 0
+  const selectedNodeData = selectedNode
+    ? nodes.find((node) => node.nodeId === selectedNode)
+    : undefined
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadTokenPrices() {
+      if (!publicClient || CONTRACTS.priceOracle === ZERO_ADDRESS) return
+
+      const uniqueTokenAddresses = Array.from(
+        new Set(
+          nodes
+            .map((node) => node.stakedToken?.toLowerCase())
+            .filter((tokenAddress): tokenAddress is string =>
+              Boolean(tokenAddress && tokenAddress !== ZERO_ADDRESS),
+            ),
+        ),
+      )
+
+      if (uniqueTokenAddresses.length === 0) return
+
+      const results = await Promise.all(
+        uniqueTokenAddresses.map(async (tokenAddress) => {
+          try {
+            const [price] = (await publicClient.readContract({
+              address: CONTRACTS.priceOracle,
+              abi: PRICE_ORACLE_ABI,
+              functionName: 'getPrice',
+              args: [tokenAddress as Address],
+            })) as readonly [bigint, number]
+
+            return [tokenAddress, Number(price) / 1e18] as const
+          } catch {
+            return null
+          }
+        }),
+      )
+
+      if (cancelled) return
+
+      const nextPrices: Record<string, number> = {}
+      for (const result of results) {
+        if (!result) continue
+        const [tokenAddress, priceUsd] = result
+        if (Number.isFinite(priceUsd) && priceUsd > 0) {
+          nextPrices[tokenAddress] = priceUsd
+        }
+      }
+
+      setTokenPricesUsd(nextPrices)
+    }
+
+    void loadTokenPrices()
+
+    return () => {
+      cancelled = true
+    }
+  }, [nodes, publicClient])
+
+  const getDisplayStakedUsd = (node: NodeInfo) => {
+    const snapshotUsd = Number(node.stakedValueUSD)
+    const tokenAddress = node.stakedToken?.toLowerCase()
+    const livePriceUsd = tokenAddress ? tokenPricesUsd[tokenAddress] : undefined
+    const stakedAmount = Number(node.stakedAmount)
+
+    if (
+      livePriceUsd &&
+      Number.isFinite(stakedAmount) &&
+      Number.isFinite(livePriceUsd) &&
+      stakedAmount > 0
+    ) {
+      return stakedAmount * livePriceUsd
+    }
+
+    return Number.isFinite(snapshotUsd) ? snapshotUsd : 0
+  }
+
   if (!isConnected || !address) {
     return (
       <div className="empty-state" style={{ paddingTop: '4rem' }}>
@@ -216,10 +316,6 @@ export default function NodeOperatorDashboard() {
       </div>
     )
   }
-
-  const isLoading = statsLoading || aggregateLoading
-  const nodes = operatorStats?.nodes ?? []
-  const hasStakingActivity = (operatorStats?.totalNodesActive ?? 0) > 0
 
   return (
     <div>
@@ -360,6 +456,7 @@ export default function NodeOperatorDashboard() {
                     <NodeRow
                       key={node.nodeId}
                       node={node}
+                      displayStakedUsd={getDisplayStakedUsd(node)}
                       isSelected={selectedNode === node.nodeId}
                       isClaiming={claimingNode === node.nodeId}
                       onSelect={() =>
@@ -500,7 +597,10 @@ export default function NodeOperatorDashboard() {
       {/* Selected Node Details */}
       {selectedNode && (
         <NodeDetailsPanel
-          node={nodes.find((n) => n.nodeId === selectedNode)}
+          node={selectedNodeData}
+          displayStakedUsd={
+            selectedNodeData ? getDisplayStakedUsd(selectedNodeData) : 0
+          }
           onClose={() => setSelectedNode(null)}
           onClaim={handleClaimRewards}
           onDeregister={handleDeregisterNode}
@@ -577,12 +677,14 @@ function StatCard({
 
 function NodeRow({
   node,
+  displayStakedUsd,
   isSelected,
   isClaiming,
   onSelect,
   onClaim,
 }: {
   node: NodeInfo
+  displayStakedUsd: number
   isSelected: boolean
   isClaiming: boolean
   onSelect: () => void
@@ -643,7 +745,7 @@ function NodeRow({
           {(node.performance.uptimeScore / 100).toFixed(1)}%
         </span>
       </td>
-      <td>${formatNumber(node.stakedValueUSD)}</td>
+      <td>${formatNumber(displayStakedUsd)}</td>
       <td style={{ color: 'var(--success)' }}>
         ${formatNumber(node.pendingRewards)}
       </td>
@@ -767,6 +869,7 @@ function NetworkStat({ label, value }: { label: string; value: string }) {
 
 function NodeDetailsPanel({
   node,
+  displayStakedUsd,
   onClose,
   onClaim,
   onDeregister,
@@ -776,6 +879,7 @@ function NodeDetailsPanel({
   isUpdating,
 }: {
   node: NodeInfo | undefined
+  displayStakedUsd: number
   onClose: () => void
   onClaim: (nodeId: string, nodeName: string) => void
   onDeregister: (nodeId: string, nodeName: string) => void
@@ -1117,7 +1221,7 @@ function NodeDetailsPanel({
           />
           <DetailRow
             label="Staked Value"
-            value={`$${formatNumber(node.stakedValueUSD)}`}
+            value={`$${formatNumber(displayStakedUsd)}`}
           />
           <DetailRow label="Reward Token" value={node.rewardToken} mono small />
           <DetailRow

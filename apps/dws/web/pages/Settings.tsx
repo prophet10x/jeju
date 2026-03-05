@@ -11,8 +11,9 @@ import {
   Trash2,
   User,
 } from 'lucide-react'
-import { useState } from 'react'
-import { useAccount } from 'wagmi'
+import { useEffect, useState } from 'react'
+import type { Address } from 'viem'
+import { useAccount, usePublicClient } from 'wagmi'
 import { Skeleton } from '../components/Skeleton'
 import { CONTRACTS, EXPLORER_URL, NETWORK } from '../config'
 import { useConfirm, useToast } from '../context/AppContext'
@@ -20,8 +21,24 @@ import { useProviderStats } from '../hooks'
 import { useAgentId } from '../hooks/useAgentId'
 import { useBanStatus } from '../hooks/useBanStatus'
 
+const PRICE_ORACLE_ABI = [
+  {
+    type: 'function',
+    name: 'getPrice',
+    inputs: [{ name: 'token', type: 'address' }],
+    outputs: [
+      { name: 'price', type: 'uint256' },
+      { name: 'decimals', type: 'uint8' },
+    ],
+    stateMutability: 'view',
+  },
+] as const
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
 export default function SettingsPage() {
   const { address } = useAccount()
+  const publicClient = usePublicClient()
   const { hasAgent, agentId, tokenURI } = useAgentId()
   const { isBanned, banRecord } = useBanStatus()
   const { data: providerStats, isLoading: nodesLoading } = useProviderStats()
@@ -32,6 +49,9 @@ export default function SettingsPage() {
     'profile' | 'security' | 'notifications' | 'nodes'
   >('profile')
   const [copied, setCopied] = useState<string | null>(null)
+  const [tokenPricesUsd, setTokenPricesUsd] = useState<Record<string, number>>(
+    {},
+  )
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -64,6 +84,79 @@ export default function SettingsPage() {
 
   const registeredNodes = providerStats?.nodes ?? []
   const hasStakingActivity = (providerStats?.totalNodesActive ?? 0) > 0
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadTokenPrices() {
+      if (!publicClient || CONTRACTS.priceOracle === ZERO_ADDRESS) return
+
+      const uniqueTokenAddresses = Array.from(
+        new Set(
+          registeredNodes
+            .map((node) => node.stakedToken?.toLowerCase())
+            .filter((tokenAddress): tokenAddress is string =>
+              Boolean(tokenAddress && tokenAddress !== ZERO_ADDRESS),
+            ),
+        ),
+      )
+
+      if (uniqueTokenAddresses.length === 0) return
+
+      const results = await Promise.all(
+        uniqueTokenAddresses.map(async (tokenAddress) => {
+          try {
+            const [price] = (await publicClient.readContract({
+              address: CONTRACTS.priceOracle,
+              abi: PRICE_ORACLE_ABI,
+              functionName: 'getPrice',
+              args: [tokenAddress as Address],
+            })) as readonly [bigint, number]
+
+            return [tokenAddress, Number(price) / 1e18] as const
+          } catch {
+            return null
+          }
+        }),
+      )
+
+      if (cancelled) return
+
+      const nextPrices: Record<string, number> = {}
+      for (const result of results) {
+        if (!result) continue
+        const [tokenAddress, priceUsd] = result
+        if (Number.isFinite(priceUsd) && priceUsd > 0) {
+          nextPrices[tokenAddress] = priceUsd
+        }
+      }
+      setTokenPricesUsd(nextPrices)
+    }
+
+    void loadTokenPrices()
+
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, registeredNodes])
+
+  const getDisplayStakedUsd = (node: (typeof registeredNodes)[number]) => {
+    const snapshotUsd = Number(node.stakedValueUSD)
+    const tokenAddress = node.stakedToken?.toLowerCase()
+    const livePriceUsd = tokenAddress ? tokenPricesUsd[tokenAddress] : undefined
+    const stakedAmount = Number(node.stakedAmount)
+
+    if (
+      livePriceUsd &&
+      Number.isFinite(stakedAmount) &&
+      Number.isFinite(livePriceUsd) &&
+      stakedAmount > 0
+    ) {
+      return stakedAmount * livePriceUsd
+    }
+
+    return Number.isFinite(snapshotUsd) ? snapshotUsd : 0
+  }
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: <User size={16} /> },
@@ -646,7 +739,7 @@ export default function SettingsPage() {
                             Staked
                           </div>
                           <div style={{ fontWeight: 500 }}>
-                            ${parseFloat(node.stakedValueUSD).toFixed(2)}
+                            ${getDisplayStakedUsd(node).toFixed(2)}
                           </div>
                         </div>
                         <div>
