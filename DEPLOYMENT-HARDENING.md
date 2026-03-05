@@ -150,6 +150,19 @@ For both Gateway and DWS:
 
 Fail release if any step is flaky or host-specific.
 
+## 5.1) Node Ownership Cap Bootstrap Gate (V2)
+
+If `NodeStakingManagerV2` is active, verify bootstrap ownership-cap config before launch:
+
+- `bootstrapOwnershipCapExemptionEnabled` is set as intended
+- `bootstrapOwnershipCapExemptionNodeThreshold` is set as intended (default `20`)
+
+Operational policy:
+- During bootstrap (`total registered nodes < threshold`), ownership-cap checks are bypassed.
+- After threshold is reached, normal `maxNetworkOwnershipBPS` enforcement resumes.
+
+Fail release if bootstrap settings are not explicitly verified and documented in release notes.
+
 ## 6) Node Listing Parity Gate
 
 For same wallet/operator on both apps:
@@ -208,6 +221,9 @@ Run after each deploy:
   - verify bundler process and EntryPoint version
 - `ServiceNotAvailable("Jeju Node Identity Registration")`:
   - missing paymaster service registration
+- `NetworkOwnershipExceeded(...)` during early bootstrap:
+  - check `NodeStakingManagerV2` bootstrap ownership-cap config
+  - if threshold already reached, use another operator or increase total network stake share before retry
 - `Verify Endpoint Ownership` appears no-op:
   - verify response schema from `/node-registration/verify`
   - ensure UI updates verification state and surfaces success/error

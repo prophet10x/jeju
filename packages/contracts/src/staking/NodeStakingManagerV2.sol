@@ -16,6 +16,8 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
 
     mapping(bytes32 => bytes32) public nodeServicesHash;
     mapping(bytes32 => string) private _nodeMetadataURI;
+    bool public bootstrapOwnershipCapExemptionEnabled = true;
+    uint256 public bootstrapOwnershipCapExemptionNodeThreshold = 20;
 
     error InvalidRpcUrl();
 
@@ -42,14 +44,7 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         if (tokenPrice == 0) revert("Invalid token price");
         uint256 addedStakeUSD = (amount * tokenPrice) / 1e18;
 
-        uint256 newOperatorStakeUSD = operatorStats[msg.sender].totalStakedUSD + addedStakeUSD;
-        uint256 newTotalStakedUSD = totalStakedUSD + addedStakeUSD;
-        if (totalStakedUSD > 0) {
-            uint256 ownershipBPS = (newOperatorStakeUSD * BPS_DENOMINATOR) / newTotalStakedUSD;
-            if (ownershipBPS > maxNetworkOwnershipBPS) {
-                revert NetworkOwnershipExceeded(ownershipBPS, maxNetworkOwnershipBPS);
-            }
-        }
+        _enforceOwnershipCap(msg.sender, addedStakeUSD);
 
         IERC20(node.stakedToken).safeTransferFrom(msg.sender, address(this), amount);
 
@@ -110,11 +105,26 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         emit NodeMetadataURIUpdated(nodeId, msg.sender, metadataURI);
     }
 
+    function setBootstrapOwnershipCapConfig(bool enabled, uint256 nodeThreshold) external onlyOwner {
+        bootstrapOwnershipCapExemptionEnabled = enabled;
+        bootstrapOwnershipCapExemptionNodeThreshold = nodeThreshold;
+
+        emit BootstrapOwnershipCapConfigUpdated(enabled, nodeThreshold);
+    }
+
     function getNodeServicesHash(bytes32 nodeId) external view returns (bytes32) {
         return nodeServicesHash[nodeId];
     }
 
     function getNodeMetadataURI(bytes32 nodeId) external view returns (string memory) {
         return _nodeMetadataURI[nodeId];
+    }
+
+    function _enforceOwnershipCap(address operator, uint256 additionalStakeUSD) internal view override {
+        if (bootstrapOwnershipCapExemptionEnabled && allNodeIds.length < bootstrapOwnershipCapExemptionNodeThreshold) {
+            return;
+        }
+
+        super._enforceOwnershipCap(operator, additionalStakeUSD);
     }
 }

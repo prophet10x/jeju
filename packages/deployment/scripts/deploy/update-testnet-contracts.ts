@@ -79,6 +79,7 @@ const CONTRACT_CATEGORIES: Record<string, string> = {
 
   // Node Staking
   NodeStakingManager: 'nodeStaking.manager',
+  NodeStakingManagerV2: 'nodeStaking.manager',
   NodePerformanceOracle: 'nodeStaking.performanceOracle',
   AutoSlasher: 'nodeStaking.autoSlasher',
 
@@ -452,7 +453,11 @@ Examples:
       if (categoryPath) {
         setNestedValue(existingDeployment, categoryPath, address)
         if (contractName === 'EntryPoint') {
-          setNestedValue(existingDeployment, 'accountAbstraction.entryPointV07', address)
+          setNestedValue(
+            existingDeployment,
+            'accountAbstraction.entryPointV07',
+            address,
+          )
         }
       }
     }

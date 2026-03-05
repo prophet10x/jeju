@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 import "forge-std/Script.sol";
 import "forge-std/console.sol";
-import "../src/staking/NodeStakingManager.sol";
+import "../src/staking/NodeStakingManagerV2.sol";
 import "../src/staking/AutoSlasher.sol";
 import "../src/staking/ServiceStaking.sol";
 
@@ -11,7 +11,7 @@ import "../src/staking/ServiceStaking.sol";
  * @title DeployStaking
  * @notice Deploys staking infrastructure contracts
  * @dev Deploys:
- *      - NodeStakingManager (node operator staking)
+ *      - NodeStakingManagerV2 (node operator staking with editable node ops)
  *      - AutoSlasher (automated slashing)
  *      - ServiceStaking (per-service staking)
  *
@@ -41,28 +41,17 @@ contract DeployStaking is Script {
 
         vm.startBroadcast();
 
-        // NodeStakingManager
-        NodeStakingManager stakingManager = new NodeStakingManager(
-            tokenRegistry,
-            paymasterFactory,
-            priceOracle,
-            performanceOracle,
-            deployer
-        );
-        console.log("NodeStakingManager:", address(stakingManager));
+        // NodeStakingManagerV2
+        NodeStakingManagerV2 stakingManager =
+            new NodeStakingManagerV2(tokenRegistry, paymasterFactory, priceOracle, performanceOracle, deployer);
+        console.log("NodeStakingManagerV2:", address(stakingManager));
 
         // AutoSlasher
-        AutoSlasher autoSlasher = new AutoSlasher(
-            address(stakingManager),
-            deployer
-        );
+        AutoSlasher autoSlasher = new AutoSlasher(address(stakingManager), deployer);
         console.log("AutoSlasher:", address(autoSlasher));
 
         // ServiceStaking
-        ServiceStaking serviceStaking = new ServiceStaking(
-            jejuToken,
-            deployer
-        );
+        ServiceStaking serviceStaking = new ServiceStaking(jejuToken, deployer);
         console.log("ServiceStaking:", address(serviceStaking));
 
         vm.stopBroadcast();
@@ -71,7 +60,7 @@ contract DeployStaking is Script {
         console.log("==================================================");
         console.log("Staking Deployment Complete");
         console.log("==================================================");
-        console.log("  NodeStakingManager:", address(stakingManager));
+        console.log("  NodeStakingManagerV2:", address(stakingManager));
         console.log("  AutoSlasher:", address(autoSlasher));
         console.log("  ServiceStaking:", address(serviceStaking));
     }

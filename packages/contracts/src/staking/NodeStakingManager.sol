@@ -154,7 +154,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         address rewardToken,
         string calldata rpcUrl,
         Region region
-    ) external whenNotPaused returns (bytes32 nodeId) {
+    ) external virtual whenNotPaused returns (bytes32 nodeId) {
         if (requireAgentRegistration) revert AgentRequired();
         return _registerNodeInternal(stakingToken, stakeAmount, rewardToken, rpcUrl, region, 0);
     }
@@ -166,7 +166,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         string calldata rpcUrl,
         Region region,
         uint256 operatorAgentId
-    ) external whenNotPaused returns (bytes32 nodeId) {
+    ) external virtual whenNotPaused returns (bytes32 nodeId) {
         if (address(identityRegistry) == address(0)) revert InvalidAddress();
         if (!identityRegistry.agentExists(operatorAgentId)) revert InvalidAgentId();
         if (identityRegistry.ownerOf(operatorAgentId) != msg.sender) revert NotAgentOwner();
@@ -186,7 +186,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         string calldata rpcUrl,
         Region region,
         uint256 operatorAgentId
-    ) internal returns (bytes32 nodeId) {
+    ) internal virtual returns (bytes32 nodeId) {
         if (stakeAmount == 0) revert ZeroStake();
         if (stakingToken == address(0) || rewardToken == address(0)) revert InvalidAddress();
 
@@ -215,16 +215,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             revert TooManyNodes(operatorStats[msg.sender].totalNodesActive, maxNodesPerOperator);
         }
 
-        uint256 newOperatorStakeUSD = operatorStats[msg.sender].totalStakedUSD + stakeValueUSD;
-        uint256 newTotalStakedUSD = totalStakedUSD + stakeValueUSD;
-
-        if (totalStakedUSD > 0) {
-            uint256 ownershipBPS = (newOperatorStakeUSD * 10000) / newTotalStakedUSD;
-
-            if (ownershipBPS > maxNetworkOwnershipBPS) {
-                revert NetworkOwnershipExceeded(ownershipBPS, maxNetworkOwnershipBPS);
-            }
-        }
+        _enforceOwnershipCap(msg.sender, stakeValueUSD);
 
         IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), stakeAmount);
 
@@ -251,10 +242,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         });
 
         performance[nodeId] = PerformanceMetrics({
-            uptimeScore: 10000,
-            requestsServed: 0,
-            avgResponseTime: 0,
-            lastUpdateTime: block.timestamp
+            uptimeScore: 10000, requestsServed: 0, avgResponseTime: 0, lastUpdateTime: block.timestamp
         });
 
         operatorNodes[msg.sender].push(nodeId);
@@ -271,6 +259,19 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         totalStakedUSD += stakeValueUSD;
 
         emit NodeRegistered(nodeId, msg.sender, stakingToken, rewardToken, stakeAmount, stakeValueUSD);
+    }
+
+    function _enforceOwnershipCap(address operator, uint256 additionalStakeUSD) internal view virtual {
+        uint256 newOperatorStakeUSD = operatorStats[operator].totalStakedUSD + additionalStakeUSD;
+        uint256 newTotalStakedUSD = totalStakedUSD + additionalStakeUSD;
+
+        if (totalStakedUSD > 0) {
+            uint256 ownershipBPS = (newOperatorStakeUSD * BPS_DENOMINATOR) / newTotalStakedUSD;
+
+            if (ownershipBPS > maxNetworkOwnershipBPS) {
+                revert NetworkOwnershipExceeded(ownershipBPS, maxNetworkOwnershipBPS);
+            }
+        }
     }
 
     function claimRewards(bytes32 nodeId) external nonReentrant {
@@ -730,10 +731,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         }
 
         pendingEmergencyWithdrawal = EmergencyWithdrawal({
-            token: token,
-            amount: amount,
-            executeAfter: block.timestamp + EMERGENCY_WITHDRAWAL_DELAY,
-            executed: false
+            token: token, amount: amount, executeAfter: block.timestamp + EMERGENCY_WITHDRAWAL_DELAY, executed: false
         });
 
         emit EmergencyWithdrawalProposed(token, amount, pendingEmergencyWithdrawal.executeAfter);

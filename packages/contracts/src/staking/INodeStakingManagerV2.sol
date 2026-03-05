@@ -5,6 +5,7 @@ import {INodeStakingManager} from "./INodeStakingManager.sol";
 
 interface INodeStakingManagerV2 is INodeStakingManager {
     event NodeStakeIncreased(bytes32 indexed nodeId, address indexed operator, uint256 amount, uint256 newStakeAmount);
+    event BootstrapOwnershipCapConfigUpdated(bool enabled, uint256 nodeThreshold);
     event NodeConfigUpdated(
         bytes32 indexed nodeId,
         address indexed operator,
@@ -24,7 +25,13 @@ interface INodeStakingManagerV2 is INodeStakingManager {
 
     function setNodeMetadataURI(bytes32 nodeId, string calldata metadataURI) external;
 
+    function setBootstrapOwnershipCapConfig(bool enabled, uint256 nodeThreshold) external;
+
     function getNodeServicesHash(bytes32 nodeId) external view returns (bytes32);
 
     function getNodeMetadataURI(bytes32 nodeId) external view returns (string memory);
+
+    function bootstrapOwnershipCapExemptionEnabled() external view returns (bool);
+
+    function bootstrapOwnershipCapExemptionNodeThreshold() external view returns (uint256);
 }
