@@ -1,3 +1,4 @@
+import { isNodeIdentityAgent } from '@jejunetwork/shared'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bot,
@@ -47,31 +48,7 @@ interface RegisteredApp {
   mcpTools?: string[]
   a2aSkills?: string[]
   active?: boolean
-}
-
-interface GraphQLAgentResponse {
-  id?: string
-  agentId?: string
-  owner?: { address?: string }
-  name?: string
-  description?: string
-  tags?: string[]
-  tokenURI?: string
-  stakeToken?: string
-  stakeAmount?: string
-  stakeTier?: number
-  registeredAt?: string
-  lastActivityAt?: string
-  active?: boolean
-  isBanned?: boolean
-  a2aEndpoint?: string
-  mcpEndpoint?: string
-  serviceType?: 'agent' | 'mcp' | 'app'
-  category?: string
-  x402Support?: boolean
-  mcpTools?: string[]
-  a2aSkills?: string[]
-  image?: string
+  isNodeIdentity?: boolean
 }
 
 interface RegisteredAppsListProps {
@@ -181,7 +158,8 @@ const registryAbi = parseAbi([
 ])
 
 function resolveTokenName(addr: string): string {
-  if (!addr || addr === '0x0000000000000000000000000000000000000000') return 'None'
+  if (!addr || addr === '0x0000000000000000000000000000000000000000')
+    return 'None'
   if (addr.toLowerCase() === CONTRACTS.jeju.toLowerCase()) return 'JEJU'
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
 }
@@ -217,12 +195,14 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
           functionName: 'tokenURI',
           args: [BigInt(id)],
         }),
-        client.readContract({
-          address: registryAddr,
-          abi: registryAbi,
-          functionName: 'agents',
-          args: [BigInt(id)],
-        }).catch(() => null),
+        client
+          .readContract({
+            address: registryAddr,
+            abi: registryAbi,
+            functionName: 'agents',
+            args: [BigInt(id)],
+          })
+          .catch(() => null),
       ])
 
       const [a2aBytes, tagsResult, serviceTypeResult, categoryResult] =
@@ -263,20 +243,40 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
 
       let a2aEndpoint: string | undefined
       if (a2aBytes && a2aBytes !== '0x') {
-        a2aEndpoint = new TextDecoder().decode(
-          Uint8Array.from(a2aBytes.slice(2).match(/.{2}/g)!.map((b) => parseInt(b, 16))),
-        )
+        const endpointBytes = a2aBytes
+          .slice(2)
+          .match(/.{2}/g)
+          ?.map((b) => parseInt(b, 16))
+        if (endpointBytes) {
+          a2aEndpoint = new TextDecoder().decode(Uint8Array.from(endpointBytes))
+        }
       }
 
-      let parsed: { name?: string; description?: string; registeredAt?: string } = {}
-      try { parsed = JSON.parse(tokenURI) } catch { /* not JSON */ }
+      let parsed: {
+        name?: string
+        description?: string
+        registeredAt?: string
+      } = {}
+      try {
+        parsed = JSON.parse(tokenURI)
+      } catch {
+        /* not JSON */
+      }
+      const isNodeIdentity = isNodeIdentityAgent({ tokenURI })
 
       // agentData tuple: [agentId, owner, tier, stakedToken, stakedAmount, registeredAt, lastActivityAt, isBanned, isSlashed]
       const tier = agentData ? Number((agentData as readonly unknown[])[2]) : 0
-      const stakedToken = agentData ? String((agentData as readonly unknown[])[3]) : ''
-      const stakedAmount = agentData ? BigInt(String((agentData as readonly unknown[])[4])) : 0n
-      const registeredAtBlock = agentData ? BigInt(String((agentData as readonly unknown[])[5])) : 0n
-      const stakeAmountStr = stakedAmount > 0n ? (Number(stakedAmount) / 1e18).toFixed(3) : '0'
+      const stakedToken = agentData
+        ? String((agentData as readonly unknown[])[3])
+        : ''
+      const stakedAmount = agentData
+        ? BigInt(String((agentData as readonly unknown[])[4]))
+        : 0n
+      const registeredAtBlock = agentData
+        ? BigInt(String((agentData as readonly unknown[])[5]))
+        : 0n
+      const stakeAmountStr =
+        stakedAmount > 0n ? (Number(stakedAmount) / 1e18).toFixed(3) : '0'
 
       agents.push({
         agentId: String(id),
@@ -287,13 +287,17 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
         stakeToken: resolveTokenName(stakedToken),
         stakeAmount: stakeAmountStr,
         stakeTier: tier,
-        registeredAt: registeredAtBlock > 0n
-          ? new Date(Number(registeredAtBlock) * 1000).toISOString()
-          : (parsed.registeredAt ?? new Date().toISOString()),
+        registeredAt:
+          registeredAtBlock > 0n
+            ? new Date(Number(registeredAtBlock) * 1000).toISOString()
+            : (parsed.registeredAt ?? new Date().toISOString()),
         active: true,
+        isNodeIdentity,
         a2aEndpoint,
         serviceType:
-          serviceTypeResult === 'agent' || serviceTypeResult === 'mcp' || serviceTypeResult === 'app'
+          serviceTypeResult === 'agent' ||
+          serviceTypeResult === 'mcp' ||
+          serviceTypeResult === 'app'
             ? serviceTypeResult
             : a2aEndpoint
               ? 'agent'
@@ -317,30 +321,36 @@ async function fetchAgentsFromIndexer(
 
   // Apply client-side filters
   const { search, serviceType, category, tag, activeOnly } = filters
-  return contractAgents.filter(agent => {
-    if (search && !agent.name.toLowerCase().includes(search.toLowerCase())) return false
-    if (serviceType && serviceType !== 'all' && agent.serviceType !== serviceType) return false
+  return contractAgents.filter((agent) => {
+    if (search && !agent.name.toLowerCase().includes(search.toLowerCase()))
+      return false
+    if (
+      serviceType &&
+      serviceType !== 'all' &&
+      agent.serviceType !== serviceType
+    )
+      return false
     if (category && category !== 'all') {
       const normalizedCategory = category.toLowerCase()
       const primaryCategory = getPrimaryCategory(agent)?.toLowerCase()
-      const tagMatch = agent.tags.some((candidate) => candidate.toLowerCase() === normalizedCategory)
+      const tagMatch = agent.tags.some(
+        (candidate) => candidate.toLowerCase() === normalizedCategory,
+      )
       if (primaryCategory !== normalizedCategory && !tagMatch) return false
     }
     if (tag && tag !== 'all') {
       const normalizedTag = tag.toLowerCase()
-      if (!agent.tags.some((candidate) => candidate.toLowerCase() === normalizedTag)) {
+      if (
+        !agent.tags.some(
+          (candidate) => candidate.toLowerCase() === normalizedTag,
+        )
+      ) {
         return false
       }
     }
     if (activeOnly && !agent.active) return false
     return true
   })
-}
-
-function formatStake(amount: string): string {
-  const value = BigInt(amount)
-  const eth = Number(value) / 1e18
-  return eth < 0.001 ? '<0.001' : eth.toFixed(3)
 }
 
 function getServiceIcon(type: string) {
@@ -653,6 +663,19 @@ export default function RegisteredAppsList({
                           x402
                         </span>
                       )}
+                      {app.isNodeIdentity && (
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '0.625rem',
+                            padding: '0.125rem 0.375rem',
+                            background: 'var(--warning-soft)',
+                            color: 'var(--warning)',
+                          }}
+                        >
+                          Node Identity
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{
@@ -673,20 +696,22 @@ export default function RegisteredAppsList({
                           primaryCategory ?? app.serviceType ?? 'agent',
                         )}
                       </span>
-                      {primaryCategory && app.serviceType && primaryCategory !== app.serviceType && (
-                        <span
-                          className="badge"
-                          style={{
-                            fontSize: '0.625rem',
-                            padding: '0.125rem 0.5rem',
-                            background: 'var(--surface-hover)',
-                            color: 'var(--text-secondary)',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          {formatCategoryLabel(app.serviceType)}
-                        </span>
-                      )}
+                      {primaryCategory &&
+                        app.serviceType &&
+                        primaryCategory !== app.serviceType && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: '0.625rem',
+                              padding: '0.125rem 0.5rem',
+                              background: 'var(--surface-hover)',
+                              color: 'var(--text-secondary)',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {formatCategoryLabel(app.serviceType)}
+                          </span>
+                        )}
                       <code style={{ fontSize: '0.75rem' }}>
                         #{app.agentId}
                       </code>

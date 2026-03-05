@@ -1,4 +1,7 @@
-import type { GaslessBootstrapResponse } from '@jejunetwork/shared/gasless'
+import type {
+  GaslessBootstrapPurpose,
+  GaslessBootstrapResponse,
+} from '@jejunetwork/shared/gasless'
 import { useCallback, useMemo, useState } from 'react'
 import type { useGaslessSmartAccount } from './useGaslessSmartAccount'
 
@@ -6,9 +9,7 @@ interface UseGaslessBootstrapParams {
   gasless: ReturnType<typeof useGaslessSmartAccount>
 }
 
-export function useGaslessBootstrap({
-  gasless,
-}: UseGaslessBootstrapParams) {
+export function useGaslessBootstrap({ gasless }: UseGaslessBootstrapParams) {
   const [isPreparing, setIsPreparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<GaslessBootstrapResponse | null>(
@@ -18,7 +19,7 @@ export function useGaslessBootstrap({
   const prepareSmartAccount = useCallback(
     async (params: {
       ownerAddress?: string
-      purpose: 'node'
+      purpose: GaslessBootstrapPurpose
       requiredStakeAmount: bigint
       endpoint?: string
     }) => {
@@ -51,9 +52,7 @@ export function useGaslessBootstrap({
 
         const text = await response.text()
         const payload = text
-          ? (JSON.parse(text) as
-              | GaslessBootstrapResponse
-              | { error?: string })
+          ? (JSON.parse(text) as GaslessBootstrapResponse | { error?: string })
           : { error: 'Empty bootstrap response' }
 
         if (!response.ok || ('error' in payload && payload.error)) {

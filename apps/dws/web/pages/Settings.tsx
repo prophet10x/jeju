@@ -359,9 +359,7 @@ export default function SettingsPage() {
                         No agent registered
                       </div>
                       <a
-                        href="https://jeju-testnet.fartbag.fun/gateway/register"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href="/agents?tab=register"
                         className="btn btn-primary btn-sm"
                       >
                         <Plus size={14} /> Register Agent

@@ -1525,6 +1525,11 @@ export default function NodeRegistrationWizard() {
         >
           Node registration now expects an ERC-8004 operator identity. Create an
           agent identity first, then come back to stake and register the node.
+          <div style={{ marginTop: '0.75rem' }}>
+            <a href="/agents?tab=register" className="btn btn-secondary btn-sm">
+              Open Agent Registration
+            </a>
+          </div>
         </div>
       )}
     </div>

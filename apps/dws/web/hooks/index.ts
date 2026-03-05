@@ -1,4 +1,5 @@
 export * from './useAgentId'
+export * from './useAgentRegistration'
 export * from './useApi'
 export * from './useBanStatus'
 export * from './useCache'

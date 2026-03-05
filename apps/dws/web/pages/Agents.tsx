@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  KeyRound,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -11,7 +12,10 @@ import {
   Zap,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAccount } from 'wagmi'
+import AgentWalletMigrationCard from '../components/AgentWalletMigrationCard'
+import RegisterAgentForm from '../components/RegisterAgentForm'
 import {
   useAgents,
   useAgentTasks,
@@ -19,9 +23,10 @@ import {
   useMCPTools,
 } from '../hooks'
 
-type TabType = 'agents' | 'tasks' | 'mcp'
+type TabType = 'agents' | 'tasks' | 'mcp' | 'register' | 'wallets'
 
 export default function AgentsPage() {
+  const location = useLocation()
   const { isConnected } = useAccount()
   const {
     data: agentsData,
@@ -31,7 +36,15 @@ export default function AgentsPage() {
   const { data: mcpToolsData } = useMCPTools()
   const { data: mcpResourcesData } = useMCPResources()
 
-  const [activeTab, setActiveTab] = useState<TabType>('agents')
+  const initialTab = (() => {
+    const queryTab = new URLSearchParams(location.search).get('tab')
+    if (queryTab === 'register' || queryTab === 'wallets') {
+      return queryTab
+    }
+    return 'agents'
+  })() as TabType
+
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab)
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
@@ -54,6 +67,8 @@ export default function AgentsPage() {
     { id: 'agents', label: 'A2A Agents', icon: <Bot size={16} /> },
     { id: 'tasks', label: 'Tasks', icon: <Activity size={16} /> },
     { id: 'mcp', label: 'MCP Tools', icon: <Zap size={16} /> },
+    { id: 'register', label: 'Register', icon: <Plus size={16} /> },
+    { id: 'wallets', label: 'Wallets', icon: <KeyRound size={16} /> },
   ]
 
   return (
@@ -83,6 +98,7 @@ export default function AgentsPage() {
             type="button"
             className="btn btn-primary"
             disabled={!isConnected}
+            onClick={() => setActiveTab('register')}
           >
             <Plus size={16} /> Register Agent
           </button>
@@ -179,6 +195,7 @@ export default function AgentsPage() {
                 type="button"
                 className="btn btn-primary"
                 disabled={!isConnected}
+                onClick={() => setActiveTab('register')}
               >
                 <Plus size={16} /> Register Agent
               </button>
@@ -518,6 +535,12 @@ export default function AgentsPage() {
             </div>
           </div>
         )}
+
+        {activeTab === 'register' && (
+          <RegisterAgentForm onRegistered={() => setActiveTab('agents')} />
+        )}
+
+        {activeTab === 'wallets' && <AgentWalletMigrationCard />}
       </div>
     </div>
   )
