@@ -616,6 +616,16 @@ function getOwnerFromRequest(request: Request): Address | null {
   return parseAddress(candidate)
 }
 
+function assertServiceKeyRequestAuthorized(request: Request, key: StoredKey): void {
+  const expectedServiceId = key.metadata.serviceId
+  if (!expectedServiceId) return
+
+  const requestedServiceId = request.headers.get('x-service-id')
+  if (requestedServiceId !== expectedServiceId) {
+    throw new Error('Not authorized')
+  }
+}
+
 export function createKMSRouter() {
   return (
     new Elysia({ name: 'kms', prefix: '/kms' })
@@ -792,12 +802,14 @@ export function createKMSRouter() {
       .get('/keys', ({ request }) => {
         return (async () => {
           await ensurePersistedKeysLoaded()
-          const owner = request.headers.get('x-jeju-address')?.toLowerCase()
-
-          let keyList = Array.from(keys.values())
-          if (owner) {
-            keyList = keyList.filter((k) => k.owner.toLowerCase() === owner)
+          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          if (!owner) {
+            throw new Error('Missing x-jeju-address or x-service-id header')
           }
+
+          const keyList = Array.from(keys.values()).filter(
+            (k) => k.owner.toLowerCase() === owner,
+          )
 
           return {
             keys: keyList.map((k) => ({
@@ -813,36 +825,44 @@ export function createKMSRouter() {
         })()
       })
       // Get key details
-      .get('/keys/:keyId', ({ params }) => {
+      .get('/keys/:keyId', ({ params, request }) => {
         return (async () => {
           await ensurePersistedKeysLoaded()
-        const { keyId } = expectValid(
-          kmsKeyParamsSchema,
-          params,
-          'KMS key params',
-        )
-        const key = keys.get(keyId)
-        if (!key) {
-          throw new Error('Key not found')
-        }
+          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          if (!owner) {
+            throw new Error('Missing x-jeju-address or x-service-id header')
+          }
+          const { keyId } = expectValid(
+            kmsKeyParamsSchema,
+            params,
+            'KMS key params',
+          )
+          const key = keys.get(keyId)
+          if (!key) {
+            throw new Error('Key not found')
+          }
+          if (key.owner.toLowerCase() !== owner) {
+            throw new Error('Not authorized')
+          }
+          assertServiceKeyRequestAuthorized(request, key)
 
-        return {
-          keyId: key.keyId,
-          publicKey: key.publicKey,
-          address: key.address,
-          threshold: key.threshold,
-          totalParties: key.totalParties,
-          version: key.version,
-          createdAt: key.createdAt,
-          metadata: key.metadata,
-        }
+          return {
+            keyId: key.keyId,
+            publicKey: key.publicKey,
+            address: key.address,
+            threshold: key.threshold,
+            totalParties: key.totalParties,
+            version: key.version,
+            createdAt: key.createdAt,
+            metadata: key.metadata,
+          }
         })()
       })
       // Rotate key
       .post('/keys/:keyId/rotate', async ({ params, body, request }) => {
         await ensurePersistedKeysLoaded()
         const owner = getOwnerFromRequest(request)
-        if (!owner) throw new Error('Missing x-jeju-address header')
+        if (!owner) throw new Error('Missing x-jeju-address or x-service-id header')
 
         const { keyId } = expectValid(
           kmsKeyParamsSchema,
@@ -857,6 +877,7 @@ export function createKMSRouter() {
         if (key.owner.toLowerCase() !== owner.toLowerCase()) {
           throw new Error('Not authorized')
         }
+        assertServiceKeyRequestAuthorized(request, key)
 
         const validBody = expectValid(
           updateKmsKeyRequestSchema,
@@ -900,7 +921,7 @@ export function createKMSRouter() {
         return (async () => {
           await ensurePersistedKeysLoaded()
           const owner = getOwnerFromRequest(request)
-          if (!owner) throw new Error('Missing x-jeju-address header')
+          if (!owner) throw new Error('Missing x-jeju-address or x-service-id header')
 
           const { keyId } = expectValid(
             kmsKeyParamsSchema,
@@ -915,6 +936,7 @@ export function createKMSRouter() {
           if (key.owner.toLowerCase() !== owner.toLowerCase()) {
             throw new Error('Not authorized')
           }
+          assertServiceKeyRequestAuthorized(request, key)
 
           keys.delete(key.keyId)
           frostCoordinators.delete(key.keyId)
@@ -930,7 +952,7 @@ export function createKMSRouter() {
       .post('/sign', async ({ body, request }) => {
         await ensurePersistedKeysLoaded()
         const owner = getOwnerFromRequest(request)
-        if (!owner) throw new Error('Missing x-jeju-address header')
+        if (!owner) throw new Error('Missing x-jeju-address or x-service-id header')
 
         const validBody = expectValid(
           signRequestSchema.extend({
@@ -944,6 +966,11 @@ export function createKMSRouter() {
         if (!key) {
           throw new Error('Key not found')
         }
+        if (key.owner.toLowerCase() !== owner.toLowerCase()) {
+          throw new Error('Not authorized')
+        }
+
+        assertServiceKeyRequestAuthorized(request, key)
 
         const coordinator = frostCoordinators.get(validBody.keyId)
         if (!coordinator) {
