@@ -595,13 +595,15 @@ const serviceKeyRequestSchema = z.object({
 })
 
 const createKeyRequestSchema = z.union([
+  // Keep service-key schema first so serviceId requests are not swallowed by
+  // the generic create-key schema (which strips unknown fields by default).
+  serviceKeyRequestSchema,
   createKmsKeyRequestSchema.extend({
     threshold: z.number().int().min(2).optional(),
     totalParties: z.number().int().positive().optional(),
     metadata: z.record(z.string(), z.string()).optional(),
     acknowledgeInsecureCentralized: z.boolean().optional(),
   }),
-  serviceKeyRequestSchema,
 ])
 
 function getOwnerFromRequest(request: Request): Address | null {
