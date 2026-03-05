@@ -369,6 +369,9 @@ export default function Layout({ children }: LayoutProps) {
   }, [])
 
   const isActive = (path: string) => location.pathname === path
+  const appVersion = import.meta.env.VITE_APP_VERSION ?? 'dev'
+  const gitSha = import.meta.env.VITE_GIT_SHA ?? 'local'
+  const buildLabel = `v${appVersion} (${gitSha.slice(0, 7)})`
 
   const getBreadcrumbs = () => {
     const parts = location.pathname.split('/').filter(Boolean)
@@ -514,6 +517,12 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="header-right">
+            <span
+              className="build-badge"
+              title={`DWS ${appVersion} commit ${gitSha}`}
+            >
+              {buildLabel}
+            </span>
             <button
               type="button"
               className="btn btn-ghost btn-icon"

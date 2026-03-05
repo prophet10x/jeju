@@ -133,6 +133,9 @@ export default function Layout({ children }: LayoutProps) {
   const [loginOpen, setLoginOpen] = useState(false)
 
   const currentPath = location.pathname || '/registry'
+  const appVersion = import.meta.env.VITE_APP_VERSION ?? 'dev'
+  const gitSha = import.meta.env.VITE_GIT_SHA ?? 'local'
+  const buildLabel = `v${appVersion} (${gitSha.slice(0, 7)})`
 
   return (
     <div className="layout">
@@ -160,6 +163,12 @@ export default function Layout({ children }: LayoutProps) {
           </nav>
 
           <div className="header-actions">
+            <span
+              className="build-badge"
+              title={`Gateway ${appVersion} commit ${gitSha}`}
+            >
+              {buildLabel}
+            </span>
             <ThemeToggle />
             {authenticated && walletAddress ? (
               <WalletManagementMenu />

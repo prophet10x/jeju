@@ -25,6 +25,20 @@ async function build() {
   mkdirSync(join(outdir, 'api'), { recursive: true })
 
   const network = getCurrentNetwork()
+  const appVersion =
+    (
+      JSON.parse(
+        readFileSync(resolve(APP_DIR, 'package.json'), 'utf-8'),
+      ) as { version?: string }
+    ).version ?? '0.0.0'
+  const gitShaResult = Bun.spawnSync({
+    cmd: ['git', 'rev-parse', '--short', 'HEAD'],
+    cwd: resolve(APP_DIR, '../..'),
+  })
+  const gitSha =
+    gitShaResult.exitCode === 0
+      ? gitShaResult.stdout.toString().trim() || 'unknown'
+      : 'unknown'
 
   // Browser plugin for shimming and deduping
   const browserPlugin: BunPlugin = {
@@ -141,17 +155,31 @@ async function build() {
     define: {
       'process.env.NODE_ENV': JSON.stringify('production'),
       'process.browser': 'true',
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+      'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
       'globalThis.process': JSON.stringify({
-        env: { NODE_ENV: 'production', JEJU_NETWORK: network },
+        env: {
+          NODE_ENV: 'production',
+          JEJU_NETWORK: network,
+          VITE_APP_VERSION: appVersion,
+          VITE_GIT_SHA: gitSha,
+        },
         browser: true,
       }),
       process: JSON.stringify({
-        env: { NODE_ENV: 'production', JEJU_NETWORK: network },
+        env: {
+          NODE_ENV: 'production',
+          JEJU_NETWORK: network,
+          VITE_APP_VERSION: appVersion,
+          VITE_GIT_SHA: gitSha,
+        },
         browser: true,
       }),
       'import.meta.env.VITE_NETWORK': JSON.stringify(network),
       'import.meta.env': JSON.stringify({
         VITE_NETWORK: network,
+        VITE_APP_VERSION: appVersion,
+        VITE_GIT_SHA: gitSha,
         PUBLIC_NETWORK: network,
         MODE: 'production',
         DEV: false,

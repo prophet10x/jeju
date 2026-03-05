@@ -5,6 +5,17 @@ import type { BunPlugin } from 'bun'
 
 const outdir = './dist'
 mkdirSync(outdir, { recursive: true })
+const appVersion =
+  (JSON.parse(readFileSync('./package.json', 'utf-8')) as { version?: string })
+    .version ?? '0.0.0'
+const gitShaResult = Bun.spawnSync({
+  cmd: ['git', 'rev-parse', '--short', 'HEAD'],
+  cwd: resolve('../../'),
+})
+const gitSha =
+  gitShaResult.exitCode === 0
+    ? gitShaResult.stdout.toString().trim() || 'unknown'
+    : 'unknown'
 
 // Plugin to replace server-only modules with browser shims and dedupe React
 const browserShimPlugin: BunPlugin = {
@@ -138,6 +149,8 @@ const result = await Bun.build({
     'process.env.JEJU_NETWORK': JSON.stringify(
       process.env.NETWORK || process.env.JEJU_NETWORK || 'testnet',
     ),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+    'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
     'process.browser': 'true',
     // Provide a minimal process shim for browser - process.env access defaults to undefined
     process: JSON.stringify({
@@ -145,8 +158,18 @@ const result = await Bun.build({
         NODE_ENV: process.env.NODE_ENV || 'development',
         JEJU_NETWORK:
           process.env.NETWORK || process.env.JEJU_NETWORK || 'testnet',
+        VITE_APP_VERSION: appVersion,
+        VITE_GIT_SHA: gitSha,
       },
       browser: true,
+    }),
+    'import.meta.env': JSON.stringify({
+      MODE: process.env.NODE_ENV || 'development',
+      DEV: (process.env.NODE_ENV || 'development') !== 'production',
+      PROD: (process.env.NODE_ENV || 'development') === 'production',
+      VITE_APP_VERSION: appVersion,
+      VITE_GIT_SHA: gitSha,
+      VITE_NETWORK: process.env.NETWORK || process.env.JEJU_NETWORK || 'testnet',
     }),
   },
 })

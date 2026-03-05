@@ -583,23 +583,43 @@ export default function NodeRegistrationWizard() {
   ])
 
   const prepareOwnershipProof = useCallback(async () => {
+    const blockPrepare = (message: string) => {
+      setError(message)
+      setAuthorizeResult({
+        status: 'error',
+        title: 'Prepare proof blocked',
+        message,
+        explorerUrl: EXPLORER_URL,
+      })
+    }
+
     if (!address || selectedAgentId === undefined) {
-      setError('Connect the operator wallet and select an agent first.')
+      blockPrepare('Connect the operator wallet and select an agent first.')
       return
     }
     if (!normalizedNodeRpcUrl) {
-      setError('Enter the node endpoint URL before preparing proof.')
+      blockPrepare('Enter the node endpoint URL before preparing proof.')
       return
     }
+    let endpoint: URL
     try {
-      new URL(normalizedNodeRpcUrl)
+      endpoint = new URL(normalizedNodeRpcUrl)
     } catch {
-      setError('Enter a valid node endpoint URL (including https://).')
+      blockPrepare('Enter a valid node endpoint URL (including https://).')
+      return
+    }
+    if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:') {
+      blockPrepare('Node endpoint URL must start with http:// or https://.')
       return
     }
 
     setError(null)
-    setAuthorizeResult(null)
+    setAuthorizeResult({
+      status: 'info',
+      title: 'Preparing proof',
+      message: 'Requesting ownership challenge from the registration backend.',
+      explorerUrl: EXPLORER_URL,
+    })
     setIsPreparingProof(true)
     setProofVerification(null)
 
@@ -1871,7 +1891,12 @@ export default function NodeRegistrationWizard() {
               type="button"
               className="btn btn-secondary"
               onClick={() => void prepareOwnershipProof()}
-              disabled={!normalizedNodeRpcUrl || isPreparingProof}
+              disabled={
+                !normalizedNodeRpcUrl ||
+                isPreparingProof ||
+                !address ||
+                selectedAgentId === undefined
+              }
             >
               {isPreparingProof ? (
                 <>

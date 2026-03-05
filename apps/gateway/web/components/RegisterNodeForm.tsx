@@ -429,16 +429,43 @@ export default function RegisterNodeForm() {
   ])
 
   const prepareOwnershipProof = async () => {
+    const blockPrepare = (message: string) => {
+      setSubmitError(message)
+      setAuthorizeResult({
+        status: 'error',
+        title: 'Prepare proof blocked',
+        message,
+        explorerUrl: EXPLORER_URL,
+      })
+    }
+
     if (!gasless.ownerAddress || parsedOperatorAgentId == null) {
-      setSubmitError('Connect the operator wallet and select an agent first.')
+      blockPrepare('Connect the operator wallet and select an agent first.')
       return
     }
-    if (!rpcUrl.startsWith('http')) {
-      setSubmitError('Enter the node endpoint URL before preparing proof.')
+    if (!rpcUrl.trim()) {
+      blockPrepare('Enter the node endpoint URL before preparing proof.')
+      return
+    }
+    let endpoint: URL
+    try {
+      endpoint = new URL(rpcUrl.trim())
+    } catch {
+      blockPrepare('Enter a valid node endpoint URL (including https://).')
+      return
+    }
+    if (endpoint.protocol !== 'https:' && endpoint.protocol !== 'http:') {
+      blockPrepare('Node endpoint URL must start with http:// or https://.')
       return
     }
 
     setSubmitError(null)
+    setAuthorizeResult({
+      status: 'info',
+      title: 'Preparing proof',
+      message: 'Requesting ownership challenge from the registration backend.',
+      explorerUrl: EXPLORER_URL,
+    })
     setIsPreparingProof(true)
     setProofVerification(null)
 
@@ -1390,7 +1417,12 @@ export default function RegisterNodeForm() {
             type="button"
             className="button button-secondary"
             onClick={() => void prepareOwnershipProof()}
-            disabled={!rpcUrl.startsWith('http') || isPreparingProof}
+            disabled={
+              !rpcUrl.startsWith('http') ||
+              isPreparingProof ||
+              !gasless.ownerAddress ||
+              parsedOperatorAgentId == null
+            }
           >
             {isPreparingProof ? 'Preparing...' : 'Prepare Proof'}
           </button>
