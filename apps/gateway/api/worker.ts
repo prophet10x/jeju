@@ -147,7 +147,13 @@ export function createGatewayApp(env?: Partial<GatewayEnv>) {
     }
   })
 
-  app.post('/api/node-registration/challenge', async ({ body, set }) => {
+  const handleNodeRegistrationChallenge = async ({
+    body,
+    set,
+  }: {
+    body: unknown
+    set: { status: number; headers: Record<string, string> }
+  }) => {
     try {
       return await createNodeRegistrationChallenge(body)
     } catch (error) {
@@ -160,9 +166,15 @@ export function createGatewayApp(env?: Partial<GatewayEnv>) {
       else set.status = 400
       return { error: message }
     }
-  })
+  }
 
-  app.post('/api/node-registration/verify', async ({ body, set }) => {
+  const handleNodeRegistrationVerify = async ({
+    body,
+    set,
+  }: {
+    body: unknown
+    set: { status: number; headers: Record<string, string> }
+  }) => {
     try {
       return await verifyNodeRegistrationChallenge(body)
     } catch (error) {
@@ -182,7 +194,12 @@ export function createGatewayApp(env?: Partial<GatewayEnv>) {
       }
       return { error: message }
     }
-  })
+  }
+
+  app.post('/api/node-registration/challenge', handleNodeRegistrationChallenge)
+  app.post('/api/node-registration/verify', handleNodeRegistrationVerify)
+  app.post('/node-registration/challenge', handleNodeRegistrationChallenge)
+  app.post('/node-registration/verify', handleNodeRegistrationVerify)
 
   app.get('/.well-known/jeju-node-proof.json', async ({ query, request, set }) => {
     const parsed = z

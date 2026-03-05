@@ -16,6 +16,16 @@ This runbook prevents the exact production issues we just hit: broken proof flow
 Important:
 - Node RPC URL in registration must be the node endpoint origin (`https://.../`), not `/gateway` or `/provider` UI paths.
 
+## 1.1) Base Install Requirement for Node Registration
+
+Any endpoint intended for node registration proof must expose these routes at origin root:
+
+- `POST /node-registration/challenge`
+- `POST /node-registration/verify`
+- `GET /.well-known/jeju-node-proof.json?challengeId=...`
+
+This is a base runtime requirement for Jeju node onboarding. It must work even if a host is not running the full DWS dashboard UI.
+
 ## 2) Required Config Consistency
 
 All of these must match between Gateway and DWS builds:

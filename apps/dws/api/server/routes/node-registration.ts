@@ -1,4 +1,10 @@
-import { createNodeProofService, NODE_PROOF_PATH, type NodeProofSigner } from '@jejunetwork/shared'
+import {
+  ChallengeRequestSchema,
+  createNodeProofService,
+  NODE_PROOF_PATH,
+  VerifyRequestSchema,
+  type NodeProofSigner,
+} from '@jejunetwork/shared'
 import { expectValid } from '@jejunetwork/types'
 import { Elysia } from 'elysia'
 import type { Address } from 'viem'
@@ -36,6 +42,7 @@ const proofSigner: NodeProofSigner = {
 }
 
 const proofService = createNodeProofService(proofSigner)
+const remoteChallengeOrigins = new Map<string, string>()
 
 function getForwardedRequestUrl(request: Request) {
   const url = new URL(request.url)
@@ -54,11 +61,80 @@ function getForwardedRequestUrl(request: Request) {
   return `${protocol}://${forwardedHost}${url.pathname}${url.search}`
 }
 
+function getForwardedOrigin(request: Request) {
+  const forwardedUrl = new URL(getForwardedRequestUrl(request))
+  return forwardedUrl.origin.replace(/\/$/, '')
+}
+
+function normalizeOrigin(endpoint: string) {
+  return new URL(endpoint).origin.replace(/\/$/, '')
+}
+
+async function proxyJson<T>(
+  url: string,
+  init: RequestInit,
+  fallbackError: string,
+): Promise<T> {
+  const response = await fetch(url, init).catch((error) => {
+    throw new Error(error instanceof Error ? error.message : fallbackError)
+  })
+
+  const rawPayload = await response.text()
+  let payload: T | { error?: string } | null = null
+  if (rawPayload) {
+    try {
+      payload = JSON.parse(rawPayload) as T | { error?: string }
+    } catch {
+      throw new Error(
+        response.ok ? 'Remote endpoint returned invalid JSON.' : fallbackError,
+      )
+    }
+  }
+
+  if (payload && typeof payload === 'object' && 'error' in payload) {
+    throw new Error(payload.error ?? fallbackError)
+  }
+
+  if (!response.ok) {
+    throw new Error(fallbackError)
+  }
+
+  return payload as T
+}
+
 export function createNodeRegistrationRouter() {
   return new Elysia({ name: 'node-registration' })
-    .post('/node-registration/challenge', async ({ body, set }) => {
+    .post('/node-registration/challenge', async ({ body, request, set }) => {
       try {
-        return await proofService.createChallenge(body)
+        const validBody = expectValid(
+          ChallengeRequestSchema,
+          body,
+          'Node registration challenge request',
+        )
+        const endpointOrigin = normalizeOrigin(validBody.endpoint)
+        const localOrigin = getForwardedOrigin(request)
+
+        if (endpointOrigin === localOrigin) {
+          return await proofService.createChallenge(validBody)
+        }
+
+        const challenge = await proxyJson<
+          Awaited<ReturnType<typeof proofService.createChallenge>>
+        >(
+          `${endpointOrigin}/node-registration/challenge`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              accept: 'application/json',
+            },
+            body: JSON.stringify(validBody),
+          },
+          `Failed to prepare node proof challenge on ${endpointOrigin}`,
+        )
+
+        remoteChallengeOrigins.set(challenge.challengeId, endpointOrigin)
+        return challenge
       } catch (error) {
         const message =
           error instanceof Error
@@ -78,7 +154,29 @@ export function createNodeRegistrationRouter() {
     })
     .post('/node-registration/verify', async ({ body, set }) => {
       try {
-        return await proofService.verifyChallenge(body)
+        const validBody = expectValid(
+          VerifyRequestSchema,
+          body,
+          'Node registration verification request',
+        )
+        const endpointOrigin = remoteChallengeOrigins.get(validBody.challengeId)
+
+        if (!endpointOrigin) {
+          return await proofService.verifyChallenge(validBody)
+        }
+
+        return await proxyJson<Awaited<ReturnType<typeof proofService.verifyChallenge>>>(
+          `${endpointOrigin}/node-registration/verify`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              accept: 'application/json',
+            },
+            body: JSON.stringify(validBody),
+          },
+          `Failed to verify node proof on ${endpointOrigin}`,
+        )
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Failed to verify node proof'
