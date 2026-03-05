@@ -896,26 +896,34 @@ function NodeRow({
         ${formatNumber(node.pendingRewards)}
       </td>
       <td>
-        {hasPendingRewards ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          {hasPendingRewards ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClaim();
+              }}
+              disabled={isClaiming}
+              title="Claim rewards"
+            >
+              {isClaiming ? "..." : <DollarSign size={14} />}
+            </button>
+          ) : null}
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className="btn btn-secondary btn-sm"
             onClick={(e) => {
               e.stopPropagation();
-              onClaim();
+              onSelect();
             }}
-            disabled={isClaiming}
-            title="Claim rewards"
+            title="Open node details"
+            aria-label="Open node details"
           >
-            {isClaiming ? "..." : <DollarSign size={14} />}
+            <ArrowUpRight size={14} />
           </button>
-        ) : (
-          <ArrowUpRight
-            size={16}
-            style={{ color: "var(--text-muted)", cursor: "pointer" }}
-            onClick={onSelect}
-          />
-        )}
+        </div>
       </td>
     </tr>
   );
@@ -1166,6 +1174,23 @@ function NodeDetailsPanel({
     };
   }, [metadataUri, node, publicClient]);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
   if (!node) return null;
 
   const hasPendingRewards = parseFloat(node.pendingRewards) > 0;
@@ -1393,13 +1418,41 @@ function NodeDetailsPanel({
 
   return (
     <div
-      className="card"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Node details"
       style={{
-        marginTop: "1.5rem",
-        border: "1px solid var(--accent)",
-        position: "relative",
+        position: "fixed",
+        inset: 0,
+        zIndex: 1200,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        overflowY: "auto",
+        padding: "1.5rem 1rem",
       }}
+      onClick={onClose}
     >
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0, 0, 0, 0.62)",
+          backdropFilter: "blur(2px)",
+        }}
+      />
+      <div
+        className="card"
+        style={{
+          width: "min(1120px, 96vw)",
+          border: "1px solid var(--accent)",
+          position: "relative",
+          zIndex: 1,
+          maxHeight: "calc(100vh - 3rem)",
+          overflowY: "auto",
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
       <button
         type="button"
         onClick={onClose}
@@ -1788,6 +1841,7 @@ function NodeDetailsPanel({
           onClose={() => setActionResult(null)}
         />
       ) : null}
+      </div>
     </div>
   );
 }
