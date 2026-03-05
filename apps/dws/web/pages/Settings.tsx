@@ -591,6 +591,13 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <a
+                            href="/provider/nodes"
+                            className="btn btn-ghost btn-sm"
+                            title="Manage node (stake/services/config)"
+                          >
+                            Manage
+                          </a>
                           <span
                             className={`badge ${
                               node.metadataPending

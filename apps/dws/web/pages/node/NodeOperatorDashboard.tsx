@@ -1,3 +1,11 @@
+import {
+  NODE_SERVICE_DEFINITIONS,
+  type NodeServiceId,
+} from '@jejunetwork/shared'
+import {
+  TransactionStatusModal,
+  type TransactionStatusResult,
+} from '@jejunetwork/ui'
 import { WalletButton } from '@jejunetwork/ui/wallet'
 import {
   Activity,
@@ -16,13 +24,16 @@ import {
   Wallet,
   Zap,
 } from 'lucide-react'
-import { useState } from 'react'
-import { useAccount } from 'wagmi'
+import { useEffect, useMemo, useState } from 'react'
+import { type Address, type Hex, keccak256, parseUnits, toBytes } from 'viem'
+import { useAccount, usePublicClient } from 'wagmi'
 import { SkeletonStatCard } from '../../components/Skeleton'
+import { EXPLORER_URL } from '../../config'
 import { useConfirm, useToast } from '../../context/AppContext'
 import {
   useClaimRewards,
   useDeregisterNode,
+  useNodeManagement,
   useUpdateNodePerformance,
 } from '../../hooks'
 import {
@@ -32,6 +43,26 @@ import {
   useEarningsHistory,
   useOperatorStats,
 } from '../../hooks/useStaking'
+
+const REGION_TO_VALUE = {
+  NorthAmerica: 0,
+  SouthAmerica: 1,
+  Europe: 2,
+  Asia: 3,
+  Africa: 4,
+  Oceania: 5,
+  Global: 6,
+} as const
+
+const REGION_OPTIONS = [
+  { value: REGION_TO_VALUE.NorthAmerica, label: 'North America' },
+  { value: REGION_TO_VALUE.SouthAmerica, label: 'South America' },
+  { value: REGION_TO_VALUE.Europe, label: 'Europe' },
+  { value: REGION_TO_VALUE.Asia, label: 'Asia' },
+  { value: REGION_TO_VALUE.Africa, label: 'Africa' },
+  { value: REGION_TO_VALUE.Oceania, label: 'Oceania' },
+  { value: REGION_TO_VALUE.Global, label: 'Global' },
+] as const
 
 export default function NodeOperatorDashboard() {
   const { isConnected, address } = useAccount()
@@ -753,11 +784,262 @@ function NodeDetailsPanel({
   isDeregistering: boolean
   isUpdating: boolean
 }) {
+  const publicClient = usePublicClient()
+  const {
+    increaseNodeStake,
+    updateNodeConfig,
+    updateNodeServices,
+    updateNodeMetadataURI,
+    isMutatingNode,
+    gasless,
+  } = useNodeManagement()
+
+  const [stakeIncreaseInput, setStakeIncreaseInput] = useState('0')
+  const [editRpcUrl, setEditRpcUrl] = useState(node?.rpcUrl ?? '')
+  const [editRegion, setEditRegion] = useState<number>(
+    node
+      ? (REGION_TO_VALUE[node.region] ?? REGION_TO_VALUE.Global)
+      : REGION_TO_VALUE.Global,
+  )
+  const [metadataUri, setMetadataUri] = useState('')
+  const [selectedServices, setSelectedServices] = useState<NodeServiceId[]>([])
+  const [actionResult, setActionResult] =
+    useState<TransactionStatusResult | null>(null)
+
+  const servicesHash = useMemo(() => {
+    if (selectedServices.length === 0) return null
+    const normalized = [...selectedServices].sort()
+    return keccak256(toBytes(JSON.stringify(normalized)))
+  }, [selectedServices])
+
+  useEffect(() => {
+    if (!node) return
+    setEditRpcUrl(node.rpcUrl)
+    setEditRegion(REGION_TO_VALUE[node.region] ?? REGION_TO_VALUE.Global)
+  }, [node])
+
   if (!node) return null
 
   const hasPendingRewards = parseFloat(node.pendingRewards) > 0
   const metadataPending = Boolean(node.metadataPending)
   const nodeName = node.nodeId.slice(0, 10)
+  const normalizedOperator = node.operator?.toLowerCase()
+  const normalizedOwner = gasless.ownerAddress?.toLowerCase()
+  const normalizedSmartOwner = gasless.smartAccountAddress?.toLowerCase()
+  const isSmartAccountOperator =
+    Boolean(normalizedSmartOwner) && normalizedOperator === normalizedSmartOwner
+  const canManageNode =
+    !metadataPending &&
+    Boolean(
+      normalizedOperator &&
+        (normalizedOperator === normalizedOwner || isSmartAccountOperator),
+    )
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : 'Unknown transaction failure'
+
+  const runNodeMutation = async (params: {
+    action: () => Promise<Hex>
+    submittedTitle: string
+    submittedMessage: string
+    successTitle: string
+    successMessage: string
+    errorTitle: string
+  }) => {
+    try {
+      const txHash = await params.action()
+      setActionResult({
+        status: 'info',
+        title: params.submittedTitle,
+        message: params.submittedMessage,
+        txHash,
+        explorerUrl: EXPLORER_URL,
+      })
+
+      if (!publicClient) return
+
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+      })
+      if (receipt.status === 'success') {
+        setActionResult({
+          status: 'success',
+          title: params.successTitle,
+          message: params.successMessage,
+          txHash,
+          explorerUrl: EXPLORER_URL,
+        })
+        return
+      }
+
+      setActionResult({
+        status: 'error',
+        title: params.errorTitle,
+        message: 'Transaction reverted on-chain during confirmation.',
+        txHash,
+        explorerUrl: EXPLORER_URL,
+      })
+    } catch (error) {
+      setActionResult({
+        status: 'error',
+        title: params.errorTitle,
+        message: getErrorMessage(error),
+        explorerUrl: EXPLORER_URL,
+      })
+    }
+  }
+
+  const handleIncreaseStake = async () => {
+    if (!canManageNode) {
+      setActionResult({
+        status: 'error',
+        title: 'Increase stake failed',
+        message: 'Connected wallet does not match this node operator.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    let amount: bigint
+    try {
+      amount = parseUnits(stakeIncreaseInput, 18)
+    } catch {
+      setActionResult({
+        status: 'error',
+        title: 'Increase stake failed',
+        message: `Invalid amount: "${stakeIncreaseInput}".`,
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    if (amount <= 0n) {
+      setActionResult({
+        status: 'error',
+        title: 'Increase stake failed',
+        message: 'Amount must be greater than zero.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    await runNodeMutation({
+      action: () =>
+        increaseNodeStake(
+          node.nodeId as Hex,
+          node.stakedToken as Address,
+          amount,
+          { gasless: isSmartAccountOperator },
+        ),
+      submittedTitle: 'Stake increase submitted',
+      submittedMessage: 'Increasing node stake on-chain.',
+      successTitle: 'Stake increased',
+      successMessage: 'Node stake amount updated on-chain.',
+      errorTitle: 'Increase stake failed',
+    })
+  }
+
+  const handleUpdateConfig = async () => {
+    if (!canManageNode) {
+      setActionResult({
+        status: 'error',
+        title: 'Config update failed',
+        message: 'Connected wallet does not match this node operator.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    if (!editRpcUrl.trim()) {
+      setActionResult({
+        status: 'error',
+        title: 'Config update failed',
+        message: 'RPC URL is required.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    await runNodeMutation({
+      action: () =>
+        updateNodeConfig(node.nodeId as Hex, editRpcUrl.trim(), editRegion, {
+          gasless: isSmartAccountOperator,
+        }),
+      submittedTitle: 'Node config update submitted',
+      submittedMessage: 'Updating endpoint and region on-chain.',
+      successTitle: 'Node config updated',
+      successMessage: 'Node endpoint and region updated on-chain.',
+      errorTitle: 'Config update failed',
+    })
+  }
+
+  const handleUpdateServices = async () => {
+    if (!canManageNode) {
+      setActionResult({
+        status: 'error',
+        title: 'Service update failed',
+        message: 'Connected wallet does not match this node operator.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    if (!servicesHash) {
+      setActionResult({
+        status: 'error',
+        title: 'Service update failed',
+        message: 'Select at least one service before saving.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    await runNodeMutation({
+      action: () =>
+        updateNodeServices(node.nodeId as Hex, servicesHash, {
+          gasless: isSmartAccountOperator,
+        }),
+      submittedTitle: 'Service update submitted',
+      submittedMessage: 'Updating service hash on-chain.',
+      successTitle: 'Services updated',
+      successMessage: 'Node service hash updated on-chain.',
+      errorTitle: 'Service update failed',
+    })
+  }
+
+  const handleUpdateMetadata = async () => {
+    if (!canManageNode) {
+      setActionResult({
+        status: 'error',
+        title: 'Metadata update failed',
+        message: 'Connected wallet does not match this node operator.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    if (!metadataUri.trim()) {
+      setActionResult({
+        status: 'error',
+        title: 'Metadata update failed',
+        message: 'Metadata URI is required.',
+        explorerUrl: EXPLORER_URL,
+      })
+      return
+    }
+
+    await runNodeMutation({
+      action: () =>
+        updateNodeMetadataURI(node.nodeId as Hex, metadataUri.trim(), {
+          gasless: isSmartAccountOperator,
+        }),
+      submittedTitle: 'Metadata update submitted',
+      submittedMessage: 'Updating metadata URI pointer on-chain.',
+      successTitle: 'Metadata URI updated',
+      successMessage: 'Metadata URI pointer updated on-chain.',
+      errorTitle: 'Metadata update failed',
+    })
+  }
 
   return (
     <div
@@ -935,6 +1217,203 @@ function NodeDetailsPanel({
           </button>
         )}
       </div>
+
+      <div
+        style={{
+          marginTop: '1rem',
+          borderTop: '1px solid var(--border)',
+          paddingTop: '1rem',
+          display: 'grid',
+          gap: '0.9rem',
+        }}
+      >
+        <h4 style={{ margin: 0, color: 'var(--text-secondary)' }}>
+          Manage Node
+        </h4>
+
+        {!canManageNode ? (
+          <p
+            style={{ margin: 0, color: 'var(--warning)', fontSize: '0.85rem' }}
+          >
+            Connected wallet is not authorized to edit this node.
+          </p>
+        ) : null}
+
+        <div style={{ display: 'grid', gap: '0.5rem' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Increase Stake (token units)
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="0.000001"
+              value={stakeIncreaseInput}
+              onChange={(event) => setStakeIncreaseInput(event.target.value)}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={isMutatingNode || !canManageNode}
+              onClick={handleIncreaseStake}
+            >
+              Increase Stake
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: '0.5rem' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Endpoint / Region
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) 180px auto',
+              gap: '0.5rem',
+            }}
+          >
+            <input
+              className="input"
+              type="text"
+              value={editRpcUrl}
+              onChange={(event) => setEditRpcUrl(event.target.value)}
+              placeholder="https://node.example.com/"
+            />
+            <select
+              className="input"
+              value={editRegion}
+              onChange={(event) => setEditRegion(Number(event.target.value))}
+            >
+              {REGION_OPTIONS.map((regionOption) => (
+                <option key={regionOption.value} value={regionOption.value}>
+                  {regionOption.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={isMutatingNode || !canManageNode}
+              onClick={handleUpdateConfig}
+            >
+              Save Config
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: '0.5rem' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Services
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() =>
+                  setSelectedServices(
+                    NODE_SERVICE_DEFINITIONS.map((service) => service.id),
+                  )
+                }
+              >
+                Pick all
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSelectedServices([])}
+              >
+                Unpick all
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {NODE_SERVICE_DEFINITIONS.map((service) => {
+              const selected = selectedServices.includes(service.id)
+              return (
+                <button
+                  key={service.id}
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    borderColor: selected ? 'var(--accent)' : undefined,
+                    color: selected ? 'var(--accent)' : undefined,
+                  }}
+                  onClick={() =>
+                    setSelectedServices((current) =>
+                      current.includes(service.id)
+                        ? current.filter((value) => value !== service.id)
+                        : [...current, service.id],
+                    )
+                  }
+                >
+                  {service.id}
+                </button>
+              )
+            })}
+          </div>
+
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+              wordBreak: 'break-all',
+            }}
+          >
+            New hash: {servicesHash ?? 'not set'}
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={isMutatingNode || !canManageNode || !servicesHash}
+            onClick={handleUpdateServices}
+          >
+            Save Services
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gap: '0.5rem' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Metadata URI
+          </div>
+          <input
+            className="input"
+            type="text"
+            value={metadataUri}
+            onChange={(event) => setMetadataUri(event.target.value)}
+            placeholder="ipfs://... or https://..."
+          />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={isMutatingNode || !canManageNode}
+            onClick={handleUpdateMetadata}
+          >
+            Save Metadata
+          </button>
+        </div>
+      </div>
+
+      {actionResult ? (
+        <TransactionStatusModal
+          result={actionResult}
+          onClose={() => setActionResult(null)}
+        />
+      ) : null}
     </div>
   )
 }
