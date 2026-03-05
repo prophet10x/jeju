@@ -305,6 +305,7 @@ export class KMSSigner {
       serviceId: this.serviceId,
       keyId: this.keyId,
       messageHash,
+      encoding: 'hex',
     })
 
     const parsed = SignResponseSchema.parse(response)

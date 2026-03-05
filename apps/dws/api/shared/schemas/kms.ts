@@ -30,7 +30,7 @@ export const kmsKeyParamsSchema = z.object({
  */
 export const signRequestSchema = z.object({
   messageHash: strictHexSchema,
-  encoding: z.enum(['utf8', 'hex']).default('utf8'),
+  encoding: z.enum(['utf8', 'hex']).default('hex'),
 })
 
 /**
