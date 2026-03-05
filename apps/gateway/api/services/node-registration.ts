@@ -4,14 +4,22 @@ import {
   VerifyRequestSchema,
   type NodeProofSigner,
 } from '@jejunetwork/shared'
-import { getKMSSigner } from '@jejunetwork/kms'
+import { createKMSSigner } from '@jejunetwork/kms'
 import type { Address } from 'viem'
 
 const NODE_PROOF_SERVICE_ID =
   process.env.GATEWAY_NODE_PROOF_SERVICE_ID ??
   `gateway-node-proof:${process.env.HOSTNAME ?? 'default'}`
 
-const signer = getKMSSigner(NODE_PROOF_SERVICE_ID)
+const kmsTimeoutMs = Number.parseInt(
+  process.env.GATEWAY_NODE_PROOF_KMS_TIMEOUT_MS ?? '8000',
+  10,
+)
+
+const signer = createKMSSigner({
+  serviceId: NODE_PROOF_SERVICE_ID,
+  timeoutMs: Number.isFinite(kmsTimeoutMs) ? kmsTimeoutMs : 8000,
+})
 const remoteChallengeOrigins = new Map<string, string>()
 
 const proofSigner: NodeProofSigner = {
