@@ -6,22 +6,23 @@
  * In-process MPC for testnet, distributed parties for mainnet.
  */
 
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { getLocalhostHost, getOAuth3Url } from '@jejunetwork/config'
 import { getSQLit, type SQLitClient } from '@jejunetwork/db'
 import {
+  type FROSTCluster,
   FROSTCoordinator,
+  type FROSTKeyShare,
   generateKeyShares,
   publicKeyToAddress,
-  type FROSTCluster,
-  type FROSTKeyShare,
 } from '@jejunetwork/kms'
 import { decryptAesGcm, encryptAesGcm, randomUUID } from '@jejunetwork/shared'
 import { expectValid } from '@jejunetwork/types'
-import { Elysia } from 'elysia'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
 import { secp256k1 } from '@noble/curves/secp256k1'
+import { Elysia } from 'elysia'
 import type { Address, Hex } from 'viem'
-import { keccak256, toBytes, toHex } from 'viem'
+import { keccak256, recoverMessageAddress, toBytes, toHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { z } from 'zod'
 import {
@@ -59,6 +60,8 @@ const KMS_STATE_FILE = resolve(
 )
 const CURVE_ORDER = secp256k1.CURVE.n
 const PERSISTENCE_ASSOCIATED_DATA = new TextEncoder().encode('jeju:dws:kms:v1')
+const KMS_AUTH_MAX_CLOCK_SKEW_SECONDS = 300
+const KMS_AUTH_VERIFY_TIMEOUT_MS = 5000
 
 let sqlitClient: SQLitClient | null = null
 let tablesInitialized = false
@@ -249,7 +252,9 @@ function reconstructSecretFromShares(
 }
 
 function getCoordinatorShares(coordinator: FROSTCoordinator): FROSTKeyShare[] {
-  const shareMap = (coordinator as unknown as { keyShares: Map<number, FROSTKeyShare> }).keyShares
+  const shareMap = (
+    coordinator as unknown as { keyShares: Map<number, FROSTKeyShare> }
+  ).keyShares
   return Array.from(shareMap.values()).sort((a, b) => a.index - b.index)
 }
 
@@ -294,9 +299,10 @@ function serializeKeyState(
   }
 }
 
-function restoreCoordinatorFromState(
-  state: PersistedKeyState,
-): { key: StoredKey; coordinator: FROSTCoordinator } {
+function restoreCoordinatorFromState(state: PersistedKeyState): {
+  key: StoredKey
+  coordinator: FROSTCoordinator
+} {
   const secret = BigInt(state.secret)
   const shares = generateKeyShares(state.threshold, state.totalParties, secret)
   const groupPublicKey = toHex(shares[0].groupPublicKey.toRawBytes(true))
@@ -574,7 +580,10 @@ export async function signMessageWithServiceKey(
   // Service-key proofs must produce a standard Ethereum message signature so
   // downstream verifyMessage() succeeds consistently.
   const account = privateKeyToAccount(
-    reconstructCoordinatorPrivateKey(coordinator, keys.get(key.keyId)?.threshold ?? MPC_CONFIG.defaultThreshold),
+    reconstructCoordinatorPrivateKey(
+      coordinator,
+      keys.get(key.keyId)?.threshold ?? MPC_CONFIG.defaultThreshold,
+    ),
   )
   const signature = await account.signMessage({ message })
 
@@ -606,17 +615,157 @@ const createKeyRequestSchema = z.union([
   }),
 ])
 
-function getOwnerFromRequest(request: Request): Address | null {
+function isProxyRequest(request: Request): boolean {
+  return Boolean(
+    request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+  )
+}
+
+function getOAuth3SessionValidateUrl(): string {
+  const configured = process.env.KMS_OAUTH3_URL ?? process.env.OAUTH3_URL
+  let discoveredOAuth3Url: string | null = null
+  if (!configured) {
+    try {
+      discoveredOAuth3Url = getOAuth3Url(NETWORK)
+    } catch {
+      discoveredOAuth3Url = null
+    }
+  }
+  const baseUrl =
+    configured ?? discoveredOAuth3Url ?? `http://${getLocalhostHost()}:4200`
+  return `${baseUrl.replace(/\/+$/, '')}/session/validate`
+}
+
+function extractBearerToken(request: Request): string | null {
+  const authHeader = request.headers.get('authorization')?.trim()
+  if (!authHeader?.startsWith('Bearer ')) return null
+  const token = authHeader.slice(7).trim()
+  return token.length > 0 ? token : null
+}
+
+async function validateOwnerWithOAuth3Session(
+  request: Request,
+  owner: Address,
+): Promise<boolean> {
+  const token = extractBearerToken(request)
+  if (!token) return false
+
+  try {
+    const response = await fetch(getOAuth3SessionValidateUrl(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+      signal: AbortSignal.timeout(KMS_AUTH_VERIFY_TIMEOUT_MS),
+    })
+    if (!response.ok) return false
+
+    const payload = (await response.json()) as Record<string, unknown>
+    const sessionAddress = parseAddress(
+      typeof payload.smartAccount === 'string'
+        ? payload.smartAccount
+        : typeof payload.address === 'string'
+          ? payload.address
+          : typeof payload.walletAddress === 'string'
+            ? payload.walletAddress
+            : null,
+    )
+    return sessionAddress?.toLowerCase() === owner.toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+function buildKmsAuthMessage(
+  request: Request,
+  timestamp: string,
+  nonce: string,
+): string {
+  const url = new URL(request.url)
+  return [
+    'DWS KMS Request',
+    `Method: ${request.method.toUpperCase()}`,
+    `Path: ${url.pathname}`,
+    `Timestamp: ${timestamp}`,
+    `Nonce: ${nonce}`,
+  ].join('\n')
+}
+
+async function validateOwnerWithRequestSignature(
+  request: Request,
+  owner: Address,
+): Promise<boolean> {
+  const timestamp = request.headers.get('x-jeju-timestamp')
+  const nonce = request.headers.get('x-jeju-nonce')
+  const signature = request.headers.get('x-jeju-signature')
+  if (!timestamp || !nonce || !signature) return false
+
+  const parsedTimestamp = Number(timestamp)
+  if (!Number.isFinite(parsedTimestamp)) return false
+
+  const timestampSeconds =
+    parsedTimestamp > 10 ** 12
+      ? Math.floor(parsedTimestamp / 1000)
+      : Math.floor(parsedTimestamp)
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  if (
+    Math.abs(nowSeconds - timestampSeconds) > KMS_AUTH_MAX_CLOCK_SKEW_SECONDS
+  ) {
+    return false
+  }
+
+  try {
+    const recovered = await recoverMessageAddress({
+      message: buildKmsAuthMessage(request, timestamp, nonce),
+      signature: signature as Hex,
+    })
+    return recovered.toLowerCase() === owner.toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+async function assertExternalWalletAuthentication(
+  request: Request,
+  owner: Address,
+): Promise<void> {
+  if (NETWORK === 'localnet') return
+  if (!isProxyRequest(request)) return
+  const url = new URL(request.url)
+  // Read-only key metadata listing remains header-address scoped for UX
+  // compatibility; mutating and sensitive endpoints still require wallet auth.
+  if (request.method.toUpperCase() === 'GET' && url.pathname === '/kms/keys') {
+    return
+  }
+  if (await validateOwnerWithOAuth3Session(request, owner)) return
+  if (await validateOwnerWithRequestSignature(request, owner)) return
+  throw new Error('Wallet authentication required for KMS access')
+}
+
+async function getOwnerFromRequest(request: Request): Promise<Address | null> {
   const owner = getAddressFromRequest(request)
-  if (owner) return owner
+  if (owner) {
+    await assertExternalWalletAuthentication(request, owner)
+    return owner
+  }
   const serviceId = request.headers.get('x-service-id')
   if (!serviceId) return null
+  if (isProxyRequest(request)) {
+    throw new Error(
+      'Not authorized: x-service-id is restricted to internal requests',
+    )
+  }
   const hash = keccak256(toBytes(serviceId))
   const candidate = `0x${hash.slice(-40)}`
   return parseAddress(candidate)
 }
 
-function assertServiceKeyRequestAuthorized(request: Request, key: StoredKey): void {
+function assertServiceKeyRequestAuthorized(
+  request: Request,
+  key: StoredKey,
+): void {
   const expectedServiceId = key.metadata.serviceId
   if (!expectedServiceId) return
 
@@ -663,7 +812,8 @@ export function createKMSRouter() {
             return { error: 'Not found' }
           }
 
-          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          const owner =
+            (await getOwnerFromRequest(request))?.toLowerCase() ?? null
           const client = await getSQLitClient()
           const totalRows = await client.query<{ count: number | string }>(
             'SELECT COUNT(*) as count FROM kms_secrets',
@@ -680,8 +830,7 @@ export function createKMSRouter() {
 
           const normalizeCount = (
             value: number | string | null | undefined,
-          ): number =>
-            typeof value === 'number' ? value : Number(value ?? 0)
+          ): number => (typeof value === 'number' ? value : Number(value ?? 0))
 
           return {
             databaseId: SQLIT_DATABASE_ID,
@@ -700,7 +849,7 @@ export function createKMSRouter() {
       .post('/keys', async ({ body, request, set }) => {
         await ensurePersistedKeysLoaded()
 
-        const owner = getOwnerFromRequest(request)
+        const owner = await getOwnerFromRequest(request)
         if (!owner) {
           throw new Error('Missing x-jeju-address or x-service-id header')
         }
@@ -802,7 +951,8 @@ export function createKMSRouter() {
       .get('/keys', ({ request }) => {
         return (async () => {
           await ensurePersistedKeysLoaded()
-          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          const owner =
+            (await getOwnerFromRequest(request))?.toLowerCase() ?? null
           if (!owner) {
             throw new Error('Missing x-jeju-address or x-service-id header')
           }
@@ -828,7 +978,8 @@ export function createKMSRouter() {
       .get('/keys/:keyId', ({ params, request }) => {
         return (async () => {
           await ensurePersistedKeysLoaded()
-          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          const owner =
+            (await getOwnerFromRequest(request))?.toLowerCase() ?? null
           if (!owner) {
             throw new Error('Missing x-jeju-address or x-service-id header')
           }
@@ -861,8 +1012,9 @@ export function createKMSRouter() {
       // Rotate key
       .post('/keys/:keyId/rotate', async ({ params, body, request }) => {
         await ensurePersistedKeysLoaded()
-        const owner = getOwnerFromRequest(request)
-        if (!owner) throw new Error('Missing x-jeju-address or x-service-id header')
+        const owner = await getOwnerFromRequest(request)
+        if (!owner)
+          throw new Error('Missing x-jeju-address or x-service-id header')
 
         const { keyId } = expectValid(
           kmsKeyParamsSchema,
@@ -920,8 +1072,9 @@ export function createKMSRouter() {
       .delete('/keys/:keyId', ({ params, request }) => {
         return (async () => {
           await ensurePersistedKeysLoaded()
-          const owner = getOwnerFromRequest(request)
-          if (!owner) throw new Error('Missing x-jeju-address or x-service-id header')
+          const owner = await getOwnerFromRequest(request)
+          if (!owner)
+            throw new Error('Missing x-jeju-address or x-service-id header')
 
           const { keyId } = expectValid(
             kmsKeyParamsSchema,
@@ -951,8 +1104,9 @@ export function createKMSRouter() {
       // Request signature using FROST threshold signing
       .post('/sign', async ({ body, request }) => {
         await ensurePersistedKeysLoaded()
-        const owner = getOwnerFromRequest(request)
-        if (!owner) throw new Error('Missing x-jeju-address or x-service-id header')
+        const owner = await getOwnerFromRequest(request)
+        if (!owner)
+          throw new Error('Missing x-jeju-address or x-service-id header')
 
         const validBody = expectValid(
           signRequestSchema.extend({
@@ -1081,7 +1235,7 @@ export function createKMSRouter() {
       })
       // Store secret
       .post('/vault/secrets', async ({ body, request, set }) => {
-        const owner = getOwnerFromRequest(request)
+        const owner = await getOwnerFromRequest(request)
         if (!owner) {
           set.status = 401
           return { error: 'Missing x-jeju-address header' }
@@ -1155,13 +1309,15 @@ export function createKMSRouter() {
       // List secrets
       .get('/vault/secrets', ({ request }) => {
         return (async () => {
-          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          const owner =
+            (await getOwnerFromRequest(request))?.toLowerCase() ?? null
+          if (!owner) {
+            throw new Error('Missing x-jeju-address or x-service-id header')
+          }
           const client = await getSQLitClient()
           const rows = await client.query<SecretRow>(
-            owner
-              ? 'SELECT * FROM kms_secrets WHERE owner = ? ORDER BY created_at DESC'
-              : 'SELECT * FROM kms_secrets ORDER BY created_at DESC',
-            owner ? [owner] : [],
+            'SELECT * FROM kms_secrets WHERE owner = ? ORDER BY created_at DESC',
+            [owner],
             SQLIT_DATABASE_ID,
           )
           const now = Date.now()
@@ -1182,7 +1338,8 @@ export function createKMSRouter() {
       // Get secret (returns metadata only, not value)
       .get('/vault/secrets/:id', ({ params, request, set }) => {
         return (async () => {
-          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          const owner =
+            (await getOwnerFromRequest(request))?.toLowerCase() ?? null
           const client = await getSQLitClient()
           const rows = await client.query<SecretRow>(
             'SELECT * FROM kms_secrets WHERE id = ? LIMIT 1',
@@ -1214,7 +1371,8 @@ export function createKMSRouter() {
       })
       // Reveal secret value (requires authentication)
       .post('/vault/secrets/:id/reveal', async ({ params, request, set }) => {
-        const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+        const owner =
+          (await getOwnerFromRequest(request))?.toLowerCase() ?? null
         const client = await getSQLitClient()
         const rows = await client.query<SecretRow>(
           'SELECT * FROM kms_secrets WHERE id = ? LIMIT 1',
@@ -1264,7 +1422,8 @@ export function createKMSRouter() {
         }
       })
       .post('/vault/secrets/reveal', async ({ body, request, set }) => {
-        const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+        const owner =
+          (await getOwnerFromRequest(request))?.toLowerCase() ?? null
         if (!owner) {
           set.status = 401
           return { error: 'Missing x-jeju-address or x-service-id header' }
@@ -1321,7 +1480,8 @@ export function createKMSRouter() {
       // Delete secret
       .delete('/vault/secrets/:id', ({ params, request, set }) => {
         return (async () => {
-          const owner = getOwnerFromRequest(request)?.toLowerCase() ?? null
+          const owner =
+            (await getOwnerFromRequest(request))?.toLowerCase() ?? null
           const client = await getSQLitClient()
           const rows = await client.query<SecretRow>(
             'SELECT * FROM kms_secrets WHERE id = ? LIMIT 1',

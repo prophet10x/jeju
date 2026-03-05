@@ -1,3 +1,4 @@
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import {
   getConfiguredAddress,
   predictSimpleAccountAddress,
@@ -719,10 +720,13 @@ export function usePipelines() {
 
 export function useKMSKeys() {
   const { address } = useAccount()
+  const { walletAddress } = useJejuAuth()
+  const requestAddress = address ?? walletAddress ?? undefined
   return useQuery({
-    queryKey: ['kms-keys', address],
-    queryFn: () => fetchApi<{ keys: KMSKey[] }>('/kms/keys', { address }),
-    enabled: !!address,
+    queryKey: ['kms-keys', requestAddress],
+    queryFn: () =>
+      fetchApi<{ keys: KMSKey[] }>('/kms/keys', { address: requestAddress }),
+    enabled: !!requestAddress,
   })
 }
 
@@ -736,6 +740,8 @@ export function useKMSHealth() {
 
 export function useCreateKey() {
   const { address } = useAccount()
+  const { walletAddress } = useJejuAuth()
+  const requestAddress = address ?? walletAddress ?? undefined
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -743,7 +749,7 @@ export function useCreateKey() {
       name?: string
       threshold?: number
       totalParties?: number
-    }) => postApi<KMSKey>('/kms/keys', params, { address }),
+    }) => postApi<KMSKey>('/kms/keys', params, { address: requestAddress }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kms-keys'] })
     },
@@ -752,21 +758,29 @@ export function useCreateKey() {
 
 export function useSecrets() {
   const { address } = useAccount()
+  const { walletAddress } = useJejuAuth()
+  const requestAddress = address ?? walletAddress ?? undefined
   return useQuery({
-    queryKey: ['secrets', address],
+    queryKey: ['secrets', requestAddress],
     queryFn: () =>
-      fetchApi<{ secrets: Secret[] }>('/kms/vault/secrets', { address }),
-    enabled: !!address,
+      fetchApi<{ secrets: Secret[] }>('/kms/vault/secrets', {
+        address: requestAddress,
+      }),
+    enabled: !!requestAddress,
   })
 }
 
 export function useCreateSecret() {
   const { address } = useAccount()
+  const { walletAddress } = useJejuAuth()
+  const requestAddress = address ?? walletAddress ?? undefined
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (params: { name: string; value: string; expiresIn?: number }) =>
-      postApi<Secret>('/kms/vault/secrets', params, { address }),
+      postApi<Secret>('/kms/vault/secrets', params, {
+        address: requestAddress,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
     },

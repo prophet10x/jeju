@@ -35,6 +35,38 @@ interface FetchOptions extends Omit<RequestInit, 'body'> {
   body?: string
 }
 
+function getStoredOAuth3SessionId(): string | null {
+  if (typeof window === 'undefined') return null
+  if (typeof localStorage === 'undefined') return null
+
+  try {
+    const raw = localStorage.getItem('oauth3_session')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { sessionId?: unknown }
+    return typeof parsed.sessionId === 'string' && parsed.sessionId.length > 0
+      ? parsed.sessionId
+      : null
+  } catch {
+    return null
+  }
+}
+
+function applyDefaultAuthHeaders(headers: Record<string, string>): void {
+  const hasAuthorization = Object.keys(headers).some(
+    (key) => key.toLowerCase() === 'authorization',
+  )
+  if (hasAuthorization) return
+
+  const sessionId = getStoredOAuth3SessionId()
+  if (sessionId) {
+    headers.Authorization = `Bearer ${sessionId}`
+  }
+}
+
+function shouldAttachSessionAuth(endpoint: string): boolean {
+  return endpoint === '/kms' || endpoint.startsWith('/kms/')
+}
+
 /**
  * Type-safe fetch helper with Zod validation
  */
@@ -50,6 +82,9 @@ export async function fetchApi<T>(
 
   if (options?.address) {
     headers['X-Jeju-Address'] = options.address
+  }
+  if (shouldAttachSessionAuth(endpoint)) {
+    applyDefaultAuthHeaders(headers)
   }
 
   const response = await fetch(`${DWS_API_URL}${endpoint}`, {
@@ -96,6 +131,9 @@ export async function fetchValidated<T>(
 
   if (options?.address) {
     headers['X-Jeju-Address'] = options.address
+  }
+  if (shouldAttachSessionAuth(endpoint)) {
+    applyDefaultAuthHeaders(headers)
   }
 
   const response = await fetch(`${DWS_API_URL}${endpoint}`, {
@@ -178,6 +216,9 @@ export async function uploadFile(
   if (address) {
     headers['X-Jeju-Address'] = address
   }
+  if (shouldAttachSessionAuth(endpoint)) {
+    applyDefaultAuthHeaders(headers)
+  }
 
   const response = await fetch(`${DWS_API_URL}${endpoint}`, {
     method: 'POST',
@@ -214,6 +255,9 @@ export async function uploadRaw(
   }
   if (filename) {
     headers['x-filename'] = filename
+  }
+  if (shouldAttachSessionAuth(endpoint)) {
+    applyDefaultAuthHeaders(headers)
   }
 
   const response = await fetch(`${DWS_API_URL}${endpoint}`, {

@@ -214,6 +214,37 @@ export function createOAuth3Router() {
         },
       )
 
+      // Validate session (accepts bearer token or body token)
+      .post(
+        '/session/validate',
+        async ({ body, headers, set }) => {
+          const authHeader = headers.authorization
+          const response = await fetch(`${getAgentUrl()}/session/validate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authHeader ? { Authorization: authHeader } : {}),
+            },
+            body: JSON.stringify(body ?? {}),
+          })
+          const data = await response.json()
+          if (!response.ok) {
+            set.status = response.status as
+              | 400
+              | 401
+              | 403
+              | 404
+              | 500
+              | 502
+              | 503
+          }
+          return data
+        },
+        {
+          body: t.Optional(t.Record(t.String(), t.Unknown())),
+        },
+      )
+
       // Refresh session
       .post(
         '/session/:sessionId/refresh',
@@ -332,14 +363,11 @@ export function createOAuth3Router() {
       .post(
         '/credential/verify',
         async ({ body, set }) => {
-          const response = await fetch(
-            `${getAgentUrl()}/credential/verify`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            },
-          )
+          const response = await fetch(`${getAgentUrl()}/credential/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
           const data = await response.json()
           if (!response.ok) {
             set.status = response.status as
@@ -360,9 +388,7 @@ export function createOAuth3Router() {
 
       // Infrastructure health
       .get('/infrastructure/health', async () => {
-        const response = await fetch(
-          `${getAgentUrl()}/infrastructure/health`,
-        )
+        const response = await fetch(`${getAgentUrl()}/infrastructure/health`)
         if (!response.ok) {
           throw new Error('OAuth3 agent unavailable')
         }
