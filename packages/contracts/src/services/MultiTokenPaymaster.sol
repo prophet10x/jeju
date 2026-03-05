@@ -190,20 +190,19 @@ contract MultiTokenPaymaster is BasePaymaster {
         address token = _getTokenAddress(paymentToken);
         uint256 totalCost = _calculateTotalCost(serviceCost, maxCost, token);
 
-        (bool hasSufficientCredit,) = creditManager.hasSufficientCredit(userOp.sender, token, totalCost);
-
-        if (hasSufficientCredit) {
-            context = abi.encode(userOp.sender, serviceName, token, totalCost, uint256(0), true);
-            return (context, 0);
-        }
-
         uint256 overpayment = 0;
         if (data.length >= 1 + serviceNameLength + 1 + 32) {
             overpayment = uint256(bytes32(data[1 + serviceNameLength + 1:1 + serviceNameLength + 1 + 32]));
         }
 
         if (overpayment == 0) {
-            revert InsufficientCreditAndNoPayment();
+            (bool hasSufficientCredit,) = creditManager.hasSufficientCredit(userOp.sender, token, totalCost);
+            if (!hasSufficientCredit) {
+                revert InsufficientCreditAndNoPayment();
+            }
+
+            context = abi.encode(userOp.sender, serviceName, token, totalCost, uint256(0), true);
+            return (context, 0);
         }
 
         if (token == ETH_ADDRESS) {
@@ -211,7 +210,7 @@ contract MultiTokenPaymaster is BasePaymaster {
         } else {
             uint256 userBalance = IERC20(token).balanceOf(userOp.sender);
             uint256 userAllowance = IERC20(token).allowance(userOp.sender, address(this));
-            require(userBalance >= overpayment && userAllowance >= overpayment, "Insufficient token");
+            require(userBalance >= totalCost && userAllowance >= totalCost, "Insufficient token");
         }
 
         context = abi.encode(userOp.sender, serviceName, token, totalCost, overpayment, false);
@@ -225,7 +224,7 @@ contract MultiTokenPaymaster is BasePaymaster {
         uint256 actualUserOpFeePerGas
     ) internal override {
         actualUserOpFeePerGas;
-        (address user, string memory serviceName, address token,, uint256 overpayment, bool useCredit) =
+        (address user, string memory serviceName, address token, uint256 quotedTotalCost,, bool useCredit) =
             abi.decode(context, (address, string, address, uint256, uint256, bool));
 
         uint256 serviceCost = serviceRegistry.getServiceCost(serviceName, user);
@@ -233,39 +232,30 @@ contract MultiTokenPaymaster is BasePaymaster {
 
         // Get app address for fee attribution
         address appAddress = _getAppFromService(serviceName);
+        uint256 chargeAmount = actualTotalCost > quotedTotalCost ? quotedTotalCost : actualTotalCost;
 
         if (useCredit) {
-            (bool success,) = creditManager.tryDeductCredit(user, token, actualTotalCost);
+            (bool success,) = creditManager.tryDeductCredit(user, token, chargeAmount);
             require(success, "Credit deduction failed");
-            emit TransactionSponsoredWithCredit(user, serviceName, token, actualTotalCost);
+            emit TransactionSponsoredWithCredit(user, serviceName, token, chargeAmount);
         } else {
             if (token == ETH_ADDRESS) {
                 // ETH goes to revenue wallet (feeDistributor handles tokens only)
-                (bool success,) = revenueWallet.call{value: actualTotalCost}("");
+                (bool success,) = revenueWallet.call{value: chargeAmount}("");
                 require(success, "ETH transfer failed");
-
-                if (overpayment > actualTotalCost) {
-                    uint256 creditAmount = overpayment - actualTotalCost;
-                    creditManager.addCredit{value: creditAmount}(user, ETH_ADDRESS, creditAmount);
-                }
             } else {
                 // Route token fees through feeDistributor if available
                 if (address(feeDistributor) != address(0) && appAddress != address(0)) {
-                    IERC20(token).safeTransferFrom(user, address(this), actualTotalCost);
-                    IERC20(token).forceApprove(address(feeDistributor), actualTotalCost);
-                    feeDistributor.distributeFees(actualTotalCost, appAddress);
+                    IERC20(token).safeTransferFrom(user, address(this), chargeAmount);
+                    IERC20(token).forceApprove(address(feeDistributor), chargeAmount);
+                    feeDistributor.distributeFees(chargeAmount, appAddress);
                 } else {
                     // Fallback to revenue wallet
-                    IERC20(token).safeTransferFrom(user, revenueWallet, actualTotalCost);
-                }
-
-                if (overpayment > actualTotalCost) {
-                    uint256 creditAmount = overpayment - actualTotalCost;
-                    IERC20(token).safeTransferFrom(user, address(creditManager), creditAmount);
+                    IERC20(token).safeTransferFrom(user, revenueWallet, chargeAmount);
                 }
             }
 
-            emit TransactionSponsoredWithPayment(user, serviceName, token, overpayment, overpayment - actualTotalCost);
+            emit TransactionSponsoredWithPayment(user, serviceName, token, chargeAmount, 0);
         }
 
         try ICloudServiceRegistry(address(serviceRegistry)).recordUsage(user, serviceName, serviceCost) {} catch {}

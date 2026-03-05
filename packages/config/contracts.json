@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "lastUpdated": "2026-02-22",
+  "lastUpdated": "2026-03-05",
   "description": "All contract addresses for Jeju networks. Env overrides use VITE_/PUBLIC_ + name (e.g., VITE_BAN_MANAGER_ADDRESS)",
   "constants": {
     "entryPoint": "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
@@ -297,7 +297,7 @@
       "serviceRegistry": "0xefc5a8c31cfd2a693e0169790421076916405083",
       "creditManager": "0x6cfc5f9b0e5fe29470778b018aaaeb014281ea19",
       "liquidityPaymaster": "0xF32D39ff9f6Aa7a7A64d7a4F00a54826Ef791a55",
-      "multiTokenPaymaster": "0x976A62558df02514090500e588Bb62E04eA85DC3",
+      "multiTokenPaymaster": "0x6Df58bfCB71C025989Cb42eB1be7fEBAbfB83714",
       "paymasterFactory": "0xe4abfd2e67240dfffa8433e04df094f3b5206272",
       "tokenRegistry": "0x6d8a467a29e4da4b53345555ae7d628e741a40a8"
     },

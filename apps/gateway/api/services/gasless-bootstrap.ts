@@ -188,7 +188,7 @@ export async function bootstrapGaslessSmartAccount(
     requiredPaymentAmount: DEFAULT_GASLESS_PAYMENT_AMOUNT,
   })
 
-  if (readiness.isReady) {
+  if (readiness.readyViaAllowance) {
     return {
       success: true,
       smartAccountAddress,

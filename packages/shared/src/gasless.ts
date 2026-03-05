@@ -80,7 +80,7 @@ export const GaslessBootstrapRequestSchema = z.object({
 
 export const DEFAULT_GASLESS_PAYMENT_AMOUNT = parseEther('0.05')
 export const DEFAULT_GASLESS_BOOTSTRAP_EXTRA_JEJU = parseEther('1')
-export const DEFAULT_GASLESS_BOOTSTRAP_CREDIT_JEJU = parseEther('1')
+export const DEFAULT_GASLESS_BOOTSTRAP_CREDIT_JEJU = parseEther('0')
 export const DEFAULT_GASLESS_BOOTSTRAP_MAX_STAKE_JEJU = parseEther('100000')
 
 export function isConfiguredAddress(

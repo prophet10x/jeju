@@ -293,9 +293,9 @@ export function useGaslessSmartAccount() {
         requiredPaymentAmount,
         targetPaymasterAllowance: bootstrapPaymasterAllowance,
       })
-      if (!readiness.isReady) {
+      if (!readiness.readyViaAllowance) {
         throw new Error(
-          'Smart account is not ready for JEJU gasless transactions yet',
+          'Smart account must have JEJU balance and paymaster allowance for gasless transactions',
         )
       }
 
@@ -338,9 +338,7 @@ export function useGaslessSmartAccount() {
                 paymaster: CONTRACTS.multiTokenPaymaster,
                 serviceName,
                 paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: readiness.readyViaAllowance
-                  ? requiredPaymentAmount
-                  : undefined,
+                overpayment: requiredPaymentAmount,
               })
 
               return toPaymasterV07Data(paymasterData)
@@ -350,9 +348,7 @@ export function useGaslessSmartAccount() {
                 paymaster: CONTRACTS.multiTokenPaymaster,
                 serviceName,
                 paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: readiness.readyViaAllowance
-                  ? requiredPaymentAmount
-                  : undefined,
+                overpayment: requiredPaymentAmount,
               })
 
               return toPaymasterV07Data(paymasterData)
