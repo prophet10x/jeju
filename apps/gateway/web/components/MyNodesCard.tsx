@@ -13,7 +13,7 @@ import type { ComponentType } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { type Hex, keccak256, parseUnits, toBytes } from 'viem'
 import { usePublicClient } from 'wagmi'
-import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
+import { CONTRACTS, EXPLORER_URL, NETWORK } from '../../lib/config'
 import {
   formatUptimeScore,
   getNodeStakingAddress,
@@ -51,11 +51,12 @@ interface NodeCardProps {
 function NodeCard({ nodeId }: NodeCardProps) {
   const {
     nodeInfo,
+    managerAddress: nodeManagerAddress,
     isLoading: isNodeInfoLoading,
     refetch: refetchNodeInfo,
   } = useNodeInfo(nodeId)
   const { pendingRewardsUSD, claimRewards, isClaiming, isClaimSuccess } =
-    useNodeRewards(nodeId)
+    useNodeRewards(nodeId, nodeManagerAddress)
   const {
     deregisterNode,
     increaseNodeStake,
@@ -145,7 +146,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
       if (!publicClient) return
 
       try {
-        const stakingAddress = getNodeStakingAddress()
+        const stakingAddress = nodeManagerAddress ?? getNodeStakingAddress()
         const [servicesHashResult, metadataUriResult] = await Promise.all([
           publicClient.readContract({
             address: stakingAddress,
@@ -182,7 +183,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
     return () => {
       cancelled = true
     }
-  }, [metadataUri, nodeId, publicClient])
+  }, [metadataUri, nodeId, nodeManagerAddress, publicClient])
 
   useEffect(() => {
     let cancelled = false
@@ -191,6 +192,17 @@ function NodeCard({ nodeId }: NodeCardProps) {
       if (!publicClient || !nodeInfo || CONTRACTS.priceOracle === ZERO_ADDRESS)
         return
       const [node] = nodeInfo
+
+      if (
+        NETWORK === 'testnet' &&
+        node.stakedToken.toLowerCase() === CONTRACTS.jeju.toLowerCase()
+      ) {
+        if (!cancelled) {
+          // UI fallback: JEJU testnet is intended to display $1 peg even if oracle snapshot drifts.
+          setLiveStakeValueUsdWei(node.stakedAmount)
+        }
+        return
+      }
 
       try {
         const [tokenPrice] = (await publicClient.readContract({
@@ -369,6 +381,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
       action: () =>
         increaseNodeStake(nodeId, node.stakedToken, amount, {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress,
         }),
       submittedTitle: 'Stake increase submitted',
       submittedMessage: `Increasing stake by ${stakeIncreaseInput} ${stakingTokenInfo.symbol}.`,
@@ -398,6 +411,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
       action: () =>
         updateNodeConfig(nodeId, rpcUrl, editRegion as Region, {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress,
         }),
       submittedTitle: 'Node config update submitted',
       submittedMessage: 'Updating endpoint and region on-chain.',
@@ -428,6 +442,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
       action: () =>
         updateNodeServices(nodeId, servicesHash, {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress,
         }),
       submittedTitle: 'Service update submitted',
       submittedMessage: 'Updating service set hash on-chain.',
@@ -456,6 +471,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
       action: () =>
         updateNodeMetadataURI(nodeId, trimmedMetadataUri, {
           gasless: isSmartAccountOperator,
+          managerAddress: nodeManagerAddress,
         }),
       submittedTitle: 'Metadata update submitted',
       submittedMessage: 'Writing metadata URI pointer on-chain.',
@@ -662,7 +678,9 @@ function NodeCard({ nodeId }: NodeCardProps) {
         <button
           type="button"
           className="button button-secondary"
-          onClick={() => deregisterNode(nodeId)}
+          onClick={() =>
+            deregisterNode(nodeId, { managerAddress: nodeManagerAddress })
+          }
           disabled={!canDeregister || isDeregistering}
           style={{ flex: 1 }}
         >

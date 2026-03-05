@@ -376,12 +376,35 @@ export const REGION_NAMES = {
   [Region.Oceania]: 'Oceania',
 }
 
-import { resolveNodeStakingWriteAddress } from './config'
+import { CONTRACTS, resolveNodeStakingWriteAddress } from './config'
 
 export function getNodeStakingAddress(
   operatorAddress?: Address | string | null,
 ): Address {
   return resolveNodeStakingWriteAddress(operatorAddress)
+}
+
+export function getNodeStakingReadAddresses(): Address[] {
+  const candidates = [
+    CONTRACTS.nodeStakingRouter,
+    CONTRACTS.nodeStakingManagerV2,
+    CONTRACTS.nodeStakingLegacyManagerV1,
+    CONTRACTS.nodeStakingManager,
+  ].filter(
+    (address): address is Address =>
+      Boolean(address) &&
+      address !== '0x0000000000000000000000000000000000000000',
+  )
+
+  const deduped = new Map<string, Address>()
+  for (const address of candidates) {
+    const normalized = address.toLowerCase()
+    if (!deduped.has(normalized)) {
+      deduped.set(normalized, address)
+    }
+  }
+
+  return Array.from(deduped.values())
 }
 
 export function formatUptimeScore(score: bigint): string {

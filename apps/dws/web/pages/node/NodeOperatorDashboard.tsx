@@ -29,7 +29,7 @@ import { useSearchParams } from "react-router-dom";
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from "viem";
 import { useAccount, usePublicClient } from "wagmi";
 import { SkeletonStatCard } from "../../components/Skeleton";
-import { CONTRACTS, EXPLORER_URL } from "../../config";
+import { CONTRACTS, EXPLORER_URL, NETWORK } from "../../config";
 import { useConfirm, useToast } from "../../context/AppContext";
 import {
   useClaimRewards,
@@ -310,6 +310,13 @@ export default function NodeOperatorDashboard() {
       for (const result of results) {
         if (!result) continue;
         const [tokenAddress, priceUsd] = result;
+        if (
+          NETWORK === "testnet" &&
+          tokenAddress === CONTRACTS.jeju.toLowerCase()
+        ) {
+          nextPrices[tokenAddress] = 1;
+          continue;
+        }
         if (Number.isFinite(priceUsd) && priceUsd > 0) {
           nextPrices[tokenAddress] = priceUsd;
         }

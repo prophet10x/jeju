@@ -126,6 +126,13 @@ export default function SettingsPage() {
       for (const result of results) {
         if (!result) continue
         const [tokenAddress, priceUsd] = result
+        if (
+          NETWORK === 'testnet' &&
+          tokenAddress === CONTRACTS.jeju.toLowerCase()
+        ) {
+          nextPrices[tokenAddress] = 1
+          continue
+        }
         if (Number.isFinite(priceUsd) && priceUsd > 0) {
           nextPrices[tokenAddress] = priceUsd
         }

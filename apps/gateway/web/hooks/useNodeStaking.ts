@@ -8,10 +8,16 @@ import {
 } from '@jejunetwork/shared/gasless'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, type Hex } from 'viem'
-import { useAccount, usePublicClient, useReadContract } from 'wagmi'
+import {
+  useAccount,
+  usePublicClient,
+  useReadContract,
+  useReadContracts,
+} from 'wagmi'
 import { CONTRACTS } from '../../lib/config'
 import {
   getNodeStakingAddress,
+  getNodeStakingReadAddresses,
   NODE_STAKING_MANAGER_ABI,
   type NodeStake,
   type OperatorStats,
@@ -72,6 +78,32 @@ const NODE_STAKING_WITH_AGENT_ABI = [
   },
 ] as const
 
+function toOperatorStats(value: unknown): OperatorStats | null {
+  if (!value) return null
+  if (Array.isArray(value)) {
+    return {
+      totalNodesActive: BigInt(value[0] ?? 0),
+      totalStakedUSD: BigInt(value[1] ?? 0),
+      lifetimeRewardsUSD: BigInt(value[2] ?? 0),
+    }
+  }
+  if (typeof value === 'object') {
+    const tuple = value as Partial<OperatorStats>
+    if (
+      typeof tuple.totalNodesActive === 'bigint' &&
+      typeof tuple.totalStakedUSD === 'bigint' &&
+      typeof tuple.lifetimeRewardsUSD === 'bigint'
+    ) {
+      return {
+        totalNodesActive: tuple.totalNodesActive,
+        totalStakedUSD: tuple.totalStakedUSD,
+        lifetimeRewardsUSD: tuple.lifetimeRewardsUSD,
+      }
+    }
+  }
+  return null
+}
+
 export function useNodeStaking() {
   const { address: userAddress } = useAccount()
   const publicClient = usePublicClient()
@@ -99,6 +131,18 @@ export function useNodeStaking() {
         ? CONTRACTS.nodeStakingVault
         : stakingManager,
     [stakingManager],
+  )
+
+  const resolveStakeSpenderAddress = useCallback(
+    (managerAddress: Address) =>
+      CONTRACTS.nodeStakingRouter &&
+      CONTRACTS.nodeStakingRouter === managerAddress &&
+      CONTRACTS.nodeStakingVault &&
+      CONTRACTS.nodeStakingVault !==
+        '0x0000000000000000000000000000000000000000'
+        ? CONTRACTS.nodeStakingVault
+        : managerAddress,
+    [],
   )
 
   useEffect(() => {
@@ -186,41 +230,41 @@ export function useNodeStaking() {
     ).map((address) => address as Address)
   }, [gasless.smartAccountAddress, predictedSmartAccountAddress, userAddress])
 
-  const { data: eoaOperatorNodeIds, refetch: refetchEoaNodes } =
-    useReadContract({
-      address: stakingManager,
-      abi: NODE_STAKING_MANAGER_ABI,
-      functionName: 'getOperatorNodes',
-      args: userAddress ? [userAddress] : undefined,
+  const stakingReadManagers = useMemo(() => getNodeStakingReadAddresses(), [])
+
+  const operatorNodeContracts = useMemo(
+    () =>
+      operatorAddresses.flatMap((operatorAddress) =>
+        stakingReadManagers.map((managerAddress) => ({
+          address: managerAddress,
+          abi: NODE_STAKING_MANAGER_ABI,
+          functionName: 'getOperatorNodes' as const,
+          args: [operatorAddress] as const,
+        })),
+      ),
+    [operatorAddresses, stakingReadManagers],
+  )
+
+  const operatorStatsContracts = useMemo(
+    () =>
+      operatorAddresses.flatMap((operatorAddress) =>
+        stakingReadManagers.map((managerAddress) => ({
+          address: managerAddress,
+          abi: NODE_STAKING_MANAGER_ABI,
+          functionName: 'getOperatorStats' as const,
+          args: [operatorAddress] as const,
+        })),
+      ),
+    [operatorAddresses, stakingReadManagers],
+  )
+
+  const { data: operatorNodeResults, refetch: refetchOperatorNodes } =
+    useReadContracts({
+      contracts: operatorNodeContracts,
     })
 
-  const { data: smartOperatorNodeIds, refetch: refetchSmartNodes } =
-    useReadContract({
-      address: stakingManager,
-      abi: NODE_STAKING_MANAGER_ABI,
-      functionName: 'getOperatorNodes',
-      args:
-        resolvedSmartAccountAddress &&
-        resolvedSmartAccountAddress !== userAddress
-          ? [resolvedSmartAccountAddress]
-          : undefined,
-    })
-
-  const { data: eoaOperatorStats } = useReadContract({
-    address: stakingManager,
-    abi: NODE_STAKING_MANAGER_ABI,
-    functionName: 'getOperatorStats',
-    args: userAddress ? [userAddress] : undefined,
-  })
-
-  const { data: smartOperatorStats } = useReadContract({
-    address: stakingManager,
-    abi: NODE_STAKING_MANAGER_ABI,
-    functionName: 'getOperatorStats',
-    args:
-      resolvedSmartAccountAddress && resolvedSmartAccountAddress !== userAddress
-        ? [resolvedSmartAccountAddress]
-        : undefined,
+  const { data: operatorStatsResults } = useReadContracts({
+    contracts: operatorStatsContracts,
   })
 
   const { data: networkStats } = useReadContract({
@@ -401,17 +445,34 @@ export function useNodeStaking() {
   } = useTypedWriteContract()
 
   const operatorNodeIds = useMemo(() => {
-    const nodeIds = [
-      ...((eoaOperatorNodeIds as `0x${string}`[] | undefined) ?? []),
-      ...((smartOperatorNodeIds as `0x${string}`[] | undefined) ?? []),
-    ]
+    if (!operatorNodeResults) return []
+    const nodeIds: `0x${string}`[] = []
+    for (const result of operatorNodeResults) {
+      if (result.status !== 'success') continue
+      const value = result.result as unknown
+      if (!Array.isArray(value)) continue
+      for (const nodeId of value) {
+        if (typeof nodeId === 'string' && nodeId.startsWith('0x')) {
+          nodeIds.push(nodeId as `0x${string}`)
+        }
+      }
+    }
     return Array.from(new Set(nodeIds))
-  }, [eoaOperatorNodeIds, smartOperatorNodeIds])
+  }, [operatorNodeResults])
 
   const operatorStats = useMemo<OperatorStats | undefined>(() => {
-    const stats = [eoaOperatorStats, smartOperatorStats].filter(
-      (value): value is OperatorStats => Boolean(value),
-    )
+    if (!operatorStatsResults) return undefined
+    const stats = operatorStatsResults
+      .filter(
+        (
+          result,
+        ): result is {
+          status: 'success'
+          result: unknown
+        } => result.status === 'success',
+      )
+      .map((result) => toOperatorStats(result.result))
+      .filter((value): value is OperatorStats => Boolean(value))
     if (stats.length === 0) return undefined
     return stats.reduce<OperatorStats>(
       (acc, current) => ({
@@ -421,14 +482,17 @@ export function useNodeStaking() {
       }),
       { totalNodesActive: 0n, totalStakedUSD: 0n, lifetimeRewardsUSD: 0n },
     )
-  }, [eoaOperatorStats, smartOperatorStats])
+  }, [operatorStatsResults])
 
-  const refetchNodes = () =>
-    Promise.all([refetchEoaNodes(), refetchSmartNodes()])
+  const refetchNodes = () => refetchOperatorNodes()
 
-  const deregisterNode = async (nodeId: string) => {
+  const deregisterNode = async (
+    nodeId: string,
+    options?: { managerAddress?: Address },
+  ) => {
+    const targetManager = options?.managerAddress ?? stakingManager
     deregister({
-      address: stakingManager,
+      address: targetManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'deregisterNode',
       args: [nodeId as `0x${string}`],
@@ -439,11 +503,14 @@ export function useNodeStaking() {
     nodeId: string,
     stakingToken: Address,
     amount: bigint,
-    options?: { gasless?: boolean },
+    options?: { gasless?: boolean; managerAddress?: Address },
   ): Promise<Hex> => {
     if (amount <= 0n) {
       throw new Error('Stake increase amount must be greater than zero')
     }
+
+    const targetManager = options?.managerAddress ?? stakingManager
+    const targetSpender = resolveStakeSpenderAddress(targetManager)
 
     if (options?.gasless) {
       const calls = [
@@ -452,11 +519,11 @@ export function useNodeStaking() {
           data: encodeFunctionData({
             abi: erc20Abi,
             functionName: 'approve',
-            args: [stakeSpenderAddress, amount],
+            args: [targetSpender, amount],
           }),
         },
         {
-          to: stakingManager,
+          to: targetManager,
           data: encodeFunctionData({
             abi: NODE_STAKING_MANAGER_ABI,
             functionName: 'increaseStake',
@@ -479,11 +546,11 @@ export function useNodeStaking() {
       address: stakingToken,
       abi: erc20Abi,
       functionName: 'approve',
-      args: [stakeSpenderAddress, amount],
+      args: [targetSpender, amount],
     })
 
     return nodeActionWriteAsync({
-      address: stakingManager,
+      address: targetManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'increaseStake',
       args: [nodeId as `0x${string}`, amount],
@@ -494,18 +561,20 @@ export function useNodeStaking() {
     nodeId: string,
     rpcUrl: string,
     region: Region,
-    options?: { gasless?: boolean },
+    options?: { gasless?: boolean; managerAddress?: Address },
   ): Promise<Hex> => {
     if (!rpcUrl.trim()) {
       throw new Error('RPC URL is required')
     }
+
+    const targetManager = options?.managerAddress ?? stakingManager
 
     if (options?.gasless) {
       return gasless.executeGaslessCalls({
         serviceName: JEJU_NODE_REGISTRATION_SERVICE,
         calls: [
           {
-            to: stakingManager,
+            to: targetManager,
             data: encodeFunctionData({
               abi: NODE_STAKING_MANAGER_ABI,
               functionName: 'updateNodeConfig',
@@ -517,7 +586,7 @@ export function useNodeStaking() {
     }
 
     return nodeActionWriteAsync({
-      address: stakingManager,
+      address: targetManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'updateNodeConfig',
       args: [nodeId as `0x${string}`, rpcUrl, region],
@@ -527,18 +596,20 @@ export function useNodeStaking() {
   const updateNodeServices = async (
     nodeId: string,
     servicesHash: Hex,
-    options?: { gasless?: boolean },
+    options?: { gasless?: boolean; managerAddress?: Address },
   ): Promise<Hex> => {
     if (!servicesHash || servicesHash.length !== 66) {
       throw new Error('servicesHash must be a 32-byte hex value')
     }
+
+    const targetManager = options?.managerAddress ?? stakingManager
 
     if (options?.gasless) {
       return gasless.executeGaslessCalls({
         serviceName: JEJU_NODE_REGISTRATION_SERVICE,
         calls: [
           {
-            to: stakingManager,
+            to: targetManager,
             data: encodeFunctionData({
               abi: NODE_STAKING_MANAGER_ABI,
               functionName: 'updateNodeServices',
@@ -550,7 +621,7 @@ export function useNodeStaking() {
     }
 
     return nodeActionWriteAsync({
-      address: stakingManager,
+      address: targetManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'updateNodeServices',
       args: [nodeId as `0x${string}`, servicesHash],
@@ -560,18 +631,20 @@ export function useNodeStaking() {
   const updateNodeMetadataURI = async (
     nodeId: string,
     metadataURI: string,
-    options?: { gasless?: boolean },
+    options?: { gasless?: boolean; managerAddress?: Address },
   ): Promise<Hex> => {
     if (!metadataURI.trim()) {
       throw new Error('Metadata URI is required')
     }
+
+    const targetManager = options?.managerAddress ?? stakingManager
 
     if (options?.gasless) {
       return gasless.executeGaslessCalls({
         serviceName: JEJU_NODE_REGISTRATION_SERVICE,
         calls: [
           {
-            to: stakingManager,
+            to: targetManager,
             data: encodeFunctionData({
               abi: NODE_STAKING_MANAGER_ABI,
               functionName: 'setNodeMetadataURI',
@@ -583,7 +656,7 @@ export function useNodeStaking() {
     }
 
     return nodeActionWriteAsync({
-      address: stakingManager,
+      address: targetManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'setNodeMetadataURI',
       args: [nodeId as `0x${string}`, metadataURI],
@@ -627,38 +700,138 @@ export function useNodeStaking() {
   }
 }
 
+function parseNodeInfoTuple(
+  value: unknown,
+): [NodeStake, PerformanceMetrics, bigint] | null {
+  if (Array.isArray(value) && value.length >= 3) {
+    const pending = value[2]
+    if (typeof pending === 'bigint') {
+      return [value[0] as NodeStake, value[1] as PerformanceMetrics, pending]
+    }
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const node = (record.node ?? record[0]) as NodeStake | undefined
+    const perf = (record.perf ?? record[1]) as PerformanceMetrics | undefined
+    const pendingRaw = record.pendingRewardsUSD ?? record[2]
+    const pending =
+      typeof pendingRaw === 'bigint'
+        ? pendingRaw
+        : pendingRaw !== undefined
+          ? BigInt(pendingRaw as string | number)
+          : undefined
+    if (node && perf && typeof pending === 'bigint') {
+      return [node, perf, pending]
+    }
+  }
+
+  return null
+}
+
 export function useNodeInfo(nodeId: string | undefined) {
-  const stakingManager = getNodeStakingAddress()
+  const stakingManagers = useMemo(() => getNodeStakingReadAddresses(), [])
+
+  const contracts = useMemo(
+    () =>
+      nodeId
+        ? stakingManagers.map((managerAddress) => ({
+            address: managerAddress,
+            abi: NODE_STAKING_MANAGER_ABI,
+            functionName: 'getNodeInfo' as const,
+            args: [nodeId as `0x${string}`] as const,
+          }))
+        : [],
+    [nodeId, stakingManagers],
+  )
 
   const {
-    data: nodeInfo,
+    data: nodeInfoResults,
     refetch,
     isLoading,
     isError,
-  } = useReadContract({
-    address: stakingManager,
-    abi: NODE_STAKING_MANAGER_ABI,
-    functionName: 'getNodeInfo',
-    args: nodeId ? [nodeId as `0x${string}`] : undefined,
+  } = useReadContracts({
+    contracts,
   })
 
+  const resolvedNodeInfo = useMemo(() => {
+    if (!nodeInfoResults) return undefined
+
+    for (let index = 0; index < nodeInfoResults.length; index += 1) {
+      const result = nodeInfoResults[index]
+      if (result.status !== 'success') continue
+      const parsed = parseNodeInfoTuple(result.result)
+      if (!parsed) continue
+
+      const [node] = parsed
+      if (
+        typeof node.nodeId === 'string' &&
+        /^0x0{64}$/i.test(node.nodeId as string)
+      ) {
+        continue
+      }
+
+      return {
+        nodeInfo: parsed,
+        managerAddress: stakingManagers[index],
+      }
+    }
+
+    return undefined
+  }, [nodeInfoResults, stakingManagers])
+
   return {
-    nodeInfo: nodeInfo as [NodeStake, PerformanceMetrics, bigint] | undefined,
+    nodeInfo: resolvedNodeInfo?.nodeInfo,
+    managerAddress: resolvedNodeInfo?.managerAddress,
     refetch,
     isLoading,
     isError,
   }
 }
 
-export function useNodeRewards(nodeId: string | undefined) {
-  const stakingManager = getNodeStakingAddress()
+export function useNodeRewards(
+  nodeId: string | undefined,
+  preferredManagerAddress?: Address,
+) {
+  const defaultManager = getNodeStakingAddress()
+  const stakingManagers = useMemo(() => {
+    const allManagers = getNodeStakingReadAddresses()
+    if (!preferredManagerAddress) return allManagers
+    return [
+      preferredManagerAddress,
+      ...allManagers.filter(
+        (address) =>
+          address.toLowerCase() !== preferredManagerAddress.toLowerCase(),
+      ),
+    ]
+  }, [preferredManagerAddress])
 
-  const { data: pendingRewardsUSD } = useReadContract({
-    address: stakingManager,
-    abi: NODE_STAKING_MANAGER_ABI,
-    functionName: 'calculatePendingRewards',
-    args: nodeId ? [nodeId as `0x${string}`] : undefined,
+  const contracts = useMemo(
+    () =>
+      nodeId
+        ? stakingManagers.map((managerAddress) => ({
+            address: managerAddress,
+            abi: NODE_STAKING_MANAGER_ABI,
+            functionName: 'calculatePendingRewards' as const,
+            args: [nodeId as `0x${string}`] as const,
+          }))
+        : [],
+    [nodeId, stakingManagers],
+  )
+
+  const { data: pendingRewardResults } = useReadContracts({
+    contracts,
   })
+
+  const pendingRewardsUSD = useMemo(() => {
+    if (!pendingRewardResults) return undefined
+    for (const result of pendingRewardResults) {
+      if (result.status !== 'success') continue
+      const value = result.result
+      if (typeof value === 'bigint') return value
+    }
+    return undefined
+  }, [pendingRewardResults])
 
   const {
     write: claim,
@@ -669,7 +842,7 @@ export function useNodeRewards(nodeId: string | undefined) {
 
   const claimRewards = async (nodeIdToClaim: string) => {
     claim({
-      address: stakingManager,
+      address: preferredManagerAddress ?? defaultManager,
       abi: NODE_STAKING_MANAGER_ABI,
       functionName: 'claimRewards',
       args: [nodeIdToClaim as `0x${string}`],
@@ -677,7 +850,7 @@ export function useNodeRewards(nodeId: string | undefined) {
   }
 
   return {
-    pendingRewardsUSD: pendingRewardsUSD as bigint | undefined,
+    pendingRewardsUSD,
     claimRewards,
     isClaiming: isClaiming || isConfirmingClaim,
     isClaimSuccess,
