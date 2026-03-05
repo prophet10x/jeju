@@ -127,9 +127,9 @@ export interface KMSKeyInfo {
 // Response validation schemas
 const SignResponseSchema = z.object({
   signature: z.string().regex(/^0x[a-fA-F0-9]+$/),
-  r: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
-  s: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
-  v: z.number().int().min(27).max(28),
+  r: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+  s: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+  v: z.number().int().min(27).max(28).optional(),
   mode: z.enum(['mpc', 'tee', 'development', 'frost']),
   keyId: z.string(),
 })
@@ -308,12 +308,23 @@ export class KMSSigner {
     })
 
     const parsed = SignResponseSchema.parse(response)
+    const rawSignature = parsed.signature as Hex
+    if (rawSignature.length < 132) {
+      throw new Error(
+        `Invalid signature length returned by KMS: ${rawSignature.length}`,
+      )
+    }
+    const derivedR = (`0x${rawSignature.slice(2, 66)}`) as Hex
+    const derivedS = (`0x${rawSignature.slice(66, 130)}`) as Hex
+    const derivedVHex = rawSignature.slice(130, 132)
+    const derivedV = Number.parseInt(derivedVHex, 16)
+    const normalizedDerivedV = derivedV < 27 ? derivedV + 27 : derivedV
 
     return {
-      signature: parsed.signature as Hex,
-      r: parsed.r as Hex,
-      s: parsed.s as Hex,
-      v: parsed.v,
+      signature: rawSignature,
+      r: (parsed.r as Hex | undefined) ?? derivedR,
+      s: (parsed.s as Hex | undefined) ?? derivedS,
+      v: parsed.v ?? normalizedDerivedV,
       mode:
         parsed.mode === 'development'
           ? 'local-dev'
