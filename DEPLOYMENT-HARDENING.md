@@ -89,6 +89,26 @@ systemctl show jeju-dws.service -p WorkingDirectory -p ExecStart
 
 If the service points at legacy trees (`/home/ubuntu/jeju-repo` or `/home/ubuntu/jeju`), your monorepo pull will not be reflected live.
 
+## 3.2) Frontend Artifact Checks (Before DWS Cutover)
+
+When `jeju-dws` runs from monorepo source (`bun run api/server/index.ts`), the server still needs built frontend assets for `/provider` and SPA routes.
+
+Run on AWS before restart:
+
+```bash
+cd /home/ubuntu/jeju-monorepo
+/home/ubuntu/.bun/bin/bun install --ignore-scripts
+cd /home/ubuntu/jeju-monorepo/apps/dws
+/home/ubuntu/.bun/bin/bun run build.web.ts
+test -f dist/index.html
+test -d dist/web
+```
+
+Expected:
+- `dist/index.html` exists
+- `dist/web/*` bundle exists
+- `https://jeju-dws.fartbag.fun/provider/` returns `200` after restart
+
 ## 4) Paymaster Service Registry Gate
 
 Required service entries:
@@ -138,6 +158,7 @@ For same wallet/operator on both apps:
 4. Push branch to your fork.
 5. On Oracle: pull same branch, install/build/restart affected services.
 6. On AWS: pull same branch, install/build/restart affected services.
+  - for monorepo DWS runtime, always run `apps/dws build.web.ts` before restart
 7. Re-run health + proof + node listing gates.
 8. Open upstream PR only after both hosts pass smoke tests.
 
