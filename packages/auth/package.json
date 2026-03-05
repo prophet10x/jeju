@@ -10,22 +10,22 @@
     ".": {
       "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./src/index.ts"
     },
     "./react": {
       "bun": "./src/react/index.ts",
       "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js"
+      "import": "./src/react/index.ts"
     },
     "./providers": {
       "bun": "./src/providers/social.ts",
       "types": "./dist/providers/social.d.ts",
-      "import": "./dist/providers/social.js"
+      "import": "./src/providers/social.ts"
     },
     "./types": {
       "bun": "./src/types.ts",
       "types": "./dist/types.d.ts",
-      "import": "./dist/types.js"
+      "import": "./src/types.ts"
     }
   },
   "files": ["dist", "README.md", "LICENSE"],

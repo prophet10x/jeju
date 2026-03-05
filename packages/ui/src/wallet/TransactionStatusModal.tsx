@@ -15,6 +15,8 @@ export function TransactionStatusModal({
   result,
   onClose,
 }: TransactionStatusModalProps) {
+  const textPrimary = '#f8fafc'
+  const textSecondary = '#e2e8f0'
   const statusColor =
     result.status === 'error'
       ? '#fca5a5'
@@ -27,7 +29,7 @@ export function TransactionStatusModal({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(2, 6, 23, 0.78)',
+        background: 'rgba(2, 6, 23, 0.84)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -53,7 +55,7 @@ export function TransactionStatusModal({
           borderRadius: '16px',
           border: `1px solid ${statusColor}`,
           background:
-            'linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(2,6,23,0.98) 100%)',
+            'linear-gradient(180deg, rgba(10,15,28,0.99) 0%, rgba(2,6,23,0.99) 100%)',
           boxShadow: '0 26px 60px rgba(2,6,23,0.6)',
           padding: '1.1rem',
           display: 'grid',
@@ -73,7 +75,7 @@ export function TransactionStatusModal({
         </div>
         <div
           style={{
-            color: 'var(--text-secondary, #e2e8f0)',
+            color: textSecondary,
             fontSize: '0.9rem',
             lineHeight: 1.5,
           }}
@@ -83,12 +85,12 @@ export function TransactionStatusModal({
         {result.txHash ? (
           <div
             style={{
-              color: 'var(--text-primary, #f8fafc)',
+              color: textPrimary,
               fontFamily: 'monospace',
               fontSize: '0.82rem',
               wordBreak: 'break-all',
-              background: 'rgba(15, 23, 42, 0.92)',
-              border: '1px solid rgba(148, 163, 184, 0.45)',
+              background: 'rgba(8, 13, 24, 0.96)',
+              border: '1px solid rgba(148, 163, 184, 0.6)',
               borderRadius: '10px',
               padding: '0.65rem 0.75rem',
             }}
@@ -120,7 +122,7 @@ export function TransactionStatusModal({
             borderRadius: '10px',
             border: '1px solid rgba(148, 163, 184, 0.55)',
             background: 'rgba(148, 163, 184, 0.16)',
-            color: 'var(--text-primary, #f8fafc)',
+            color: textPrimary,
             cursor: 'pointer',
             fontWeight: 600,
           }}

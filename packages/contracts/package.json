@@ -9,17 +9,17 @@
   "exports": {
     ".": {
       "bun": "./ts/index.ts",
-      "import": "./dist/index.js",
+      "import": "./ts/index.ts",
       "types": "./dist/index.d.ts"
     },
     "./aa": {
       "bun": "./ts/aa.ts",
-      "import": "./dist/aa.js",
+      "import": "./ts/aa.ts",
       "types": "./dist/aa.d.ts"
     },
     "./viem": {
       "bun": "./ts/viem.ts",
-      "import": "./dist/viem.js",
+      "import": "./ts/viem.ts",
       "types": "./dist/viem.d.ts"
     }
   },
