@@ -392,6 +392,24 @@ export default function NodeOperatorDashboard() {
       ? tokenPricesUsd[tokenAddress]
       : undefined;
     const stakedAmount = Number(node.stakedAmount);
+    const isJejuToken =
+      tokenAddress === CONTRACTS.jeju.toLowerCase() ||
+      tokenAddress === "0xb224f7607215139130ea79111358c1908e69f30e";
+
+    // Testnet display fallback: JEJU is intended to be displayed at a $1 peg.
+    if (NETWORK === "testnet" && Number.isFinite(stakedAmount) && stakedAmount > 0) {
+      if (isJejuToken) {
+        return stakedAmount;
+      }
+
+      if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) {
+        const impliedPrice = snapshotUsd / stakedAmount;
+        // Defensive fallback for drifted legacy USD snapshots (for example 0.1 peg artifacts).
+        if (impliedPrice > 0 && impliedPrice <= 0.2) {
+          return stakedAmount;
+        }
+      }
+    }
 
     if (
       livePriceUsd &&

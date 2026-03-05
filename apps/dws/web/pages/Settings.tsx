@@ -152,6 +152,21 @@ export default function SettingsPage() {
     const tokenAddress = node.stakedToken?.toLowerCase()
     const livePriceUsd = tokenAddress ? tokenPricesUsd[tokenAddress] : undefined
     const stakedAmount = Number(node.stakedAmount)
+    const isJejuToken =
+      tokenAddress === CONTRACTS.jeju.toLowerCase() ||
+      tokenAddress === '0xb224f7607215139130ea79111358c1908e69f30e'
+
+    if (NETWORK === 'testnet' && Number.isFinite(stakedAmount) && stakedAmount > 0) {
+      if (isJejuToken) {
+        return stakedAmount
+      }
+      if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) {
+        const impliedPrice = snapshotUsd / stakedAmount
+        if (impliedPrice > 0 && impliedPrice <= 0.2) {
+          return stakedAmount
+        }
+      }
+    }
 
     if (
       livePriceUsd &&
