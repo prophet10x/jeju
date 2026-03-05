@@ -106,6 +106,20 @@ const NODE_STAKING_OPERATOR_ABI = [
   },
 ] as const
 
+function getNodeStakingContracts(): `0x${string}`[] {
+  const addresses = [
+    CONTRACTS.nodeStakingManagerV2,
+    CONTRACTS.nodeStakingManager,
+    CONTRACTS.nodeStakingLegacyManagerV1,
+  ]
+    .filter((value): value is `0x${string}` =>
+      Boolean(value && value !== ZERO_ADDRESS),
+    )
+    .map((value) => value.toLowerCase() as `0x${string}`)
+
+  return Array.from(new Set(addresses))
+}
+
 function useResolvedOperatorAddresses() {
   const { address } = useAccount()
   const publicClient = usePublicClient()
@@ -164,16 +178,12 @@ export function useNetworkStats() {
 export function useOperatorStats() {
   const operatorAddresses = useResolvedOperatorAddresses()
   const publicClient = usePublicClient()
+  const stakingContracts = getNodeStakingContracts()
 
   return useQuery({
-    queryKey: [
-      'staking',
-      'operator',
-      operatorAddresses,
-      CONTRACTS.nodeStakingManager,
-    ],
+    queryKey: ['staking', 'operator', operatorAddresses, stakingContracts],
     queryFn: async () => {
-      const [stats, onChainNodeIdsPerOperator] = await Promise.all([
+      const [stats, onChainNodeRecords] = await Promise.all([
         Promise.all(
           operatorAddresses.map((operatorAddress) =>
             fetchApi<OperatorStats>(`/staking/operator/${operatorAddress}`),
@@ -181,24 +191,29 @@ export function useOperatorStats() {
         ),
         Promise.all(
           operatorAddresses.map(async (operatorAddress) => {
-            if (
-              !publicClient ||
-              !CONTRACTS.nodeStakingManager ||
-              CONTRACTS.nodeStakingManager === ZERO_ADDRESS
-            ) {
-              return [] as `0x${string}`[]
+            if (!publicClient || stakingContracts.length === 0) {
+              return [] as Array<{ nodeId: string; operator: string }>
             }
 
-            try {
-              return (await publicClient.readContract({
-                address: CONTRACTS.nodeStakingManager,
-                abi: NODE_STAKING_OPERATOR_ABI,
-                functionName: 'getOperatorNodes',
-                args: [operatorAddress as `0x${string}`],
-              })) as `0x${string}`[]
-            } catch {
-              return [] as `0x${string}`[]
-            }
+            const nodeIdsPerContract = await Promise.all(
+              stakingContracts.map(async (stakingContract) => {
+                try {
+                  return (await publicClient.readContract({
+                    address: stakingContract,
+                    abi: NODE_STAKING_OPERATOR_ABI,
+                    functionName: 'getOperatorNodes',
+                    args: [operatorAddress as `0x${string}`],
+                  })) as `0x${string}`[]
+                } catch {
+                  return [] as `0x${string}`[]
+                }
+              }),
+            )
+
+            return nodeIdsPerContract.flat().map((nodeId) => ({
+              nodeId: nodeId.toLowerCase(),
+              operator: operatorAddress,
+            }))
           }),
         ),
       ])
@@ -229,11 +244,12 @@ export function useOperatorStats() {
       )
 
       const onChainNodeIds = Array.from(
-        new Set(
-          onChainNodeIdsPerOperator
-            .flat()
-            .map((nodeId) => nodeId.toLowerCase()),
-        ),
+        new Set(onChainNodeRecords.flat().map((record) => record.nodeId)),
+      )
+      const operatorByNodeId = new Map(
+        onChainNodeRecords
+          .flat()
+          .map((record) => [record.nodeId, record.operator] as const),
       )
       const existingNodeIds = new Set(
         mergedStats.nodes.map((node) => node.nodeId.toLowerCase()),
@@ -242,7 +258,7 @@ export function useOperatorStats() {
         .filter((nodeId) => !existingNodeIds.has(nodeId))
         .map((nodeId) => ({
           nodeId,
-          operator: '',
+          operator: operatorByNodeId.get(nodeId) ?? '',
           stakedToken: ZERO_ADDRESS,
           stakedAmount: '0',
           stakedValueUSD: '0',

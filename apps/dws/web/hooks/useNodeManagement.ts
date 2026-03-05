@@ -58,6 +58,12 @@ interface NodeMutationOptions {
 }
 
 export function useNodeManagement() {
+  const nodeStakingManagerAddress =
+    CONTRACTS.nodeStakingManagerV2 &&
+    CONTRACTS.nodeStakingManagerV2 !==
+      '0x0000000000000000000000000000000000000000'
+      ? CONTRACTS.nodeStakingManagerV2
+      : CONTRACTS.nodeStakingManager
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
   const [lastHash, setLastHash] = useState<Hex>()
@@ -80,7 +86,7 @@ export function useNodeManagement() {
       args: readonly unknown[]
     }) => {
       const txHash = await writeContractAsync({
-        address: CONTRACTS.nodeStakingManager,
+        address: nodeStakingManagerAddress,
         abi: NODE_STAKING_MUTATION_ABI,
         functionName: args.functionName,
         args: args.args,
@@ -88,7 +94,7 @@ export function useNodeManagement() {
       setLastHash(txHash)
       return txHash
     },
-    [writeContractAsync],
+    [nodeStakingManagerAddress, writeContractAsync],
   )
 
   const increaseNodeStake = useCallback(
@@ -114,11 +120,11 @@ export function useNodeManagement() {
                 data: encodeFunctionData({
                   abi: erc20Abi,
                   functionName: 'approve',
-                  args: [CONTRACTS.nodeStakingManager, amount],
+                  args: [nodeStakingManagerAddress, amount],
                 }),
               },
               {
-                to: CONTRACTS.nodeStakingManager,
+                to: nodeStakingManagerAddress,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'increaseStake',
@@ -139,7 +145,7 @@ export function useNodeManagement() {
           address: stakingToken,
           abi: erc20Abi,
           functionName: 'approve',
-          args: [CONTRACTS.nodeStakingManager, amount],
+          args: [nodeStakingManagerAddress, amount],
         })
 
         if (publicClient) {
@@ -157,7 +163,13 @@ export function useNodeManagement() {
         throw new Error(message)
       }
     },
-    [gasless, publicClient, runDirectWrite, writeContractAsync],
+    [
+      gasless,
+      nodeStakingManagerAddress,
+      publicClient,
+      runDirectWrite,
+      writeContractAsync,
+    ],
   )
 
   const updateNodeConfig = useCallback(
@@ -176,7 +188,7 @@ export function useNodeManagement() {
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
             calls: [
               {
-                to: CONTRACTS.nodeStakingManager,
+                to: nodeStakingManagerAddress,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'updateNodeConfig',
@@ -202,7 +214,7 @@ export function useNodeManagement() {
         throw new Error(message)
       }
     },
-    [gasless, runDirectWrite],
+    [gasless, nodeStakingManagerAddress, runDirectWrite],
   )
 
   const updateNodeServices = useCallback(
@@ -218,7 +230,7 @@ export function useNodeManagement() {
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
             calls: [
               {
-                to: CONTRACTS.nodeStakingManager,
+                to: nodeStakingManagerAddress,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'updateNodeServices',
@@ -244,7 +256,7 @@ export function useNodeManagement() {
         throw new Error(message)
       }
     },
-    [gasless, runDirectWrite],
+    [gasless, nodeStakingManagerAddress, runDirectWrite],
   )
 
   const updateNodeMetadataURI = useCallback(
@@ -258,7 +270,7 @@ export function useNodeManagement() {
             serviceName: JEJU_NODE_REGISTRATION_SERVICE,
             calls: [
               {
-                to: CONTRACTS.nodeStakingManager,
+                to: nodeStakingManagerAddress,
                 data: encodeFunctionData({
                   abi: NODE_STAKING_MUTATION_ABI,
                   functionName: 'setNodeMetadataURI',
@@ -284,7 +296,7 @@ export function useNodeManagement() {
         throw new Error(message)
       }
     },
-    [gasless, runDirectWrite],
+    [gasless, nodeStakingManagerAddress, runDirectWrite],
   )
 
   return {

@@ -828,12 +828,10 @@ function NodeDetailsPanel({
   const normalizedSmartOwner = gasless.smartAccountAddress?.toLowerCase()
   const isSmartAccountOperator =
     Boolean(normalizedSmartOwner) && normalizedOperator === normalizedSmartOwner
-  const canManageNode =
-    !metadataPending &&
-    Boolean(
-      normalizedOperator &&
-        (normalizedOperator === normalizedOwner || isSmartAccountOperator),
-    )
+  const canManageNode = Boolean(
+    normalizedOperator &&
+      (normalizedOperator === normalizedOwner || isSmartAccountOperator),
+  )
 
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : 'Unknown transaction failure'
