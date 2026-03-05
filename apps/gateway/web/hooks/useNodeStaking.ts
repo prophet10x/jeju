@@ -74,6 +74,14 @@ const NODE_STAKING_WITH_AGENT_ABI = [
 
 export function useNodeStaking() {
   const stakingManager = getNodeStakingAddress()
+  const stakeSpenderAddress =
+    CONTRACTS.nodeStakingRouter &&
+    CONTRACTS.nodeStakingRouter === stakingManager &&
+    CONTRACTS.nodeStakingVault &&
+    CONTRACTS.nodeStakingVault !==
+      '0x0000000000000000000000000000000000000000'
+      ? CONTRACTS.nodeStakingVault
+      : stakingManager
   const { address: userAddress } = useAccount()
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
@@ -268,7 +276,7 @@ export function useNodeStaking() {
           data: encodeFunctionData({
             abi: erc20Abi,
             functionName: 'approve',
-            args: [stakingManager, stakeAmount],
+            args: [stakeSpenderAddress, stakeAmount],
           }),
         },
         {
@@ -328,7 +336,7 @@ export function useNodeStaking() {
       address: stakingToken,
       abi: erc20Abi,
       functionName: 'approve',
-      args: [stakingManager, stakeAmount],
+      args: [stakeSpenderAddress, stakeAmount],
     })
 
     // Step 2: Register node (contract will transferFrom)
@@ -438,7 +446,7 @@ export function useNodeStaking() {
           data: encodeFunctionData({
             abi: erc20Abi,
             functionName: 'approve',
-            args: [stakingManager, amount],
+            args: [stakeSpenderAddress, amount],
           }),
         },
         {
@@ -465,7 +473,7 @@ export function useNodeStaking() {
       address: stakingToken,
       abi: erc20Abi,
       functionName: 'approve',
-      args: [stakingManager, amount],
+      args: [stakeSpenderAddress, amount],
     })
 
     return nodeActionWriteAsync({

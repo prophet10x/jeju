@@ -80,6 +80,11 @@ const CONTRACT_CATEGORIES: Record<string, string> = {
   // Node Staking
   NodeStakingManager: 'nodeStaking.manager',
   NodeStakingManagerV2: 'nodeStaking.manager',
+  NodeStateRegistry: 'nodeStaking.registry',
+  NodeStakeVault: 'nodeStaking.vault',
+  NodeManagerRouter: 'nodeStaking.router',
+  NodeManagerV3: 'nodeStaking.moduleV3',
+  NodeMigrationHandlerV3: 'nodeStaking.migrationHandlerV3',
   NodePerformanceOracle: 'nodeStaking.performanceOracle',
   AutoSlasher: 'nodeStaking.autoSlasher',
 

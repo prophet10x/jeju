@@ -237,9 +237,16 @@ function getClient() {
 
 function getStakingManagerAddress(): Address | null {
   const network = getCurrentNetwork()
-  // Use 'nodeStaking' category and 'manager' key to match contracts.json structure
-  const address = getContract('nodeStaking', 'manager', network)
-  return address as Address | null
+  const candidates = ['router', 'managerV2', 'manager', 'legacyManagerV1']
+  for (const key of candidates) {
+    try {
+      const address = getContract('nodeStaking', key, network)
+      if (address) return address as Address
+    } catch {
+      // Continue to next candidate.
+    }
+  }
+  return null
 }
 
 export function createStakingRouter() {

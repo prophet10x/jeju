@@ -1037,6 +1037,15 @@ export function getFrontendContracts(network?: NetworkType) {
 
     // Node Staking
     nodeStakingManager: getContract('nodeStaking', 'manager', net),
+    nodeStakingRegistry: tryGetContract('nodeStaking', 'registry', net),
+    nodeStakingVault: tryGetContract('nodeStaking', 'vault', net),
+    nodeStakingRouter: tryGetContract('nodeStaking', 'router', net),
+    nodeStakingModuleV3: tryGetContract('nodeStaking', 'moduleV3', net),
+    nodeStakingMigrationHandlerV3: tryGetContract(
+      'nodeStaking',
+      'migrationHandlerV3',
+      net,
+    ),
     nodePerformanceOracle: getContract('nodeStaking', 'performanceOracle', net),
 
     // JNS

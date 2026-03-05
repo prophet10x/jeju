@@ -129,6 +129,13 @@ export const CONTRACTS = {
 
   // Node Staking - optional (may not be deployed on all networks)
   nodeStakingManager: optionalAddr(contracts.nodeStaking?.manager),
+  nodeStakingRegistry: optionalAddr(contracts.nodeStaking?.registry),
+  nodeStakingVault: optionalAddr(contracts.nodeStaking?.vault),
+  nodeStakingRouter: optionalAddr(contracts.nodeStaking?.router),
+  nodeStakingModuleV3: optionalAddr(contracts.nodeStaking?.moduleV3),
+  nodeStakingMigrationHandlerV3: optionalAddr(
+    contracts.nodeStaking?.migrationHandlerV3,
+  ),
   nodePerformanceOracle: optionalAddr(contracts.nodeStaking?.performanceOracle),
   rpcStaking: optionalAddr(contracts.rpc?.staking),
 

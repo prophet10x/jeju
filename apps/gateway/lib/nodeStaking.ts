@@ -379,6 +379,13 @@ export const REGION_NAMES = {
 import { CONTRACTS } from './config'
 
 export function getNodeStakingAddress(): Address {
+  if (
+    CONTRACTS.nodeStakingRouter &&
+    CONTRACTS.nodeStakingRouter !==
+      '0x0000000000000000000000000000000000000000'
+  ) {
+    return CONTRACTS.nodeStakingRouter
+  }
   return CONTRACTS.nodeStakingManager
 }
 

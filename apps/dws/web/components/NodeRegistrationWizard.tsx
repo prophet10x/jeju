@@ -240,11 +240,18 @@ export default function NodeRegistrationWizard() {
 
   // Get staking manager address from config
   const stakingManagerAddress =
-    CONTRACTS.nodeStakingManagerV2 !== ZERO_ADDRESS
+    CONTRACTS.nodeStakingRouter !== ZERO_ADDRESS
+      ? CONTRACTS.nodeStakingRouter
+      : CONTRACTS.nodeStakingManagerV2 !== ZERO_ADDRESS
       ? CONTRACTS.nodeStakingManagerV2
       : CONTRACTS.nodeStakingManager !== ZERO_ADDRESS
         ? CONTRACTS.nodeStakingManager
         : undefined
+  const stakingApprovalSpenderAddress =
+    stakingManagerAddress === CONTRACTS.nodeStakingRouter &&
+    CONTRACTS.nodeStakingVault !== ZERO_ADDRESS
+      ? CONTRACTS.nodeStakingVault
+      : stakingManagerAddress
 
   // Use the real staking hook
   const {
@@ -259,7 +266,11 @@ export default function NodeRegistrationWizard() {
     isAtomicNodeIdentitySupportKnown,
     isRegistering,
     registrationHash,
-  } = useNodeStaking(stakingManagerAddress, address)
+  } = useNodeStaking(
+    stakingManagerAddress,
+    address,
+    stakingApprovalSpenderAddress,
+  )
   const { data: registrationReceipt } = useWaitForTransactionReceipt({
     hash: registrationHash,
   })

@@ -45,6 +45,11 @@ export interface ContractAddresses {
   poolManager: string | null
   swapRouter: string | null
   nodeStakingManager: string | null
+  nodeStakingRegistry: string | null
+  nodeStakingVault: string | null
+  nodeStakingRouter: string | null
+  nodeStakingModuleV3: string | null
+  nodeStakingMigrationHandlerV3: string | null
   nodePerformanceOracle: string | null
   autoSlasher: string | null
   multiOracleConsensus: string | null
@@ -154,6 +159,15 @@ export function loadNetworkConfig(network?: NetworkType): NetworkConfig {
 
     // Node staking contracts
     nodeStakingManager: safeGetContract('nodeStaking', 'manager', net),
+    nodeStakingRegistry: safeGetContract('nodeStaking', 'registry', net),
+    nodeStakingVault: safeGetContract('nodeStaking', 'vault', net),
+    nodeStakingRouter: safeGetContract('nodeStaking', 'router', net),
+    nodeStakingModuleV3: safeGetContract('nodeStaking', 'moduleV3', net),
+    nodeStakingMigrationHandlerV3: safeGetContract(
+      'nodeStaking',
+      'migrationHandlerV3',
+      net,
+    ),
     nodePerformanceOracle: safeGetContract(
       'nodeStaking',
       'performanceOracle',

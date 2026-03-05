@@ -54,6 +54,11 @@ export interface DeployedContracts {
 
   // Node Staking
   nodeStakingManager?: string
+  nodeStakingRegistry?: string
+  nodeStakingVault?: string
+  nodeStakingRouter?: string
+  nodeStakingModuleV3?: string
+  nodeStakingMigrationHandlerV3?: string
   nodePerformanceOracle?: string
 
   // Moderation

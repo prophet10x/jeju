@@ -212,8 +212,10 @@ export interface UseNodeStakingResult {
 export function useNodeStaking(
   stakingManagerAddress: Address | undefined,
   operatorAddress: Address | undefined,
+  stakeApprovalSpenderAddress?: Address | undefined,
 ): UseNodeStakingResult {
   const publicClient = usePublicClient()
+  const approvalSpender = stakeApprovalSpenderAddress ?? stakingManagerAddress
   const [
     supportsAtomicNodeIdentityRegistration,
     setSupportsAtomicNodeIdentityRegistration,
@@ -317,17 +319,17 @@ export function useNodeStaking(
 
   const approveStaking = useCallback(
     (token: Address, amount: bigint) => {
-      if (!stakingManagerAddress) {
+      if (!approvalSpender) {
         throw new Error('Staking manager address not configured')
       }
       writeApprove({
         address: token,
         abi: ERC20_APPROVE_ABI,
         functionName: 'approve',
-        args: [stakingManagerAddress, amount],
+        args: [approvalSpender, amount],
       })
     },
-    [stakingManagerAddress, writeApprove],
+    [approvalSpender, writeApprove],
   )
 
   const registerNode = useCallback(

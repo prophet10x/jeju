@@ -61,6 +61,13 @@ export const CONTRACTS = {
   nodeStakingLegacyManagerV1: optionalAddr(
     contracts.nodeStaking?.legacyManagerV1 ?? contracts.nodeStaking?.manager,
   ),
+  nodeStakingRegistry: optionalAddr(contracts.nodeStaking?.registry),
+  nodeStakingVault: optionalAddr(contracts.nodeStaking?.vault),
+  nodeStakingRouter: optionalAddr(contracts.nodeStaking?.router),
+  nodeStakingModuleV3: optionalAddr(contracts.nodeStaking?.moduleV3),
+  nodeStakingMigrationHandlerV3: optionalAddr(
+    contracts.nodeStaking?.migrationHandlerV3,
+  ),
   entryPointDeployed: optionalAddr(
     contracts.accountAbstraction?.entryPointDeployed ||
       contracts.accountAbstraction?.entryPointV07,

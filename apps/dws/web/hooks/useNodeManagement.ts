@@ -59,11 +59,22 @@ interface NodeMutationOptions {
 
 export function useNodeManagement() {
   const nodeStakingManagerAddress =
-    CONTRACTS.nodeStakingManagerV2 &&
-    CONTRACTS.nodeStakingManagerV2 !==
+    CONTRACTS.nodeStakingRouter &&
+    CONTRACTS.nodeStakingRouter !==
       '0x0000000000000000000000000000000000000000'
-      ? CONTRACTS.nodeStakingManagerV2
-      : CONTRACTS.nodeStakingManager
+      ? CONTRACTS.nodeStakingRouter
+      : CONTRACTS.nodeStakingManagerV2 &&
+          CONTRACTS.nodeStakingManagerV2 !==
+      '0x0000000000000000000000000000000000000000'
+        ? CONTRACTS.nodeStakingManagerV2
+        : CONTRACTS.nodeStakingManager
+  const stakeSpenderAddress =
+    nodeStakingManagerAddress === CONTRACTS.nodeStakingRouter &&
+    CONTRACTS.nodeStakingVault &&
+    CONTRACTS.nodeStakingVault !==
+      '0x0000000000000000000000000000000000000000'
+      ? CONTRACTS.nodeStakingVault
+      : nodeStakingManagerAddress
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
   const [lastHash, setLastHash] = useState<Hex>()
@@ -120,7 +131,7 @@ export function useNodeManagement() {
                 data: encodeFunctionData({
                   abi: erc20Abi,
                   functionName: 'approve',
-                  args: [nodeStakingManagerAddress, amount],
+                  args: [stakeSpenderAddress, amount],
                 }),
               },
               {
@@ -145,7 +156,7 @@ export function useNodeManagement() {
           address: stakingToken,
           abi: erc20Abi,
           functionName: 'approve',
-          args: [nodeStakingManagerAddress, amount],
+          args: [stakeSpenderAddress, amount],
         })
 
         if (publicClient) {
@@ -166,6 +177,7 @@ export function useNodeManagement() {
     [
       gasless,
       nodeStakingManagerAddress,
+      stakeSpenderAddress,
       publicClient,
       runDirectWrite,
       writeContractAsync,

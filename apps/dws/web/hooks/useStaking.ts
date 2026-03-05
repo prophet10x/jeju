@@ -108,6 +108,7 @@ const NODE_STAKING_OPERATOR_ABI = [
 
 function getNodeStakingContracts(): `0x${string}`[] {
   const addresses = [
+    CONTRACTS.nodeStakingRouter,
     CONTRACTS.nodeStakingManagerV2,
     CONTRACTS.nodeStakingManager,
     CONTRACTS.nodeStakingLegacyManagerV1,
