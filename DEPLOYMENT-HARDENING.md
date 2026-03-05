@@ -34,6 +34,30 @@ Also verify:
 - DWS `/bundler` nginx proxy points to the intended bundler backend.
 - both apps use the same service names from `packages/shared/src/paymaster-services.ts`.
 
+## 2.1) Git Clone Hygiene (Critical)
+
+Several outages came from server clones that only fetched one branch.
+
+Run on each host:
+
+```bash
+git -C /home/ubuntu/jeju-monorepo config --get-all remote.origin.fetch
+```
+
+Expected:
+
+```text
++refs/heads/*:refs/remotes/origin/*
+```
+
+If you see a single-branch refspec (for example only `codex/...`), reset it:
+
+```bash
+git -C /home/ubuntu/jeju-monorepo config --unset-all remote.origin.fetch
+git -C /home/ubuntu/jeju-monorepo config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git -C /home/ubuntu/jeju-monorepo fetch origin
+```
+
 ## 3) Health Checks (Before Any Release)
 
 Run from your workstation:
@@ -50,6 +74,20 @@ Expected:
 - no `404` for node-registration routes
 - no empty-body JSON responses
 - no KMS `unavailable` for active environment
+
+## 3.1) Runtime Path Checks (Before Restart)
+
+Before restart, confirm service unit runtime path is what you expect:
+
+```bash
+# Oracle
+systemctl show jeju-gateway-worker.service -p WorkingDirectory -p ExecStart
+
+# AWS
+systemctl show jeju-dws.service -p WorkingDirectory -p ExecStart
+```
+
+If the service points at legacy trees (`/home/ubuntu/jeju-repo` or `/home/ubuntu/jeju`), your monorepo pull will not be reflected live.
 
 ## 4) Paymaster Service Registry Gate
 
@@ -102,6 +140,18 @@ For same wallet/operator on both apps:
 6. On AWS: pull same branch, install/build/restart affected services.
 7. Re-run health + proof + node listing gates.
 8. Open upstream PR only after both hosts pass smoke tests.
+
+### Monorepo Runtime Prerequisite
+
+If services run from monorepo source entrypoints (for example `bun run api/worker.ts` or `bun run api/server/index.ts`), workspace package resolution must be valid on host:
+
+- `bun install` completed at monorepo root
+- workspace packages required by runtime are resolvable
+- if package exports require `dist/`, that `dist` exists (or package provides `"bun"` source export)
+
+If this prerequisite fails, either:
+- build the required workspace packages first, or
+- temporarily rollback service to known-good legacy runtime and treat monorepo cutover as a separate tracked change.
 
 ## 8) Mandatory Smoke Test Matrix
 
