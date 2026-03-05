@@ -55,6 +55,9 @@ export function useNodeIdentityRegistry() {
       options: RegisterNodeIdentityOptions,
     ) => {
       const presentation = buildNodeIdentityPresentation(metadata.services)
+      const onchainTags = Array.from(
+        new Set(presentation.tags.filter((tag) => tag.trim().length > 0)),
+      ).slice(0, 10)
       const calls: GaslessCall[] = [
         {
           to: CONTRACTS.identityRegistry,
@@ -77,7 +80,7 @@ export function useNodeIdentityRegistry() {
           data: encodeFunctionData({
             abi: IDENTITY_REGISTRY_ABI,
             functionName: 'updateTags',
-            args: [agentId, presentation.tags],
+            args: [agentId, onchainTags],
           }),
         },
       ]
@@ -111,7 +114,7 @@ export function useNodeIdentityRegistry() {
         address: CONTRACTS.identityRegistry,
         abi: IDENTITY_REGISTRY_ABI,
         functionName: 'updateTags',
-        args: [agentId, presentation.tags],
+        args: [agentId, onchainTags],
       })
       await waitForSuccessfulReceipt(tagsHash)
     },

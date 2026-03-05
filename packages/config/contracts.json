@@ -262,6 +262,8 @@
     },
     "nodeStaking": {
       "manager": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
+      "managerV2": "0x325f9145a020d616F168598377084e7768939435",
+      "legacyManagerV1": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
       "performanceOracle": "0xbb0a3554af6792436609d21bcd703b9ef70ee7aa",
       "autoSlasher": "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1",
       "serviceStaking": "0x2bdCC0de6bE1f7D2ee689a0342D76F52E8EFABa3"

@@ -8,14 +8,12 @@ import {
   getChainId,
   getContractsConfig,
   getCurrentNetwork,
-  getDWSUrl,
   getExplorerUrl,
-  getOAuth3Url,
   getRpcUrl,
   type NetworkType,
 } from '@jejunetwork/config'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
-import { getAddress, type Address } from 'viem'
+import { type Address, getAddress } from 'viem'
 
 // Network from config
 export const NETWORK: NetworkType = getCurrentNetwork()
@@ -44,19 +42,24 @@ function optionalAddr(value: string | undefined): Address {
 export const CONTRACTS = {
   identityRegistry: optionalAddr(contracts.registry.identity),
   banManager: optionalAddr(contracts.moderation.banManager),
-  moderationMarketplace:
-    optionalAddr(contracts.moderation.moderationMarketplace),
-  reportingSystem:
-    optionalAddr(contracts.moderation.reportingSystem),
+  moderationMarketplace: optionalAddr(
+    contracts.moderation.moderationMarketplace,
+  ),
+  reportingSystem: optionalAddr(contracts.moderation.reportingSystem),
   computeRegistry: optionalAddr(contracts.compute.registry),
   jnsRegistry: optionalAddr(contracts.jns.registry),
   jnsResolver: optionalAddr(contracts.jns.resolver),
   x402Facilitator: optionalAddr(contracts.payments.x402Facilitator),
   creditManager: optionalAddr(contracts.payments.creditManager),
-  multiTokenPaymaster:
-    optionalAddr(contracts.payments.multiTokenPaymaster),
+  multiTokenPaymaster: optionalAddr(contracts.payments.multiTokenPaymaster),
   // Use nodeStaking.manager to match contracts.json structure
   nodeStakingManager: optionalAddr(contracts.nodeStaking?.manager),
+  nodeStakingManagerV2: optionalAddr(
+    contracts.nodeStaking?.managerV2 ?? contracts.nodeStaking?.manager,
+  ),
+  nodeStakingLegacyManagerV1: optionalAddr(
+    contracts.nodeStaking?.legacyManagerV1 ?? contracts.nodeStaking?.manager,
+  ),
   entryPointDeployed: optionalAddr(
     contracts.accountAbstraction?.entryPointDeployed ||
       contracts.accountAbstraction?.entryPointV07,
@@ -69,8 +72,9 @@ export const CONTRACTS = {
     contracts.accountAbstraction?.entryPointDeployed ||
       contracts.accountAbstraction?.entryPointV07,
   ),
-  simpleAccountFactory:
-    optionalAddr(contracts.accountAbstraction?.simpleAccountFactory),
+  simpleAccountFactory: optionalAddr(
+    contracts.accountAbstraction?.simpleAccountFactory,
+  ),
 } as const
 
 export const BUNDLER_URL =

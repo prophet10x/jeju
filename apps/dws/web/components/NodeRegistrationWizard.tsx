@@ -211,9 +211,11 @@ export default function NodeRegistrationWizard() {
 
   // Get staking manager address from config
   const stakingManagerAddress =
-    CONTRACTS.nodeStakingManager !== ZERO_ADDRESS
-      ? CONTRACTS.nodeStakingManager
-      : undefined
+    CONTRACTS.nodeStakingManagerV2 !== ZERO_ADDRESS
+      ? CONTRACTS.nodeStakingManagerV2
+      : CONTRACTS.nodeStakingManager !== ZERO_ADDRESS
+        ? CONTRACTS.nodeStakingManager
+        : undefined
 
   // Use the real staking hook
   const {
