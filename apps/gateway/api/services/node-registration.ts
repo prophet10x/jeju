@@ -16,22 +16,37 @@ const kmsTimeoutMs = Number.parseInt(
   10,
 )
 
-const signer = createKMSSigner({
-  serviceId: NODE_PROOF_SERVICE_ID,
-  timeoutMs: Number.isFinite(kmsTimeoutMs) ? kmsTimeoutMs : 8000,
-})
+function createNodeProofSignerClient() {
+  return createKMSSigner({
+    serviceId: NODE_PROOF_SERVICE_ID,
+    timeoutMs: Number.isFinite(kmsTimeoutMs) ? kmsTimeoutMs : 8000,
+  })
+}
 const remoteChallengeOrigins = new Map<string, string>()
 
 const proofSigner: NodeProofSigner = {
   async getNodeWalletAddress() {
+    const signer = createNodeProofSignerClient()
     await signer.initialize()
     return signer.getAddress() as Address
   },
   async signNodeMessage(message) {
-    await signer.initialize()
-    const signed = await signer.signMessage(message)
+    let activeSigner = createNodeProofSignerClient()
+    await activeSigner.initialize()
+    const signed = await activeSigner.signMessage(message).catch(async (error) => {
+      const messageText = error instanceof Error ? error.message : String(error)
+      if (!messageText.includes('Key not found')) {
+        throw error
+      }
+
+      // KMS may have lost volatile key state (e.g. restart without restored key map).
+      // Recreate signer + key mapping once and retry signing.
+      activeSigner = createNodeProofSignerClient()
+      await activeSigner.initialize()
+      return activeSigner.signMessage(message)
+    })
     return {
-      address: signer.getAddress() as Address,
+      address: activeSigner.getAddress() as Address,
       signature: signed.signature,
     }
   },
