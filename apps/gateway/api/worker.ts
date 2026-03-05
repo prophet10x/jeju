@@ -149,13 +149,15 @@ export function createGatewayApp(env?: Partial<GatewayEnv>) {
 
   const handleNodeRegistrationChallenge = async ({
     body,
+    request,
     set,
   }: {
     body: unknown
+    request: Request
     set: { status: number; headers: Record<string, string> }
   }) => {
     try {
-      return await createNodeRegistrationChallenge(body)
+      return await createNodeRegistrationChallenge(body, request)
     } catch (error) {
       const message =
         error instanceof Error

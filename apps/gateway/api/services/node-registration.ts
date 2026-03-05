@@ -35,6 +35,19 @@ function normalizeOrigin(endpoint: string) {
   return new URL(endpoint).origin.replace(/\/$/, '')
 }
 
+function resolveRequestOrigin(request: Request): string {
+  const requestUrl = new URL(request.url)
+  const forwardedHost = request.headers.get('x-forwarded-host')?.trim()
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.trim()
+  if (forwardedHost) {
+    const protocol = forwardedProto && forwardedProto.length > 0
+      ? forwardedProto
+      : requestUrl.protocol.replace(/:$/, '')
+    return `${protocol}://${forwardedHost}`.replace(/\/$/, '')
+  }
+  return requestUrl.origin.replace(/\/$/, '')
+}
+
 async function proxyJson<T>(
   url: string,
   init: RequestInit,
@@ -72,9 +85,17 @@ async function proxyJson<T>(
   return payload as T
 }
 
-export async function createNodeRegistrationChallenge(body: unknown) {
+export async function createNodeRegistrationChallenge(
+  body: unknown,
+  request?: Request,
+) {
   const validBody = ChallengeRequestSchema.parse(body)
   const endpointOrigin = normalizeOrigin(validBody.endpoint)
+  const localOrigin = request ? resolveRequestOrigin(request) : null
+
+  if (localOrigin && endpointOrigin === localOrigin) {
+    return service.createChallenge(validBody)
+  }
 
   const challenge = await proxyJson<
     Awaited<ReturnType<typeof service.createChallenge>>
