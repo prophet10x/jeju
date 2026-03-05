@@ -25,6 +25,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
 import { SkeletonStatCard } from '../../components/Skeleton'
@@ -81,6 +82,7 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
 export default function NodeOperatorDashboard() {
   const { isConnected, address } = useAccount()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { showSuccess, showError } = useToast()
   const confirm = useConfirm()
   const claimRewards = useClaimRewards()
@@ -103,6 +105,18 @@ export default function NodeOperatorDashboard() {
   const [deregisteringNode, setDeregisteringNode] = useState<string | null>(
     null,
   )
+  const requestedNodeParam = searchParams.get('node')?.toLowerCase() ?? null
+
+  const updateSelectedNode = (nodeId: string | null) => {
+    setSelectedNode(nodeId)
+    const nextParams = new URLSearchParams(searchParams)
+    if (nodeId) {
+      nextParams.set('node', nodeId)
+    } else {
+      nextParams.delete('node')
+    }
+    setSearchParams(nextParams, { replace: true })
+  }
 
   const handleClaimRewards = async (nodeId: string, nodeName: string) => {
     const confirmed = await confirm({
@@ -193,7 +207,7 @@ export default function NodeOperatorDashboard() {
       await deregisterNode.mutateAsync(nodeId)
       showSuccess('Node deregistered', `Node ${nodeName} has been deregistered`)
       refetchStats()
-      setSelectedNode(null)
+      updateSelectedNode(null)
     } catch (error) {
       showError(
         'Deregistration failed',
@@ -229,6 +243,21 @@ export default function NodeOperatorDashboard() {
   const selectedNodeData = selectedNode
     ? nodes.find((node) => node.nodeId === selectedNode)
     : undefined
+
+  useEffect(() => {
+    if (!requestedNodeParam || nodes.length === 0) return
+    const requestedNode = nodes.find(
+      (node) => node.nodeId.toLowerCase() === requestedNodeParam,
+    )
+    if (!requestedNode || selectedNode === requestedNode.nodeId) return
+    setSelectedNode(requestedNode.nodeId)
+  }, [requestedNodeParam, nodes, selectedNode])
+
+  useEffect(() => {
+    if (!selectedNodeData && selectedNode) {
+      updateSelectedNode(null)
+    }
+  }, [selectedNode, selectedNodeData])
 
   useEffect(() => {
     let cancelled = false
@@ -460,7 +489,7 @@ export default function NodeOperatorDashboard() {
                       isSelected={selectedNode === node.nodeId}
                       isClaiming={claimingNode === node.nodeId}
                       onSelect={() =>
-                        setSelectedNode(
+                        updateSelectedNode(
                           selectedNode === node.nodeId ? null : node.nodeId,
                         )
                       }
@@ -601,7 +630,7 @@ export default function NodeOperatorDashboard() {
           displayStakedUsd={
             selectedNodeData ? getDisplayStakedUsd(selectedNodeData) : 0
           }
-          onClose={() => setSelectedNode(null)}
+          onClose={() => updateSelectedNode(null)}
           onClaim={handleClaimRewards}
           onDeregister={handleDeregisterNode}
           onUpdatePerformance={handleUpdatePerformance}

@@ -683,7 +683,7 @@ export default function SettingsPage() {
                         </div>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <a
-                            href="/provider/nodes"
+                            href={`/provider/nodes?node=${encodeURIComponent(node.nodeId)}`}
                             className="btn btn-ghost btn-sm"
                             title="Manage node (stake/services/config)"
                           >

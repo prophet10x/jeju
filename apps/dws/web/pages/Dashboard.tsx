@@ -725,6 +725,11 @@ function QuickActionsCard() {
           <span>AI Inference</span>
           <ArrowRight size={14} />
         </Link>
+        <Link to="/provider/nodes" className="quick-action">
+          <Server size={18} />
+          <span>View/Edit Nodes</span>
+          <ArrowRight size={14} />
+        </Link>
       </div>
     </div>
   )
@@ -907,10 +912,16 @@ function ProviderEarningsCard({ stats }: { stats: ProviderStats }) {
           <span className="provider-value">${stats.lifetimeRewardsUSD}</span>
         </div>
       </div>
-      <Link to="/provider/earnings" className="btn btn-sm btn-secondary">
-        View Earnings
-        <ArrowRight size={14} />
-      </Link>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <Link to="/provider/nodes" className="btn btn-sm btn-secondary">
+          Manage Nodes
+          <ArrowRight size={14} />
+        </Link>
+        <Link to="/provider/earnings" className="btn btn-sm btn-secondary">
+          View Earnings
+          <ArrowRight size={14} />
+        </Link>
+      </div>
     </div>
   )
 }
