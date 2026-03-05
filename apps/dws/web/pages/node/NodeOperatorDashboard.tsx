@@ -1,12 +1,12 @@
 import {
   NODE_SERVICE_DEFINITIONS,
   type NodeServiceId,
-} from '@jejunetwork/shared'
+} from "@jejunetwork/shared";
 import {
   TransactionStatusModal,
   type TransactionStatusResult,
-} from '@jejunetwork/ui'
-import { WalletButton } from '@jejunetwork/ui/wallet'
+} from "@jejunetwork/ui";
+import { WalletButton } from "@jejunetwork/ui/wallet";
 import {
   Activity,
   AlertTriangle,
@@ -23,27 +23,27 @@ import {
   Users,
   Wallet,
   Zap,
-} from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { type Address, type Hex, keccak256, parseUnits, toBytes } from 'viem'
-import { useAccount, usePublicClient } from 'wagmi'
-import { SkeletonStatCard } from '../../components/Skeleton'
-import { CONTRACTS, EXPLORER_URL } from '../../config'
-import { useConfirm, useToast } from '../../context/AppContext'
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { type Address, type Hex, keccak256, parseUnits, toBytes } from "viem";
+import { useAccount, usePublicClient } from "wagmi";
+import { SkeletonStatCard } from "../../components/Skeleton";
+import { CONTRACTS, EXPLORER_URL } from "../../config";
+import { useConfirm, useToast } from "../../context/AppContext";
 import {
   useClaimRewards,
   useDeregisterNode,
   useNodeManagement,
   useUpdateNodePerformance,
-} from '../../hooks'
+} from "../../hooks";
 import {
   type EarningsHistoryItem,
   type NodeInfo,
   useAggregateStats,
   useEarningsHistory,
   useOperatorStats,
-} from '../../hooks/useStaking'
+} from "../../hooks/useStaking";
 
 const REGION_TO_VALUE = {
   NorthAmerica: 0,
@@ -53,217 +53,227 @@ const REGION_TO_VALUE = {
   Africa: 4,
   Oceania: 5,
   Global: 6,
-} as const
+} as const;
 
 const REGION_OPTIONS = [
-  { value: REGION_TO_VALUE.NorthAmerica, label: 'North America' },
-  { value: REGION_TO_VALUE.SouthAmerica, label: 'South America' },
-  { value: REGION_TO_VALUE.Europe, label: 'Europe' },
-  { value: REGION_TO_VALUE.Asia, label: 'Asia' },
-  { value: REGION_TO_VALUE.Africa, label: 'Africa' },
-  { value: REGION_TO_VALUE.Oceania, label: 'Oceania' },
-  { value: REGION_TO_VALUE.Global, label: 'Global' },
-] as const
+  { value: REGION_TO_VALUE.NorthAmerica, label: "North America" },
+  { value: REGION_TO_VALUE.SouthAmerica, label: "South America" },
+  { value: REGION_TO_VALUE.Europe, label: "Europe" },
+  { value: REGION_TO_VALUE.Asia, label: "Asia" },
+  { value: REGION_TO_VALUE.Africa, label: "Africa" },
+  { value: REGION_TO_VALUE.Oceania, label: "Oceania" },
+  { value: REGION_TO_VALUE.Global, label: "Global" },
+] as const;
 
 const PRICE_ORACLE_ABI = [
   {
-    type: 'function',
-    name: 'getPrice',
-    inputs: [{ name: 'token', type: 'address' }],
+    type: "function",
+    name: "getPrice",
+    inputs: [{ name: "token", type: "address" }],
     outputs: [
-      { name: 'price', type: 'uint256' },
-      { name: 'decimals', type: 'uint8' },
+      { name: "price", type: "uint256" },
+      { name: "decimals", type: "uint8" },
     ],
-    stateMutability: 'view',
+    stateMutability: "view",
   },
-] as const
+] as const;
 
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+function formatNodeVersionLabel(node: NodeInfo): string {
+  if (typeof node.stateVersion === "number" && node.stateVersion > 0) {
+    return `V${node.stateVersion}`;
+  }
+  return node.isLegacy ? "Legacy" : "Unknown";
+}
 
 export default function NodeOperatorDashboard() {
-  const { isConnected, address } = useAccount()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const { showSuccess, showError } = useToast()
-  const confirm = useConfirm()
-  const claimRewards = useClaimRewards()
-  const deregisterNode = useDeregisterNode()
-  const updatePerformance = useUpdateNodePerformance()
+  const { isConnected, address } = useAccount();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { showSuccess, showError } = useToast();
+  const confirm = useConfirm();
+  const claimRewards = useClaimRewards();
+  const deregisterNode = useDeregisterNode();
+  const updatePerformance = useUpdateNodePerformance();
   const {
     data: operatorStats,
     isLoading: statsLoading,
     refetch: refetchStats,
-  } = useOperatorStats()
-  const { isLoading: aggregateLoading, data: stats } = useAggregateStats()
-  const { data: earningsHistory } = useEarningsHistory()
-  const publicClient = usePublicClient()
+  } = useOperatorStats();
+  const { isLoading: aggregateLoading, data: stats } = useAggregateStats();
+  const { data: earningsHistory } = useEarningsHistory();
+  const publicClient = usePublicClient();
   const [tokenPricesUsd, setTokenPricesUsd] = useState<Record<string, number>>(
     {},
-  )
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [claimingNode, setClaimingNode] = useState<string | null>(null)
-  const [updatingNode, setUpdatingNode] = useState<string | null>(null)
+  );
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [claimingNode, setClaimingNode] = useState<string | null>(null);
+  const [updatingNode, setUpdatingNode] = useState<string | null>(null);
   const [deregisteringNode, setDeregisteringNode] = useState<string | null>(
     null,
-  )
-  const requestedNodeParam = searchParams.get('node')?.toLowerCase() ?? null
+  );
+  const requestedNodeParam = searchParams.get("node")?.toLowerCase() ?? null;
 
   const updateSelectedNode = (nodeId: string | null) => {
-    setSelectedNode(nodeId)
-    const nextParams = new URLSearchParams(searchParams)
+    setSelectedNode(nodeId);
+    const nextParams = new URLSearchParams(searchParams);
     if (nodeId) {
-      nextParams.set('node', nodeId)
+      nextParams.set("node", nodeId);
     } else {
-      nextParams.delete('node')
+      nextParams.delete("node");
     }
-    setSearchParams(nextParams, { replace: true })
-  }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const handleClaimRewards = async (nodeId: string, nodeName: string) => {
     const confirmed = await confirm({
-      title: 'Claim Rewards',
+      title: "Claim Rewards",
       message: `Claim all pending rewards for node ${nodeName}? This will transfer the rewards to your wallet.`,
-      confirmText: 'Claim',
-      cancelText: 'Cancel',
-    })
+      confirmText: "Claim",
+      cancelText: "Cancel",
+    });
 
-    if (!confirmed) return
+    if (!confirmed) return;
 
-    setClaimingNode(nodeId)
+    setClaimingNode(nodeId);
     try {
-      const result = await claimRewards.mutateAsync(nodeId)
+      const result = await claimRewards.mutateAsync(nodeId);
       showSuccess(
-        'Rewards claimed',
+        "Rewards claimed",
         `Successfully claimed ${result.claimed} tokens`,
-      )
-      refetchStats()
+      );
+      refetchStats();
     } catch (error) {
       showError(
-        'Claim failed',
-        error instanceof Error ? error.message : 'Failed to claim rewards',
-      )
+        "Claim failed",
+        error instanceof Error ? error.message : "Failed to claim rewards",
+      );
     } finally {
-      setClaimingNode(null)
+      setClaimingNode(null);
     }
-  }
+  };
 
   const handleClaimAllRewards = async () => {
-    const nodes = operatorStats?.nodes ?? []
+    const nodes = operatorStats?.nodes ?? [];
     const nodesWithRewards = nodes.filter(
       (n) => parseFloat(n.pendingRewards) > 0,
-    )
+    );
 
     if (nodesWithRewards.length === 0) {
-      showError('No rewards', 'No pending rewards to claim')
-      return
+      showError("No rewards", "No pending rewards to claim");
+      return;
     }
 
     const confirmed = await confirm({
-      title: 'Claim All Rewards',
+      title: "Claim All Rewards",
       message: `Claim rewards from ${nodesWithRewards.length} node(s)? This will transfer all pending rewards to your wallet.`,
-      confirmText: 'Claim All',
-      cancelText: 'Cancel',
-    })
+      confirmText: "Claim All",
+      cancelText: "Cancel",
+    });
 
-    if (!confirmed) return
+    if (!confirmed) return;
 
-    let successCount = 0
-    let failCount = 0
+    let successCount = 0;
+    let failCount = 0;
 
     for (const node of nodesWithRewards) {
       try {
-        await claimRewards.mutateAsync(node.nodeId)
-        successCount++
+        await claimRewards.mutateAsync(node.nodeId);
+        successCount++;
       } catch {
-        failCount++
+        failCount++;
       }
     }
 
     if (successCount > 0) {
       showSuccess(
-        'Rewards claimed',
+        "Rewards claimed",
         `Successfully claimed from ${successCount} node(s)`,
-      )
-      refetchStats()
+      );
+      refetchStats();
     }
 
     if (failCount > 0) {
-      showError('Partial failure', `Failed to claim from ${failCount} node(s)`)
+      showError("Partial failure", `Failed to claim from ${failCount} node(s)`);
     }
-  }
+  };
 
   const handleDeregisterNode = async (nodeId: string, nodeName: string) => {
     const confirmed = await confirm({
-      title: 'Deregister Node',
+      title: "Deregister Node",
       message: `Are you sure you want to deregister node ${nodeName}? Your stake will be returned after a cooldown period.`,
-      confirmText: 'Deregister',
-      cancelText: 'Cancel',
+      confirmText: "Deregister",
+      cancelText: "Cancel",
       destructive: true,
-    })
+    });
 
-    if (!confirmed) return
+    if (!confirmed) return;
 
-    setDeregisteringNode(nodeId)
+    setDeregisteringNode(nodeId);
     try {
-      await deregisterNode.mutateAsync(nodeId)
-      showSuccess('Node deregistered', `Node ${nodeName} has been deregistered`)
-      refetchStats()
-      updateSelectedNode(null)
+      await deregisterNode.mutateAsync(nodeId);
+      showSuccess(
+        "Node deregistered",
+        `Node ${nodeName} has been deregistered`,
+      );
+      refetchStats();
+      updateSelectedNode(null);
     } catch (error) {
       showError(
-        'Deregistration failed',
-        error instanceof Error ? error.message : 'Failed to deregister node',
-      )
+        "Deregistration failed",
+        error instanceof Error ? error.message : "Failed to deregister node",
+      );
     } finally {
-      setDeregisteringNode(null)
+      setDeregisteringNode(null);
     }
-  }
+  };
 
   const handleUpdatePerformance = async (nodeId: string, nodeName: string) => {
-    setUpdatingNode(nodeId)
+    setUpdatingNode(nodeId);
     try {
-      await updatePerformance.mutateAsync(nodeId)
+      await updatePerformance.mutateAsync(nodeId);
       showSuccess(
-        'Performance updated',
+        "Performance updated",
         `Node ${nodeName} performance metrics refreshed`,
-      )
-      refetchStats()
+      );
+      refetchStats();
     } catch (error) {
       showError(
-        'Update failed',
-        error instanceof Error ? error.message : 'Failed to update performance',
-      )
+        "Update failed",
+        error instanceof Error ? error.message : "Failed to update performance",
+      );
     } finally {
-      setUpdatingNode(null)
+      setUpdatingNode(null);
     }
-  }
+  };
 
-  const isLoading = statsLoading || aggregateLoading
-  const nodes = operatorStats?.nodes ?? []
-  const hasStakingActivity = (operatorStats?.totalNodesActive ?? 0) > 0
+  const isLoading = statsLoading || aggregateLoading;
+  const nodes = operatorStats?.nodes ?? [];
+  const hasStakingActivity = (operatorStats?.totalNodesActive ?? 0) > 0;
   const selectedNodeData = selectedNode
     ? nodes.find((node) => node.nodeId === selectedNode)
-    : undefined
+    : undefined;
 
   useEffect(() => {
-    if (!requestedNodeParam || nodes.length === 0) return
+    if (!requestedNodeParam || nodes.length === 0) return;
     const requestedNode = nodes.find(
       (node) => node.nodeId.toLowerCase() === requestedNodeParam,
-    )
-    if (!requestedNode || selectedNode === requestedNode.nodeId) return
-    setSelectedNode(requestedNode.nodeId)
-  }, [requestedNodeParam, nodes, selectedNode])
+    );
+    if (!requestedNode || selectedNode === requestedNode.nodeId) return;
+    setSelectedNode(requestedNode.nodeId);
+  }, [requestedNodeParam, nodes, selectedNode]);
 
   useEffect(() => {
     if (!selectedNodeData && selectedNode) {
-      updateSelectedNode(null)
+      updateSelectedNode(null);
     }
-  }, [selectedNode, selectedNodeData])
+  }, [selectedNode, selectedNodeData]);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function loadTokenPrices() {
-      if (!publicClient || CONTRACTS.priceOracle === ZERO_ADDRESS) return
+      if (!publicClient || CONTRACTS.priceOracle === ZERO_ADDRESS) return;
 
       const uniqueTokenAddresses = Array.from(
         new Set(
@@ -273,9 +283,9 @@ export default function NodeOperatorDashboard() {
               Boolean(tokenAddress && tokenAddress !== ZERO_ADDRESS),
             ),
         ),
-      )
+      );
 
-      if (uniqueTokenAddresses.length === 0) return
+      if (uniqueTokenAddresses.length === 0) return;
 
       const results = await Promise.all(
         uniqueTokenAddresses.map(async (tokenAddress) => {
@@ -283,43 +293,45 @@ export default function NodeOperatorDashboard() {
             const [price] = (await publicClient.readContract({
               address: CONTRACTS.priceOracle,
               abi: PRICE_ORACLE_ABI,
-              functionName: 'getPrice',
+              functionName: "getPrice",
               args: [tokenAddress as Address],
-            })) as readonly [bigint, number]
+            })) as readonly [bigint, number];
 
-            return [tokenAddress, Number(price) / 1e18] as const
+            return [tokenAddress, Number(price) / 1e18] as const;
           } catch {
-            return null
+            return null;
           }
         }),
-      )
+      );
 
-      if (cancelled) return
+      if (cancelled) return;
 
-      const nextPrices: Record<string, number> = {}
+      const nextPrices: Record<string, number> = {};
       for (const result of results) {
-        if (!result) continue
-        const [tokenAddress, priceUsd] = result
+        if (!result) continue;
+        const [tokenAddress, priceUsd] = result;
         if (Number.isFinite(priceUsd) && priceUsd > 0) {
-          nextPrices[tokenAddress] = priceUsd
+          nextPrices[tokenAddress] = priceUsd;
         }
       }
 
-      setTokenPricesUsd(nextPrices)
+      setTokenPricesUsd(nextPrices);
     }
 
-    void loadTokenPrices()
+    void loadTokenPrices();
 
     return () => {
-      cancelled = true
-    }
-  }, [nodes, publicClient])
+      cancelled = true;
+    };
+  }, [nodes, publicClient]);
 
   const getDisplayStakedUsd = (node: NodeInfo) => {
-    const snapshotUsd = Number(node.stakedValueUSD)
-    const tokenAddress = node.stakedToken?.toLowerCase()
-    const livePriceUsd = tokenAddress ? tokenPricesUsd[tokenAddress] : undefined
-    const stakedAmount = Number(node.stakedAmount)
+    const snapshotUsd = Number(node.stakedValueUSD);
+    const tokenAddress = node.stakedToken?.toLowerCase();
+    const livePriceUsd = tokenAddress
+      ? tokenPricesUsd[tokenAddress]
+      : undefined;
+    const stakedAmount = Number(node.stakedAmount);
 
     if (
       livePriceUsd &&
@@ -327,23 +339,23 @@ export default function NodeOperatorDashboard() {
       Number.isFinite(livePriceUsd) &&
       stakedAmount > 0
     ) {
-      return stakedAmount * livePriceUsd
+      return stakedAmount * livePriceUsd;
     }
 
-    return Number.isFinite(snapshotUsd) ? snapshotUsd : 0
-  }
+    return Number.isFinite(snapshotUsd) ? snapshotUsd : 0;
+  };
 
   if (!isConnected || !address) {
     return (
-      <div className="empty-state" style={{ paddingTop: '4rem' }}>
+      <div className="empty-state" style={{ paddingTop: "4rem" }}>
         <Server size={64} />
         <h3>Connect wallet to view your nodes</h3>
-        <p style={{ marginBottom: '1rem' }}>
+        <p style={{ marginBottom: "1rem" }}>
           View your registered nodes, earnings, and performance
         </p>
         <WalletButton />
       </div>
-    )
+    );
   }
 
   return (
@@ -351,11 +363,11 @@ export default function NodeOperatorDashboard() {
       <div
         className="page-header"
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-          gap: '1rem',
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+          gap: "1rem",
         }}
       >
         <div>
@@ -388,15 +400,15 @@ export default function NodeOperatorDashboard() {
               icon={<Server size={24} />}
               iconClass="compute"
               label="Active Nodes"
-              value={stats?.operator.nodesActive.toString() ?? '0'}
-              change={`${stats?.operator.networkSharePercent ?? '0'}% of network`}
+              value={stats?.operator.nodesActive.toString() ?? "0"}
+              change={`${stats?.operator.networkSharePercent ?? "0"}% of network`}
               changeType="neutral"
             />
             <StatCard
               icon={<DollarSign size={24} />}
               iconClass="storage"
               label="Total Staked"
-              value={`$${formatNumber(stats?.operator.totalStakedUSD ?? '0')}`}
+              value={`$${formatNumber(stats?.operator.totalStakedUSD ?? "0")}`}
               change="USD value"
               changeType="neutral"
             />
@@ -404,15 +416,15 @@ export default function NodeOperatorDashboard() {
               icon={<TrendingUp size={24} />}
               iconClass="network"
               label="Est. Monthly"
-              value={`$${stats?.earnings.estimatedMonthlyUSD ?? '0'}`}
-              change={`$${stats?.earnings.estimatedDailyUSD ?? '0'}/day`}
+              value={`$${stats?.earnings.estimatedMonthlyUSD ?? "0"}`}
+              change={`$${stats?.earnings.estimatedDailyUSD ?? "0"}/day`}
               changeType="positive"
             />
             <StatCard
               icon={<Award size={24} />}
               iconClass="ai"
               label="Pending Rewards"
-              value={`$${stats?.earnings.totalPendingUSD ?? '0'}`}
+              value={`$${stats?.earnings.totalPendingUSD ?? "0"}`}
               change="Claimable now"
               changeType="positive"
             />
@@ -423,10 +435,10 @@ export default function NodeOperatorDashboard() {
       <div
         className="node-dashboard-grid"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 2fr) minmax(300px, 1fr)',
-          gap: '1.5rem',
-          marginTop: '1.5rem',
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 2fr) minmax(300px, 1fr)",
+          gap: "1.5rem",
+          marginTop: "1.5rem",
         }}
       >
         {/* Nodes List */}
@@ -444,26 +456,26 @@ export default function NodeOperatorDashboard() {
           </div>
 
           {nodes.length === 0 ? (
-            <div className="empty-state" style={{ padding: '2rem' }}>
+            <div className="empty-state" style={{ padding: "2rem" }}>
               <Server size={48} />
               <h4>
                 {hasStakingActivity
-                  ? 'Node metadata pending'
-                  : 'No nodes registered'}
+                  ? "Node metadata pending"
+                  : "No nodes registered"}
               </h4>
               <p>
                 {hasStakingActivity
-                  ? 'On-chain node activity exists for this operator, but details are still syncing.'
-                  : 'Register a node to start earning rewards'}
+                  ? "On-chain node activity exists for this operator, but details are still syncing."
+                  : "Register a node to start earning rewards"}
               </p>
               <a
                 href="/provider/node/register"
                 className="btn btn-primary"
-                style={{ marginTop: '1rem' }}
+                style={{ marginTop: "1rem" }}
               >
                 {hasStakingActivity
-                  ? 'Register another node'
-                  : 'Register Your First Node'}
+                  ? "Register another node"
+                  : "Register Your First Node"}
               </a>
             </div>
           ) : (
@@ -509,7 +521,7 @@ export default function NodeOperatorDashboard() {
 
         {/* Right Sidebar */}
         <div
-          style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}
+          style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}
         >
           {/* Earnings Summary */}
           <div className="card">
@@ -518,35 +530,35 @@ export default function NodeOperatorDashboard() {
                 <Wallet size={18} /> Earnings
               </h3>
             </div>
-            <div style={{ display: 'grid', gap: '1rem' }}>
+            <div style={{ display: "grid", gap: "1rem" }}>
               <EarningsRow
                 label="Lifetime Earned"
-                value={`$${formatNumber(stats?.operator.lifetimeRewardsUSD ?? '0')}`}
+                value={`$${formatNumber(stats?.operator.lifetimeRewardsUSD ?? "0")}`}
               />
               <EarningsRow
                 label="Pending Rewards"
-                value={`$${stats?.earnings.totalPendingUSD ?? '0'}`}
+                value={`$${stats?.earnings.totalPendingUSD ?? "0"}`}
                 highlight
               />
               <EarningsRow
                 label="Est. Monthly"
-                value={`$${stats?.earnings.estimatedMonthlyUSD ?? '0'}`}
+                value={`$${stats?.earnings.estimatedMonthlyUSD ?? "0"}`}
               />
               <EarningsRow
                 label="Est. Daily"
-                value={`$${stats?.earnings.estimatedDailyUSD ?? '0'}`}
+                value={`$${stats?.earnings.estimatedDailyUSD ?? "0"}`}
               />
               {nodes.length > 0 &&
-                parseFloat(stats?.earnings.totalPendingUSD ?? '0') > 0 && (
+                parseFloat(stats?.earnings.totalPendingUSD ?? "0") > 0 && (
                   <button
                     type="button"
                     className="btn btn-primary"
-                    style={{ marginTop: '0.5rem' }}
+                    style={{ marginTop: "0.5rem" }}
                     onClick={handleClaimAllRewards}
                     disabled={claimRewards.isPending}
                   >
                     {claimRewards.isPending ? (
-                      'Claiming...'
+                      "Claiming..."
                     ) : (
                       <>
                         <DollarSign size={16} /> Claim All Rewards
@@ -564,30 +576,30 @@ export default function NodeOperatorDashboard() {
                 <Activity size={18} /> Performance
               </h3>
             </div>
-            <div style={{ display: 'grid', gap: '1rem' }}>
+            <div style={{ display: "grid", gap: "1rem" }}>
               <PerformanceMetric
                 label="Avg. Uptime"
-                value={`${stats?.operator.avgUptimePercent ?? '0'}%`}
+                value={`${stats?.operator.avgUptimePercent ?? "0"}%`}
                 icon={<Clock size={16} />}
                 status={
-                  parseFloat(stats?.operator.avgUptimePercent ?? '0') >= 99
-                    ? 'good'
-                    : parseFloat(stats?.operator.avgUptimePercent ?? '0') >= 95
-                      ? 'warning'
-                      : 'bad'
+                  parseFloat(stats?.operator.avgUptimePercent ?? "0") >= 99
+                    ? "good"
+                    : parseFloat(stats?.operator.avgUptimePercent ?? "0") >= 95
+                      ? "warning"
+                      : "bad"
                 }
               />
               <PerformanceMetric
                 label="Requests Served"
                 value={formatNumber(
-                  stats?.operator.totalRequestsServed?.toString() ?? '0',
+                  stats?.operator.totalRequestsServed?.toString() ?? "0",
                 )}
                 icon={<Zap size={16} />}
                 status="neutral"
               />
               <PerformanceMetric
                 label="Network Share"
-                value={`${stats?.operator.networkSharePercent ?? '0'}%`}
+                value={`${stats?.operator.networkSharePercent ?? "0"}%`}
                 icon={<Globe size={16} />}
                 status="neutral"
               />
@@ -601,22 +613,22 @@ export default function NodeOperatorDashboard() {
                 <Users size={18} /> Network
               </h3>
             </div>
-            <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <div style={{ display: "grid", gap: "0.75rem" }}>
               <NetworkStat
                 label="Total Nodes"
-                value={stats?.network.totalNodes.toString() ?? '0'}
+                value={stats?.network.totalNodes.toString() ?? "0"}
               />
               <NetworkStat
                 label="Total Staked"
-                value={`$${formatNumber(stats?.network.totalStakedUSD ?? '0')}`}
+                value={`$${formatNumber(stats?.network.totalStakedUSD ?? "0")}`}
               />
               <NetworkStat
                 label="Min. Stake"
-                value={`$${formatNumber(stats?.network.minStakeUSD ?? '0')}`}
+                value={`$${formatNumber(stats?.network.minStakeUSD ?? "0")}`}
               />
               <NetworkStat
                 label="Base Reward"
-                value={`$${formatNumber(stats?.network.baseRewardPerMonthUSD ?? '0')}/mo`}
+                value={`$${formatNumber(stats?.network.baseRewardPerMonthUSD ?? "0")}/mo`}
               />
             </div>
           </div>
@@ -642,7 +654,7 @@ export default function NodeOperatorDashboard() {
 
       {/* Recent Activity */}
       {earningsHistory && earningsHistory.history.length > 0 && (
-        <div className="card" style={{ marginTop: '1.5rem' }}>
+        <div className="card" style={{ marginTop: "1.5rem" }}>
           <div className="card-header">
             <h3 className="card-title">
               <RefreshCw size={18} /> Recent Activity
@@ -672,7 +684,7 @@ export default function NodeOperatorDashboard() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // Helper Components
@@ -685,12 +697,12 @@ function StatCard({
   change,
   changeType,
 }: {
-  icon: React.ReactNode
-  iconClass: string
-  label: string
-  value: string
-  change: string
-  changeType: 'positive' | 'negative' | 'neutral'
+  icon: React.ReactNode;
+  iconClass: string;
+  label: string;
+  value: string;
+  change: string;
+  changeType: "positive" | "negative" | "neutral";
 }) {
   return (
     <div className="stat-card">
@@ -701,7 +713,7 @@ function StatCard({
         <div className={`stat-change ${changeType}`}>{change}</div>
       </div>
     </div>
-  )
+  );
 }
 
 function NodeRow({
@@ -712,41 +724,50 @@ function NodeRow({
   onSelect,
   onClaim,
 }: {
-  node: NodeInfo
-  displayStakedUsd: number
-  isSelected: boolean
-  isClaiming: boolean
-  onSelect: () => void
-  onClaim: () => void
+  node: NodeInfo;
+  displayStakedUsd: number;
+  isSelected: boolean;
+  isClaiming: boolean;
+  onSelect: () => void;
+  onClaim: () => void;
 }) {
-  const hasPendingRewards = parseFloat(node.pendingRewards) > 0
+  const hasPendingRewards = parseFloat(node.pendingRewards) > 0;
 
   const handleRowClick = (e: React.MouseEvent) => {
     // Don't trigger row click when clicking buttons
-    if ((e.target as HTMLElement).closest('button')) return
-    onSelect()
-  }
+    if ((e.target as HTMLElement).closest("button")) return;
+    onSelect();
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onSelect()
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect();
     }
-  }
+  };
 
   return (
     <tr
       style={{
-        cursor: 'pointer',
-        background: isSelected ? 'var(--bg-tertiary)' : undefined,
+        cursor: "pointer",
+        background: isSelected ? "var(--bg-tertiary)" : undefined,
       }}
       onClick={handleRowClick}
       onKeyDown={handleKeyDown}
       tabIndex={0}
       aria-selected={isSelected}
     >
-      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-        {node.nodeId.slice(0, 10)}...
+      <td>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem" }}>
+          {node.nodeId.slice(0, 10)}...
+        </div>
+        <div style={{ marginTop: "0.25rem" }}>
+          <span
+            className={`badge ${node.isLegacy ? "badge-warning" : "badge-info"}`}
+          >
+            {formatNodeVersionLabel(node)}
+          </span>
+        </div>
       </td>
       <td>{node.region}</td>
       <td>
@@ -754,9 +775,9 @@ function NodeRow({
           <span className="badge badge-warning">Metadata pending</span>
         ) : (
           <span
-            className={`badge ${node.isActive ? 'badge-success' : node.isSlashed ? 'badge-error' : 'badge-warning'}`}
+            className={`badge ${node.isActive ? "badge-success" : node.isSlashed ? "badge-error" : "badge-warning"}`}
           >
-            {node.isActive ? 'Active' : node.isSlashed ? 'Slashed' : 'Inactive'}
+            {node.isActive ? "Active" : node.isSlashed ? "Slashed" : "Inactive"}
           </span>
         )}
       </td>
@@ -765,17 +786,17 @@ function NodeRow({
           style={{
             color:
               node.performance.uptimeScore >= 9900
-                ? 'var(--success)'
+                ? "var(--success)"
                 : node.performance.uptimeScore >= 9500
-                  ? 'var(--warning)'
-                  : 'var(--error)',
+                  ? "var(--warning)"
+                  : "var(--error)",
           }}
         >
           {(node.performance.uptimeScore / 100).toFixed(1)}%
         </span>
       </td>
       <td>${formatNumber(displayStakedUsd)}</td>
-      <td style={{ color: 'var(--success)' }}>
+      <td style={{ color: "var(--success)" }}>
         ${formatNumber(node.pendingRewards)}
       </td>
       <td>
@@ -784,24 +805,24 @@ function NodeRow({
             type="button"
             className="btn btn-primary btn-sm"
             onClick={(e) => {
-              e.stopPropagation()
-              onClaim()
+              e.stopPropagation();
+              onClaim();
             }}
             disabled={isClaiming}
             title="Claim rewards"
           >
-            {isClaiming ? '...' : <DollarSign size={14} />}
+            {isClaiming ? "..." : <DollarSign size={14} />}
           </button>
         ) : (
           <ArrowUpRight
             size={16}
-            style={{ color: 'var(--text-muted)', cursor: 'pointer' }}
+            style={{ color: "var(--text-muted)", cursor: "pointer" }}
             onClick={onSelect}
           />
         )}
       </td>
     </tr>
-  )
+  );
 }
 
 function EarningsRow({
@@ -809,33 +830,33 @@ function EarningsRow({
   value,
   highlight,
 }: {
-  label: string
-  value: string
-  highlight?: boolean
+  label: string;
+  value: string;
+  highlight?: boolean;
 }) {
   return (
     <div
       style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: '0.75rem',
-        background: highlight ? 'rgba(34, 197, 94, 0.1)' : 'var(--bg-tertiary)',
-        borderRadius: 'var(--radius-md)',
-        border: highlight ? '1px solid var(--success)' : undefined,
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "0.75rem",
+        background: highlight ? "rgba(34, 197, 94, 0.1)" : "var(--bg-tertiary)",
+        borderRadius: "var(--radius-md)",
+        border: highlight ? "1px solid var(--success)" : undefined,
       }}
     >
-      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ color: "var(--text-secondary)" }}>{label}</span>
       <span
         style={{
-          fontFamily: 'var(--font-mono)',
+          fontFamily: "var(--font-mono)",
           fontWeight: 600,
-          color: highlight ? 'var(--success)' : 'var(--text)',
+          color: highlight ? "var(--success)" : "var(--text)",
         }}
       >
         {value}
       </span>
     </div>
-  )
+  );
 }
 
 function PerformanceMetric({
@@ -844,30 +865,30 @@ function PerformanceMetric({
   icon,
   status,
 }: {
-  label: string
-  value: string
-  icon: React.ReactNode
-  status: 'good' | 'warning' | 'bad' | 'neutral'
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  status: "good" | "warning" | "bad" | "neutral";
 }) {
   const statusColors = {
-    good: 'var(--success)',
-    warning: 'var(--warning)',
-    bad: 'var(--error)',
-    neutral: 'var(--text-secondary)',
-  }
+    good: "var(--success)",
+    warning: "var(--warning)",
+    bad: "var(--error)",
+    neutral: "var(--text-secondary)",
+  };
 
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.5rem 0',
+        display: "flex",
+        alignItems: "center",
+        gap: "0.75rem",
+        padding: "0.5rem 0",
       }}
     >
       <div style={{ color: statusColors[status] }}>{icon}</div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+        <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
           {label}
         </div>
         <div
@@ -880,20 +901,20 @@ function PerformanceMetric({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function NetworkStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-      <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+    <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
         {label}
       </span>
-      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}>
         {value}
       </span>
     </div>
-  )
+  );
 }
 
 function NodeDetailsPanel({
@@ -907,17 +928,17 @@ function NodeDetailsPanel({
   isDeregistering,
   isUpdating,
 }: {
-  node: NodeInfo | undefined
-  displayStakedUsd: number
-  onClose: () => void
-  onClaim: (nodeId: string, nodeName: string) => void
-  onDeregister: (nodeId: string, nodeName: string) => void
-  onUpdatePerformance: (nodeId: string, nodeName: string) => void
-  isClaiming: boolean
-  isDeregistering: boolean
-  isUpdating: boolean
+  node: NodeInfo | undefined;
+  displayStakedUsd: number;
+  onClose: () => void;
+  onClaim: (nodeId: string, nodeName: string) => void;
+  onDeregister: (nodeId: string, nodeName: string) => void;
+  onUpdatePerformance: (nodeId: string, nodeName: string) => void;
+  isClaiming: boolean;
+  isDeregistering: boolean;
+  isUpdating: boolean;
 }) {
-  const publicClient = usePublicClient()
+  const publicClient = usePublicClient();
   const {
     increaseNodeStake,
     updateNodeConfig,
@@ -925,133 +946,134 @@ function NodeDetailsPanel({
     updateNodeMetadataURI,
     isMutatingNode,
     gasless,
-  } = useNodeManagement()
+  } = useNodeManagement();
 
-  const [stakeIncreaseInput, setStakeIncreaseInput] = useState('0')
-  const [editRpcUrl, setEditRpcUrl] = useState(node?.rpcUrl ?? '')
+  const [stakeIncreaseInput, setStakeIncreaseInput] = useState("0");
+  const [editRpcUrl, setEditRpcUrl] = useState(node?.rpcUrl ?? "");
   const [editRegion, setEditRegion] = useState<number>(
     node
       ? (REGION_TO_VALUE[node.region] ?? REGION_TO_VALUE.Global)
       : REGION_TO_VALUE.Global,
-  )
-  const [metadataUri, setMetadataUri] = useState('')
-  const [selectedServices, setSelectedServices] = useState<NodeServiceId[]>([])
+  );
+  const [metadataUri, setMetadataUri] = useState("");
+  const [selectedServices, setSelectedServices] = useState<NodeServiceId[]>([]);
   const [actionResult, setActionResult] =
-    useState<TransactionStatusResult | null>(null)
+    useState<TransactionStatusResult | null>(null);
 
   const servicesHash = useMemo(() => {
-    if (selectedServices.length === 0) return null
-    const normalized = [...selectedServices].sort()
-    return keccak256(toBytes(JSON.stringify(normalized)))
-  }, [selectedServices])
+    if (selectedServices.length === 0) return null;
+    const normalized = [...selectedServices].sort();
+    return keccak256(toBytes(JSON.stringify(normalized)));
+  }, [selectedServices]);
 
   useEffect(() => {
-    if (!node) return
-    setEditRpcUrl(node.rpcUrl)
-    setEditRegion(REGION_TO_VALUE[node.region] ?? REGION_TO_VALUE.Global)
-  }, [node])
+    if (!node) return;
+    setEditRpcUrl(node.rpcUrl);
+    setEditRegion(REGION_TO_VALUE[node.region] ?? REGION_TO_VALUE.Global);
+  }, [node]);
 
-  if (!node) return null
+  if (!node) return null;
 
-  const hasPendingRewards = parseFloat(node.pendingRewards) > 0
-  const metadataPending = Boolean(node.metadataPending)
-  const nodeName = node.nodeId.slice(0, 10)
-  const normalizedOperator = node.operator?.toLowerCase()
-  const normalizedOwner = gasless.ownerAddress?.toLowerCase()
-  const normalizedSmartOwner = gasless.smartAccountAddress?.toLowerCase()
+  const hasPendingRewards = parseFloat(node.pendingRewards) > 0;
+  const metadataPending = Boolean(node.metadataPending);
+  const nodeName = node.nodeId.slice(0, 10);
+  const normalizedOperator = node.operator?.toLowerCase();
+  const normalizedOwner = gasless.ownerAddress?.toLowerCase();
+  const normalizedSmartOwner = gasless.smartAccountAddress?.toLowerCase();
   const isSmartAccountOperator =
-    Boolean(normalizedSmartOwner) && normalizedOperator === normalizedSmartOwner
+    Boolean(normalizedSmartOwner) &&
+    normalizedOperator === normalizedSmartOwner;
   const canManageNode = Boolean(
     normalizedOperator &&
       (normalizedOperator === normalizedOwner || isSmartAccountOperator),
-  )
+  );
 
   const getErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : 'Unknown transaction failure'
+    error instanceof Error ? error.message : "Unknown transaction failure";
 
   const runNodeMutation = async (params: {
-    action: () => Promise<Hex>
-    submittedTitle: string
-    submittedMessage: string
-    successTitle: string
-    successMessage: string
-    errorTitle: string
+    action: () => Promise<Hex>;
+    submittedTitle: string;
+    submittedMessage: string;
+    successTitle: string;
+    successMessage: string;
+    errorTitle: string;
   }) => {
     try {
-      const txHash = await params.action()
+      const txHash = await params.action();
       setActionResult({
-        status: 'info',
+        status: "info",
         title: params.submittedTitle,
         message: params.submittedMessage,
         txHash,
         explorerUrl: EXPLORER_URL,
-      })
+      });
 
-      if (!publicClient) return
+      if (!publicClient) return;
 
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: txHash,
-      })
-      if (receipt.status === 'success') {
+      });
+      if (receipt.status === "success") {
         setActionResult({
-          status: 'success',
+          status: "success",
           title: params.successTitle,
           message: params.successMessage,
           txHash,
           explorerUrl: EXPLORER_URL,
-        })
-        return
+        });
+        return;
       }
 
       setActionResult({
-        status: 'error',
+        status: "error",
         title: params.errorTitle,
-        message: 'Transaction reverted on-chain during confirmation.',
+        message: "Transaction reverted on-chain during confirmation.",
         txHash,
         explorerUrl: EXPLORER_URL,
-      })
+      });
     } catch (error) {
       setActionResult({
-        status: 'error',
+        status: "error",
         title: params.errorTitle,
         message: getErrorMessage(error),
         explorerUrl: EXPLORER_URL,
-      })
+      });
     }
-  }
+  };
 
   const handleIncreaseStake = async () => {
     if (!canManageNode) {
       setActionResult({
-        status: 'error',
-        title: 'Increase stake failed',
-        message: 'Connected wallet does not match this node operator.',
+        status: "error",
+        title: "Increase stake failed",
+        message: "Connected wallet does not match this node operator.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
-    let amount: bigint
+    let amount: bigint;
     try {
-      amount = parseUnits(stakeIncreaseInput, 18)
+      amount = parseUnits(stakeIncreaseInput, 18);
     } catch {
       setActionResult({
-        status: 'error',
-        title: 'Increase stake failed',
+        status: "error",
+        title: "Increase stake failed",
         message: `Invalid amount: "${stakeIncreaseInput}".`,
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     if (amount <= 0n) {
       setActionResult({
-        status: 'error',
-        title: 'Increase stake failed',
-        message: 'Amount must be greater than zero.',
+        status: "error",
+        title: "Increase stake failed",
+        message: "Amount must be greater than zero.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     await runNodeMutation({
@@ -1062,33 +1084,33 @@ function NodeDetailsPanel({
           amount,
           { gasless: isSmartAccountOperator },
         ),
-      submittedTitle: 'Stake increase submitted',
-      submittedMessage: 'Increasing node stake on-chain.',
-      successTitle: 'Stake increased',
-      successMessage: 'Node stake amount updated on-chain.',
-      errorTitle: 'Increase stake failed',
-    })
-  }
+      submittedTitle: "Stake increase submitted",
+      submittedMessage: "Increasing node stake on-chain.",
+      successTitle: "Stake increased",
+      successMessage: "Node stake amount updated on-chain.",
+      errorTitle: "Increase stake failed",
+    });
+  };
 
   const handleUpdateConfig = async () => {
     if (!canManageNode) {
       setActionResult({
-        status: 'error',
-        title: 'Config update failed',
-        message: 'Connected wallet does not match this node operator.',
+        status: "error",
+        title: "Config update failed",
+        message: "Connected wallet does not match this node operator.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     if (!editRpcUrl.trim()) {
       setActionResult({
-        status: 'error',
-        title: 'Config update failed',
-        message: 'RPC URL is required.',
+        status: "error",
+        title: "Config update failed",
+        message: "RPC URL is required.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     await runNodeMutation({
@@ -1096,33 +1118,33 @@ function NodeDetailsPanel({
         updateNodeConfig(node.nodeId as Hex, editRpcUrl.trim(), editRegion, {
           gasless: isSmartAccountOperator,
         }),
-      submittedTitle: 'Node config update submitted',
-      submittedMessage: 'Updating endpoint and region on-chain.',
-      successTitle: 'Node config updated',
-      successMessage: 'Node endpoint and region updated on-chain.',
-      errorTitle: 'Config update failed',
-    })
-  }
+      submittedTitle: "Node config update submitted",
+      submittedMessage: "Updating endpoint and region on-chain.",
+      successTitle: "Node config updated",
+      successMessage: "Node endpoint and region updated on-chain.",
+      errorTitle: "Config update failed",
+    });
+  };
 
   const handleUpdateServices = async () => {
     if (!canManageNode) {
       setActionResult({
-        status: 'error',
-        title: 'Service update failed',
-        message: 'Connected wallet does not match this node operator.',
+        status: "error",
+        title: "Service update failed",
+        message: "Connected wallet does not match this node operator.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     if (!servicesHash) {
       setActionResult({
-        status: 'error',
-        title: 'Service update failed',
-        message: 'Select at least one service before saving.',
+        status: "error",
+        title: "Service update failed",
+        message: "Select at least one service before saving.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     await runNodeMutation({
@@ -1130,33 +1152,33 @@ function NodeDetailsPanel({
         updateNodeServices(node.nodeId as Hex, servicesHash, {
           gasless: isSmartAccountOperator,
         }),
-      submittedTitle: 'Service update submitted',
-      submittedMessage: 'Updating service hash on-chain.',
-      successTitle: 'Services updated',
-      successMessage: 'Node service hash updated on-chain.',
-      errorTitle: 'Service update failed',
-    })
-  }
+      submittedTitle: "Service update submitted",
+      submittedMessage: "Updating service hash on-chain.",
+      successTitle: "Services updated",
+      successMessage: "Node service hash updated on-chain.",
+      errorTitle: "Service update failed",
+    });
+  };
 
   const handleUpdateMetadata = async () => {
     if (!canManageNode) {
       setActionResult({
-        status: 'error',
-        title: 'Metadata update failed',
-        message: 'Connected wallet does not match this node operator.',
+        status: "error",
+        title: "Metadata update failed",
+        message: "Connected wallet does not match this node operator.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     if (!metadataUri.trim()) {
       setActionResult({
-        status: 'error',
-        title: 'Metadata update failed',
-        message: 'Metadata URI is required.',
+        status: "error",
+        title: "Metadata update failed",
+        message: "Metadata URI is required.",
         explorerUrl: EXPLORER_URL,
-      })
-      return
+      });
+      return;
     }
 
     await runNodeMutation({
@@ -1164,35 +1186,35 @@ function NodeDetailsPanel({
         updateNodeMetadataURI(node.nodeId as Hex, metadataUri.trim(), {
           gasless: isSmartAccountOperator,
         }),
-      submittedTitle: 'Metadata update submitted',
-      submittedMessage: 'Updating metadata URI pointer on-chain.',
-      successTitle: 'Metadata URI updated',
-      successMessage: 'Metadata URI pointer updated on-chain.',
-      errorTitle: 'Metadata update failed',
-    })
-  }
+      submittedTitle: "Metadata update submitted",
+      submittedMessage: "Updating metadata URI pointer on-chain.",
+      successTitle: "Metadata URI updated",
+      successMessage: "Metadata URI pointer updated on-chain.",
+      errorTitle: "Metadata update failed",
+    });
+  };
 
   return (
     <div
       className="card"
       style={{
-        marginTop: '1.5rem',
-        border: '1px solid var(--accent)',
-        position: 'relative',
+        marginTop: "1.5rem",
+        border: "1px solid var(--accent)",
+        position: "relative",
       }}
     >
       <button
         type="button"
         onClick={onClose}
         style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-          background: 'none',
-          border: 'none',
-          color: 'var(--text-muted)',
-          cursor: 'pointer',
-          fontSize: '1.25rem',
+          position: "absolute",
+          top: "1rem",
+          right: "1rem",
+          background: "none",
+          border: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: "1.25rem",
         }}
       >
         ×
@@ -1206,27 +1228,31 @@ function NodeDetailsPanel({
 
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-          gap: '1.5rem',
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+          gap: "1.5rem",
         }}
       >
         <div>
-          <h4 style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+          <h4 style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>
             General
           </h4>
           <DetailRow label="Node ID" value={node.nodeId} mono />
+          <DetailRow
+            label="Protocol Version"
+            value={formatNodeVersionLabel(node)}
+          />
           <DetailRow label="Region" value={node.region} />
           <DetailRow
             label="Status"
             value={
               metadataPending
-                ? 'Metadata pending'
+                ? "Metadata pending"
                 : node.isActive
-                  ? 'Active'
+                  ? "Active"
                   : node.isSlashed
-                    ? 'Slashed'
-                    : 'Inactive'
+                    ? "Slashed"
+                    : "Inactive"
             }
           />
           <DetailRow label="RPC URL" value={node.rpcUrl} mono small />
@@ -1234,14 +1260,14 @@ function NodeDetailsPanel({
             label="Registered"
             value={
               metadataPending || node.registrationTime === 0
-                ? 'Pending metadata'
+                ? "Pending metadata"
                 : new Date(node.registrationTime * 1000).toLocaleDateString()
             }
           />
         </div>
 
         <div>
-          <h4 style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+          <h4 style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>
             Staking
           </h4>
           <DetailRow
@@ -1257,7 +1283,7 @@ function NodeDetailsPanel({
             label="Last Claim"
             value={
               metadataPending || node.lastClaimTime === 0
-                ? 'Pending metadata'
+                ? "Pending metadata"
                 : new Date(node.lastClaimTime * 1000).toLocaleDateString()
             }
           />
@@ -1268,7 +1294,7 @@ function NodeDetailsPanel({
         </div>
 
         <div>
-          <h4 style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+          <h4 style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>
             Performance
           </h4>
           <DetailRow
@@ -1287,7 +1313,7 @@ function NodeDetailsPanel({
             label="Last Update"
             value={
               metadataPending || node.performance.lastUpdateTime === 0
-                ? 'Pending metadata'
+                ? "Pending metadata"
                 : new Date(
                     node.performance.lastUpdateTime * 1000,
                   ).toLocaleString()
@@ -1301,7 +1327,7 @@ function NodeDetailsPanel({
         </div>
       </div>
 
-      <div style={{ marginTop: '1.5rem', display: 'flex', gap: '0.75rem' }}>
+      <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem" }}>
         <button
           type="button"
           className="btn btn-primary"
@@ -1309,7 +1335,7 @@ function NodeDetailsPanel({
           disabled={!hasPendingRewards || isClaiming || metadataPending}
         >
           {isClaiming ? (
-            'Claiming...'
+            "Claiming..."
           ) : (
             <>
               <DollarSign size={16} /> Claim Rewards
@@ -1323,7 +1349,7 @@ function NodeDetailsPanel({
           disabled={isUpdating || metadataPending}
         >
           {isUpdating ? (
-            'Updating...'
+            "Updating..."
           ) : (
             <>
               <RefreshCw size={16} /> Update Performance
@@ -1334,12 +1360,12 @@ function NodeDetailsPanel({
           <button
             type="button"
             className="btn btn-secondary"
-            style={{ color: 'var(--warning)' }}
+            style={{ color: "var(--warning)" }}
             onClick={() => onDeregister(node.nodeId, nodeName)}
             disabled={isDeregistering}
           >
             {isDeregistering ? (
-              'Deregistering...'
+              "Deregistering..."
             ) : (
               <>
                 <AlertTriangle size={16} /> Deregister Node
@@ -1351,30 +1377,30 @@ function NodeDetailsPanel({
 
       <div
         style={{
-          marginTop: '1rem',
-          borderTop: '1px solid var(--border)',
-          paddingTop: '1rem',
-          display: 'grid',
-          gap: '0.9rem',
+          marginTop: "1rem",
+          borderTop: "1px solid var(--border)",
+          paddingTop: "1rem",
+          display: "grid",
+          gap: "0.9rem",
         }}
       >
-        <h4 style={{ margin: 0, color: 'var(--text-secondary)' }}>
+        <h4 style={{ margin: 0, color: "var(--text-secondary)" }}>
           Manage Node
         </h4>
 
         {!canManageNode ? (
           <p
-            style={{ margin: 0, color: 'var(--warning)', fontSize: '0.85rem' }}
+            style={{ margin: 0, color: "var(--warning)", fontSize: "0.85rem" }}
           >
             Connected wallet is not authorized to edit this node.
           </p>
         ) : null}
 
-        <div style={{ display: 'grid', gap: '0.5rem' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ display: "grid", gap: "0.5rem" }}>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
             Increase Stake (token units)
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
             <input
               className="input"
               type="number"
@@ -1395,15 +1421,15 @@ function NodeDetailsPanel({
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: '0.5rem' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ display: "grid", gap: "0.5rem" }}>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
             Endpoint / Region
           </div>
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(0, 1fr) 180px auto',
-              gap: '0.5rem',
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) 180px auto",
+              gap: "0.5rem",
             }}
           >
             <input
@@ -1435,20 +1461,20 @@ function NodeDetailsPanel({
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: '0.5rem' }}>
+        <div style={{ display: "grid", gap: "0.5rem" }}>
           <div
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '0.5rem',
-              flexWrap: 'wrap',
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "0.5rem",
+              flexWrap: "wrap",
             }}
           >
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
               Services
             </div>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <div style={{ display: "flex", gap: "0.4rem" }}>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -1470,17 +1496,17 @@ function NodeDetailsPanel({
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
             {NODE_SERVICE_DEFINITIONS.map((service) => {
-              const selected = selectedServices.includes(service.id)
+              const selected = selectedServices.includes(service.id);
               return (
                 <button
                   key={service.id}
                   type="button"
                   className="btn btn-secondary btn-sm"
                   style={{
-                    borderColor: selected ? 'var(--accent)' : undefined,
-                    color: selected ? 'var(--accent)' : undefined,
+                    borderColor: selected ? "var(--accent)" : undefined,
+                    color: selected ? "var(--accent)" : undefined,
                   }}
                   onClick={() =>
                     setSelectedServices((current) =>
@@ -1492,19 +1518,19 @@ function NodeDetailsPanel({
                 >
                   {service.id}
                 </button>
-              )
+              );
             })}
           </div>
 
           <div
             style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.75rem',
-              color: 'var(--text-muted)',
-              wordBreak: 'break-all',
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.75rem",
+              color: "var(--text-muted)",
+              wordBreak: "break-all",
             }}
           >
-            New hash: {servicesHash ?? 'not set'}
+            New hash: {servicesHash ?? "not set"}
           </div>
 
           <button
@@ -1517,8 +1543,8 @@ function NodeDetailsPanel({
           </button>
         </div>
 
-        <div style={{ display: 'grid', gap: '0.5rem' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ display: "grid", gap: "0.5rem" }}>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
             Metadata URI
           </div>
           <input
@@ -1546,7 +1572,7 @@ function NodeDetailsPanel({
         />
       ) : null}
     </div>
-  )
+  );
 }
 
 function DetailRow({
@@ -1556,30 +1582,30 @@ function DetailRow({
   small,
   highlight,
 }: {
-  label: string
-  value: string
-  mono?: boolean
-  small?: boolean
-  highlight?: boolean
+  label: string;
+  value: string;
+  mono?: boolean;
+  small?: boolean;
+  highlight?: boolean;
 }) {
   return (
-    <div style={{ marginBottom: '0.75rem' }}>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+    <div style={{ marginBottom: "0.75rem" }}>
+      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
         {label}
       </div>
       <div
         style={{
-          fontFamily: mono ? 'var(--font-mono)' : undefined,
-          fontSize: small ? '0.8rem' : '0.9rem',
-          color: highlight ? 'var(--success)' : 'var(--text)',
+          fontFamily: mono ? "var(--font-mono)" : undefined,
+          fontSize: small ? "0.8rem" : "0.9rem",
+          color: highlight ? "var(--success)" : "var(--text)",
           fontWeight: highlight ? 600 : undefined,
-          wordBreak: 'break-all',
+          wordBreak: "break-all",
         }}
       >
         {value}
       </div>
     </div>
-  )
+  );
 }
 
 function ActivityRow({ item }: { item: EarningsHistoryItem }) {
@@ -1587,45 +1613,45 @@ function ActivityRow({ item }: { item: EarningsHistoryItem }) {
     <tr>
       <td>
         <span
-          className={`badge ${item.type === 'claim' ? 'badge-success' : 'badge-info'}`}
+          className={`badge ${item.type === "claim" ? "badge-success" : "badge-info"}`}
         >
-          {item.type === 'claim' ? 'Reward Claim' : 'Node Registered'}
+          {item.type === "claim" ? "Reward Claim" : "Node Registered"}
         </span>
       </td>
-      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+      <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem" }}>
         {item.nodeId.slice(0, 10)}...
       </td>
       <td>
-        {item.type === 'claim'
-          ? `$${formatNumber(item.amount ?? '0')}`
-          : `$${formatNumber(item.stakedValueUSD ?? '0')} staked`}
+        {item.type === "claim"
+          ? `$${formatNumber(item.amount ?? "0")}`
+          : `$${formatNumber(item.stakedValueUSD ?? "0")} staked`}
       </td>
-      <td style={{ fontFamily: 'var(--font-mono)' }}>{item.blockNumber}</td>
+      <td style={{ fontFamily: "var(--font-mono)" }}>{item.blockNumber}</td>
       <td>
         <a
           href={`https://etherscan.io/tx/${item.transactionHash}`}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: 'var(--accent)' }}
+          style={{ color: "var(--accent)" }}
         >
           {item.transactionHash.slice(0, 10)}...
         </a>
       </td>
     </tr>
-  )
+  );
 }
 
 // Utility functions
 
 function formatNumber(value: string | number): string {
-  const num = typeof value === 'string' ? parseFloat(value) : value
-  if (Number.isNaN(num)) return '0'
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (Number.isNaN(num)) return "0";
 
   if (num >= 1000000) {
-    return `${(num / 1000000).toFixed(2)}M`
+    return `${(num / 1000000).toFixed(2)}M`;
   }
   if (num >= 1000) {
-    return `${(num / 1000).toFixed(2)}K`
+    return `${(num / 1000).toFixed(2)}K`;
   }
-  return num.toFixed(2)
+  return num.toFixed(2);
 }
