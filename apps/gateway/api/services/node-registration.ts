@@ -22,31 +22,39 @@ function createNodeProofSignerClient() {
     timeoutMs: Number.isFinite(kmsTimeoutMs) ? kmsTimeoutMs : 8000,
   })
 }
+let signerClient = createNodeProofSignerClient()
+
+async function getInitializedSigner() {
+  await signerClient.initialize()
+  return signerClient
+}
+
+function resetSignerClient() {
+  signerClient = createNodeProofSignerClient()
+}
 const remoteChallengeOrigins = new Map<string, string>()
 
 const proofSigner: NodeProofSigner = {
   async getNodeWalletAddress() {
-    const signer = createNodeProofSignerClient()
-    await signer.initialize()
+    const signer = await getInitializedSigner()
     return signer.getAddress() as Address
   },
   async signNodeMessage(message) {
-    let activeSigner = createNodeProofSignerClient()
-    await activeSigner.initialize()
-    const signed = await activeSigner.signMessage(message).catch(async (error) => {
+    const signer = await getInitializedSigner()
+    const signed = await signer.signMessage(message).catch((error) => {
       const messageText = error instanceof Error ? error.message : String(error)
       if (!messageText.includes('Key not found')) {
         throw error
       }
 
-      // KMS may have lost volatile key state (e.g. restart without restored key map).
-      // Recreate signer + key mapping once and retry signing.
-      activeSigner = createNodeProofSignerClient()
-      await activeSigner.initialize()
-      return activeSigner.signMessage(message)
+      // KMS key state was rotated or lost. Force a new signer on next challenge.
+      resetSignerClient()
+      throw new Error(
+        'Node proof signer key changed. Click Prepare Proof again and re-authorize the delegated wallet.',
+      )
     })
     return {
-      address: activeSigner.getAddress() as Address,
+      address: signer.getAddress() as Address,
       signature: signed.signature,
     }
   },
