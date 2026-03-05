@@ -782,8 +782,23 @@ export default function NodeRegistrationWizard() {
     setIsVerifyingProof(true)
 
     try {
+      setAuthorizeResult({
+        status: 'info',
+        title: 'Signature requested',
+        message:
+          'Approve the verification signature in your wallet to continue.',
+        explorerUrl: EXPLORER_URL,
+      })
+
       const operatorSignature = await signMessageAsync({
         message: proofChallenge.operatorMessage,
+      })
+
+      setAuthorizeResult({
+        status: 'info',
+        title: 'Verification submitted',
+        message: 'Submitting endpoint ownership proof for verification.',
+        explorerUrl: EXPLORER_URL,
       })
 
       const response = await fetch('/node-registration/verify', {
@@ -853,13 +868,15 @@ export default function NodeRegistrationWizard() {
       })
     } catch (err) {
       setProofVerification(null)
+      const message =
+        err instanceof Error ? err.message : 'Failed to verify proof'
       setAuthorizeResult({
         status: 'error',
         title: 'Verification failed',
-        message: err instanceof Error ? err.message : 'Failed to verify proof',
+        message,
         explorerUrl: EXPLORER_URL,
       })
-      setError(err instanceof Error ? err.message : 'Failed to verify proof')
+      setError(message)
     } finally {
       setIsVerifyingProof(false)
     }

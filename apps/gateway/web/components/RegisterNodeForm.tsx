@@ -601,8 +601,23 @@ export default function RegisterNodeForm() {
     setIsVerifyingProof(true)
 
     try {
+      setAuthorizeResult({
+        status: 'info',
+        title: 'Signature requested',
+        message:
+          'Approve the verification signature in your wallet to continue.',
+        explorerUrl: EXPLORER_URL,
+      })
+
       const operatorSignature = await signMessageAsync({
         message: proofChallenge.operatorMessage,
+      })
+
+      setAuthorizeResult({
+        status: 'info',
+        title: 'Verification submitted',
+        message: 'Submitting endpoint ownership proof for verification.',
+        explorerUrl: EXPLORER_URL,
       })
 
       const response = await fetch('/gateway/api/node-registration/verify', {
@@ -670,17 +685,16 @@ export default function RegisterNodeForm() {
         explorerUrl: EXPLORER_URL,
       })
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to verify proof'
       setProofVerification(null)
       setAuthorizeResult({
         status: 'error',
         title: 'Verification failed',
-        message:
-          error instanceof Error ? error.message : 'Failed to verify proof',
+        message,
         explorerUrl: EXPLORER_URL,
       })
-      setSubmitError(
-        error instanceof Error ? error.message : 'Failed to verify proof',
-      )
+      setSubmitError(message)
     } finally {
       setIsVerifyingProof(false)
     }
