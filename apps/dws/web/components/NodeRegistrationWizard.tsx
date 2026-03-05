@@ -1051,7 +1051,7 @@ export default function NodeRegistrationWizard() {
 
     if (!nodeId) {
       setNodeIdentityError(
-        'Node registered, but the node ID could not be decoded from the receipt.',
+        'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh your nodes view and explorer to confirm on-chain state.',
       )
       return
     }

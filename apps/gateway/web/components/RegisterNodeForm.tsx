@@ -779,7 +779,7 @@ export default function RegisterNodeForm() {
 
     if (!nodeId) {
       setNodeIdentityError(
-        'Node registered, but the node ID could not be decoded.',
+        'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh My Nodes and the explorer to confirm on-chain state.',
       )
       return
     }
@@ -835,7 +835,11 @@ export default function RegisterNodeForm() {
     if (nodeRegistrationResult) {
       setStep('complete')
     }
-  }, [nodeRegistrationResult])
+
+    if (step === 'confirm' && nodeIdentityError && processedRegistrationHash) {
+      setStep('complete')
+    }
+  }, [nodeRegistrationResult, nodeIdentityError, processedRegistrationHash, step])
 
   const steps: Array<{ key: RegistrationStep; label: string }> = [
     { key: 'identity', label: 'Identity' },
@@ -1737,12 +1741,21 @@ export default function RegisterNodeForm() {
       <div
         style={{
           padding: '1rem',
-          background: 'var(--success-soft)',
+          background: nodeIdentityError
+            ? 'var(--warning-soft)'
+            : 'var(--success-soft)',
           borderRadius: '8px',
         }}
       >
-        <p style={{ color: 'var(--success)', margin: 0 }}>
-          ✅ Node registered successfully!
+        <p
+          style={{
+            color: nodeIdentityError ? 'var(--warning)' : 'var(--success)',
+            margin: 0,
+          }}
+        >
+          {nodeIdentityError
+            ? '⚠️ Node staking succeeded with follow-up issues.'
+            : '✅ Node registered successfully!'}
           {nodeRegistrationResult?.nodeIdentityId
             ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} is linked to ${nodeRegistrationResult.nodeId}.`
             : ''}
