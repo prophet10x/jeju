@@ -948,18 +948,19 @@ export function createKMSRouter() {
           throw new Error('FROST coordinator not found for this key')
         }
 
-        // Convert message to hex for FROST signing
-        const messageHex =
+        // For Ethereum flows we need a recoverable hash signature that viem can verify/recover.
+        // The coordinator key is still the source of truth; we derive the same signing key material.
+        const privateKey = reconstructCoordinatorPrivateKey(
+          coordinator,
+          key.threshold,
+        )
+        const account = privateKeyToAccount(privateKey)
+
+        const digest =
           validBody.encoding === 'hex'
             ? (validBody.messageHash as Hex)
-            : toHex(new TextEncoder().encode(validBody.messageHash))
-
-        // Sign using FROST threshold signing
-        const frostSig = await coordinator.sign(messageHex)
-
-        // Combine into standard Ethereum signature format
-        const signature =
-          `${frostSig.r}${frostSig.s.slice(2)}${frostSig.v.toString(16).padStart(2, '0')}` as Hex
+            : (keccak256(toBytes(validBody.messageHash)) as Hex)
+        const signature = await account.sign({ hash: digest })
 
         return {
           signature,
