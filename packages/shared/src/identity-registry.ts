@@ -1,4 +1,4 @@
-import { decodeEventLog, type Address, type Hex, type PublicClient } from 'viem'
+import { type Address, decodeEventLog, type Hex, type PublicClient } from 'viem'
 import type { NodeIdentityMetadata, NodeServiceId } from './node-services'
 
 export const IDENTITY_REGISTRY_ABI = [
@@ -26,7 +26,9 @@ export const IDENTITY_REGISTRY_ABI = [
       { internalType: 'uint256', name: 'limit', type: 'uint256' },
     ],
     name: 'getAllAgents',
-    outputs: [{ internalType: 'uint256[]', name: 'agentIds', type: 'uint256[]' }],
+    outputs: [
+      { internalType: 'uint256[]', name: 'agentIds', type: 'uint256[]' },
+    ],
     stateMutability: 'view',
     type: 'function',
   },
@@ -125,11 +127,31 @@ export const REGISTERED_EVENT_ABI = [
   {
     anonymous: false,
     inputs: [
-      { indexed: true, internalType: 'uint256', name: 'agentId', type: 'uint256' },
-      { indexed: true, internalType: 'address', name: 'owner', type: 'address' },
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'agentId',
+        type: 'uint256',
+      },
+      {
+        indexed: true,
+        internalType: 'address',
+        name: 'owner',
+        type: 'address',
+      },
       { indexed: false, internalType: 'uint8', name: 'tier', type: 'uint8' },
-      { indexed: false, internalType: 'uint256', name: 'stakedAmount', type: 'uint256' },
-      { indexed: false, internalType: 'string', name: 'tokenURI', type: 'string' },
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'stakedAmount',
+        type: 'uint256',
+      },
+      {
+        indexed: false,
+        internalType: 'string',
+        name: 'tokenURI',
+        type: 'string',
+      },
     ],
     name: 'Registered',
     type: 'event',
@@ -142,7 +164,12 @@ const TRANSFER_EVENT_ABI = [
     inputs: [
       { indexed: true, internalType: 'address', name: 'from', type: 'address' },
       { indexed: true, internalType: 'address', name: 'to', type: 'address' },
-      { indexed: true, internalType: 'uint256', name: 'tokenId', type: 'uint256' },
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'tokenId',
+        type: 'uint256',
+      },
     ],
     name: 'Transfer',
     type: 'event',
@@ -153,14 +180,78 @@ export const NODE_REGISTERED_EVENT_ABI = [
   {
     anonymous: false,
     inputs: [
-      { indexed: true, internalType: 'bytes32', name: 'nodeId', type: 'bytes32' },
-      { indexed: true, internalType: 'address', name: 'operator', type: 'address' },
-      { indexed: true, internalType: 'address', name: 'stakingToken', type: 'address' },
-      { indexed: false, internalType: 'address', name: 'rewardToken', type: 'address' },
-      { indexed: false, internalType: 'uint256', name: 'stakeAmount', type: 'uint256' },
-      { indexed: false, internalType: 'uint256', name: 'stakeValueUSD', type: 'uint256' },
+      {
+        indexed: true,
+        internalType: 'bytes32',
+        name: 'nodeId',
+        type: 'bytes32',
+      },
+      {
+        indexed: true,
+        internalType: 'address',
+        name: 'operator',
+        type: 'address',
+      },
+      {
+        indexed: true,
+        internalType: 'address',
+        name: 'stakingToken',
+        type: 'address',
+      },
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'rewardToken',
+        type: 'address',
+      },
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'stakeAmount',
+        type: 'uint256',
+      },
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'stakeValueUSD',
+        type: 'uint256',
+      },
     ],
     name: 'NodeRegistered',
+    type: 'event',
+  },
+] as const
+
+export const NODE_IDENTITY_LINKED_EVENT_ABI = [
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: 'bytes32',
+        name: 'nodeId',
+        type: 'bytes32',
+      },
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'nodeIdentityAgentId',
+        type: 'uint256',
+      },
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'operatorAgentId',
+        type: 'uint256',
+      },
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'owner',
+        type: 'address',
+      },
+    ],
+    name: 'NodeIdentityLinked',
     type: 'event',
   },
 ] as const
@@ -192,11 +283,8 @@ export interface NodeIdentityPresentation {
   tags: string[]
 }
 
-function hasOwnRecordKey(
-  value: Record<string, unknown>,
-  key: string,
-): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key)
+function hasOwnRecordKey(value: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(value, key)
 }
 
 type ContractReadResult<T> =
@@ -491,64 +579,69 @@ export async function fetchOwnedAgentIdentities(params: {
     return []
   }
 
-  const [tokenUriResults, serviceTypeResults, categoryResults, tagResults, agentResults] =
-    await Promise.all([
-      readContractsWithFallback<string>({
-        publicClient,
-        contracts: ownedAgentIds.map((agentId) => ({
-          address: registryAddress,
-          abi: IDENTITY_REGISTRY_ABI,
-          functionName: 'tokenURI',
-          args: [agentId],
-        })),
-      }),
-      readContractsWithFallback<string>({
-        publicClient,
-        contracts: ownedAgentIds.map((agentId) => ({
-          address: registryAddress,
-          abi: IDENTITY_REGISTRY_ABI,
-          functionName: 'getServiceType',
-          args: [agentId],
-        })),
-      }),
-      readContractsWithFallback<string>({
-        publicClient,
-        contracts: ownedAgentIds.map((agentId) => ({
-          address: registryAddress,
-          abi: IDENTITY_REGISTRY_ABI,
-          functionName: 'getCategory',
-          args: [agentId],
-        })),
-      }),
-      readContractsWithFallback<string[]>({
-        publicClient,
-        contracts: ownedAgentIds.map((agentId) => ({
-          address: registryAddress,
-          abi: IDENTITY_REGISTRY_ABI,
-          functionName: 'getAgentTags',
-          args: [agentId],
-        })),
-      }),
-      readContractsWithFallback<{
-        agentId: bigint
-        owner: Address
-        tier: number
-        stakedToken: Address
-        stakedAmount: bigint
-        registeredAt: bigint
-        lastActivityAt: bigint
-        isBanned: boolean
-        isSlashed: boolean
-      }>({
-        publicClient,
-        contracts: ownedAgentIds.map((agentId) => ({
-          address: registryAddress,
-          abi: IDENTITY_REGISTRY_ABI,
-          functionName: 'agents',
-          args: [agentId],
-        })),
-      }),
-    ])
+  const [
+    tokenUriResults,
+    serviceTypeResults,
+    categoryResults,
+    tagResults,
+    agentResults,
+  ] = await Promise.all([
+    readContractsWithFallback<string>({
+      publicClient,
+      contracts: ownedAgentIds.map((agentId) => ({
+        address: registryAddress,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'tokenURI',
+        args: [agentId],
+      })),
+    }),
+    readContractsWithFallback<string>({
+      publicClient,
+      contracts: ownedAgentIds.map((agentId) => ({
+        address: registryAddress,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'getServiceType',
+        args: [agentId],
+      })),
+    }),
+    readContractsWithFallback<string>({
+      publicClient,
+      contracts: ownedAgentIds.map((agentId) => ({
+        address: registryAddress,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'getCategory',
+        args: [agentId],
+      })),
+    }),
+    readContractsWithFallback<string[]>({
+      publicClient,
+      contracts: ownedAgentIds.map((agentId) => ({
+        address: registryAddress,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'getAgentTags',
+        args: [agentId],
+      })),
+    }),
+    readContractsWithFallback<{
+      agentId: bigint
+      owner: Address
+      tier: number
+      stakedToken: Address
+      stakedAmount: bigint
+      registeredAt: bigint
+      lastActivityAt: bigint
+      isBanned: boolean
+      isSlashed: boolean
+    }>({
+      publicClient,
+      contracts: ownedAgentIds.map((agentId) => ({
+        address: registryAddress,
+        abi: IDENTITY_REGISTRY_ABI,
+        functionName: 'agents',
+        args: [agentId],
+      })),
+    }),
+  ])
 
   return ownedAgentIds
     .map<OwnedAgentIdentity | null>((agentId, index) => {
@@ -593,9 +686,9 @@ export function getRegisteredAgentIdFromReceipt(receipt: {
 }): bigint | undefined {
   for (const log of receipt.logs) {
     try {
-      const topics = (
-        log.topics.length > 0 ? [...log.topics] : []
-      ) as [] | [Hex, ...Hex[]]
+      const topics = (log.topics.length > 0 ? [...log.topics] : []) as
+        | []
+        | [Hex, ...Hex[]]
       const decoded = decodeEventLog({
         abi: REGISTERED_EVENT_ABI,
         data: log.data,
@@ -618,9 +711,9 @@ export function getNodeRegisteredIdFromReceipt(receipt: {
 }): Hex | undefined {
   for (const log of receipt.logs) {
     try {
-      const topics = (
-        log.topics.length > 0 ? [...log.topics] : []
-      ) as [] | [Hex, ...Hex[]]
+      const topics = (log.topics.length > 0 ? [...log.topics] : []) as
+        | []
+        | [Hex, ...Hex[]]
       const decoded = decodeEventLog({
         abi: NODE_REGISTERED_EVENT_ABI,
         data: log.data,
@@ -629,6 +722,31 @@ export function getNodeRegisteredIdFromReceipt(receipt: {
 
       if (decoded.eventName === 'NodeRegistered') {
         return decoded.args.nodeId
+      }
+    } catch {
+      // Ignore unrelated logs.
+    }
+  }
+
+  return undefined
+}
+
+export function getNodeIdentityLinkedAgentIdFromReceipt(receipt: {
+  logs: Array<{ data: Hex; topics: readonly Hex[] }>
+}): bigint | undefined {
+  for (const log of receipt.logs) {
+    try {
+      const topics = (log.topics.length > 0 ? [...log.topics] : []) as
+        | []
+        | [Hex, ...Hex[]]
+      const decoded = decodeEventLog({
+        abi: NODE_IDENTITY_LINKED_EVENT_ABI,
+        data: log.data,
+        topics,
+      })
+
+      if (decoded.eventName === 'NodeIdentityLinked') {
+        return decoded.args.nodeIdentityAgentId
       }
     } catch {
       // Ignore unrelated logs.
@@ -653,7 +771,8 @@ export async function fetchAgentWallet(params: {
       args: [agentId],
     })) as Address
 
-    return normalizeAddress(wallet) === normalizeAddress('0x0000000000000000000000000000000000000000')
+    return normalizeAddress(wallet) ===
+      normalizeAddress('0x0000000000000000000000000000000000000000')
       ? null
       : wallet
   } catch {

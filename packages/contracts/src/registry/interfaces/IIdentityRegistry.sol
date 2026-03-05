@@ -62,6 +62,18 @@ interface IIdentityRegistry is IERC721, IERC721Metadata {
         returns (uint256 agentId);
 
     /**
+     * @notice Register a new agent for a specified owner
+     * @dev Callable only by authorized registrars configured by governance
+     * @param owner_ The address that will own the newly minted agent NFT
+     * @param tokenURI_ The URI pointing to the agent's registration JSON file
+     * @param metadata Array of metadata entries to set for the agent
+     * @return agentId The newly assigned agent ID
+     */
+    function registerFor(address owner_, string calldata tokenURI_, MetadataEntry[] calldata metadata)
+        external
+        returns (uint256 agentId);
+
+    /**
      * @notice Register a new agent with tokenURI only
      * @param tokenURI_ The URI pointing to the agent's registration JSON file
      * @return agentId The newly assigned agent ID
@@ -74,6 +86,21 @@ interface IIdentityRegistry is IERC721, IERC721Metadata {
      * @return agentId The newly assigned agent ID
      */
     function register() external returns (uint256 agentId);
+
+    /**
+     * @notice Configure registrar permissions
+     * @dev Governance controlled
+     * @param registrar Registrar address to configure
+     * @param authorized Whether registrar is authorized
+     */
+    function setRegistrarAuthorization(address registrar, bool authorized) external;
+
+    /**
+     * @notice Returns whether a registrar is authorized for registerFor()
+     * @param registrar Registrar address to query
+     * @return authorized True when authorized
+     */
+    function isRegistrarAuthorized(address registrar) external view returns (bool authorized);
 
     // ============ Metadata Functions ============
 

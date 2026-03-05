@@ -5,9 +5,11 @@
  * Uses wagmi's useWriteContract for actual on-chain transactions.
  */
 
-import { useCallback } from 'react'
+import type { IdentityRegistryMetadataEntry } from '@jejunetwork/shared'
+import { useCallback, useEffect, useState } from 'react'
 import type { Address, Hex } from 'viem'
 import {
+  usePublicClient,
   useReadContract,
   useWaitForTransactionReceipt,
   useWriteContract,
@@ -55,6 +57,39 @@ const NODE_STAKING_MANAGER_ABI = [
     ],
     outputs: [{ name: 'nodeId', type: 'bytes32' }],
     stateMutability: 'nonpayable',
+  },
+  {
+    name: 'registerNodeWithAgentAndIdentity',
+    type: 'function',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+      { name: 'operatorAgentId', type: 'uint256' },
+      { name: 'nodeIdentityTokenURI', type: 'string' },
+      {
+        name: 'nodeIdentityMetadata',
+        type: 'tuple[]',
+        components: [
+          { name: 'key', type: 'string' },
+          { name: 'value', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'nodeIdentityAgentId', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
+    name: 'supportsAtomicNodeIdentityRegistration',
+    type: 'function',
+    inputs: [],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'pure',
   },
   {
     name: 'deactivateNode',
@@ -131,6 +166,8 @@ export interface RegisterNodeParams {
   rpcUrl: string
   region: RegionValue
   operatorAgentId?: bigint
+  nodeIdentityTokenURI?: string
+  nodeIdentityMetadata?: IdentityRegistryMetadataEntry[]
 }
 
 export interface UseNodeStakingResult {
@@ -147,6 +184,8 @@ export interface UseNodeStakingResult {
 
   // Registration
   registerNode: (params: RegisterNodeParams) => void
+  supportsAtomicNodeIdentityRegistration: boolean
+  isAtomicNodeIdentitySupportKnown: boolean
   isRegistering: boolean
   isRegistrationSuccess: boolean
   registrationHash: Hex | undefined
@@ -174,6 +213,44 @@ export function useNodeStaking(
   stakingManagerAddress: Address | undefined,
   operatorAddress: Address | undefined,
 ): UseNodeStakingResult {
+  const publicClient = usePublicClient()
+  const [
+    supportsAtomicNodeIdentityRegistration,
+    setSupportsAtomicNodeIdentityRegistration,
+  ] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function probeAtomicRegistrationSupport() {
+      if (!stakingManagerAddress || !publicClient) {
+        if (!cancelled) setSupportsAtomicNodeIdentityRegistration(false)
+        return
+      }
+
+      try {
+        const supported = (await publicClient.readContract({
+          address: stakingManagerAddress,
+          abi: NODE_STAKING_MANAGER_ABI,
+          functionName: 'supportsAtomicNodeIdentityRegistration',
+        })) as boolean
+        if (!cancelled) {
+          setSupportsAtomicNodeIdentityRegistration(Boolean(supported))
+        }
+      } catch {
+        if (!cancelled) {
+          setSupportsAtomicNodeIdentityRegistration(false)
+        }
+      }
+    }
+
+    void probeAtomicRegistrationSupport()
+
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, stakingManagerAddress])
+
   // Read minimum stake
   const { data: minStakeUSD, refetch: refetchMinStake } = useReadContract({
     address: stakingManagerAddress,
@@ -259,6 +336,31 @@ export function useNodeStaking(
         throw new Error('Staking manager address not configured')
       }
 
+      const shouldUseAtomicRegistration =
+        supportsAtomicNodeIdentityRegistration === true &&
+        params.operatorAgentId !== undefined &&
+        params.nodeIdentityTokenURI !== undefined &&
+        params.nodeIdentityMetadata !== undefined
+
+      if (shouldUseAtomicRegistration) {
+        writeRegister({
+          address: stakingManagerAddress,
+          abi: NODE_STAKING_MANAGER_ABI,
+          functionName: 'registerNodeWithAgentAndIdentity',
+          args: [
+            params.stakingToken,
+            params.stakeAmount,
+            params.rewardToken,
+            params.rpcUrl,
+            params.region,
+            params.operatorAgentId as bigint,
+            params.nodeIdentityTokenURI as string,
+            params.nodeIdentityMetadata as IdentityRegistryMetadataEntry[],
+          ],
+        })
+        return
+      }
+
       if (params.operatorAgentId !== undefined) {
         writeRegister({
           address: stakingManagerAddress,
@@ -289,7 +391,11 @@ export function useNodeStaking(
         ],
       })
     },
-    [stakingManagerAddress, writeRegister],
+    [
+      stakingManagerAddress,
+      supportsAtomicNodeIdentityRegistration,
+      writeRegister,
+    ],
   )
 
   const claimRewards = useCallback(
@@ -342,6 +448,10 @@ export function useNodeStaking(
     operatorNodes: operatorNodes as Hex[] | undefined,
 
     approveStaking,
+    supportsAtomicNodeIdentityRegistration:
+      supportsAtomicNodeIdentityRegistration === true,
+    isAtomicNodeIdentitySupportKnown:
+      supportsAtomicNodeIdentityRegistration !== null,
     isApproving: isApprovalPending || isApprovalConfirming,
     isApprovalSuccess,
     approvalHash,

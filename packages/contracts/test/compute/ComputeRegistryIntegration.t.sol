@@ -11,25 +11,40 @@ contract MockIdentityRegistry is IIdentityRegistry {
     mapping(uint256 => address) private _owners;
     mapping(uint256 => bool) private _exists;
     mapping(uint256 => bool) private _banned;
+    mapping(address => bool) private _authorizedRegistrars;
     uint256 private _nextAgentId = 1;
 
-    function _register() internal returns (uint256) {
+    function _register(address owner_) internal returns (uint256) {
         uint256 agentId = _nextAgentId++;
-        _owners[agentId] = msg.sender;
+        _owners[agentId] = owner_;
         _exists[agentId] = true;
         return agentId;
     }
 
     function register(string calldata tokenURI_) external returns (uint256) {
-        return _register();
+        return _register(msg.sender);
     }
 
     function register(string calldata tokenURI_, MetadataEntry[] calldata metadata) external returns (uint256) {
-        return _register();
+        return _register(msg.sender);
     }
 
     function register() external returns (uint256) {
-        return _register();
+        return _register(msg.sender);
+    }
+
+    function registerFor(address owner_, string calldata, MetadataEntry[] calldata) external returns (uint256) {
+        require(_authorizedRegistrars[msg.sender], "Unauthorized registrar");
+        require(owner_ != address(0), "Invalid owner");
+        return _register(owner_);
+    }
+
+    function setRegistrarAuthorization(address registrar, bool authorized) external {
+        _authorizedRegistrars[registrar] = authorized;
+    }
+
+    function isRegistrarAuthorized(address registrar) external view returns (bool authorized) {
+        return _authorizedRegistrars[registrar];
     }
 
     function agentExists(uint256 agentId) external view returns (bool) {

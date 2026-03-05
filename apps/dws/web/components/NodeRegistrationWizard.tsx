@@ -6,9 +6,12 @@
  */
 
 import {
+  buildNodeIdentityMetadataEntries,
+  buildNodeIdentityTokenUri,
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   describeNodeRegistrationError,
   fetchAgentWallet,
+  getNodeIdentityLinkedAgentIdFromReceipt,
   getNodeRegisteredIdFromReceipt,
   JEJU_NODE_REGISTRATION_SERVICE,
   NODE_SERVICE_DEFINITIONS,
@@ -176,6 +179,32 @@ const NODE_STAKING_REGISTRATION_ABI = [
     outputs: [{ name: 'nodeId', type: 'bytes32' }],
     stateMutability: 'nonpayable',
   },
+  {
+    name: 'registerNodeWithAgentAndIdentity',
+    type: 'function',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+      { name: 'operatorAgentId', type: 'uint256' },
+      { name: 'nodeIdentityTokenURI', type: 'string' },
+      {
+        name: 'nodeIdentityMetadata',
+        type: 'tuple[]',
+        components: [
+          { name: 'key', type: 'string' },
+          { name: 'value', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'nodeIdentityAgentId', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+  },
 ] as const
 
 interface NodeProofChallenge {
@@ -226,6 +255,8 @@ export default function NodeRegistrationWizard() {
     isApprovalSuccess,
     approvalHash,
     registerNode,
+    supportsAtomicNodeIdentityRegistration,
+    isAtomicNodeIdentitySupportKnown,
     isRegistering,
     registrationHash,
   } = useNodeStaking(stakingManagerAddress, address)
@@ -483,6 +514,10 @@ export default function NodeRegistrationWizard() {
       )
       return
     }
+    if (!isAtomicNodeIdentitySupportKnown) {
+      setError('Checking staking contract capabilities. Retry shortly.')
+      return
+    }
     setError(null)
     setNodeIdentityError(null)
     setNodeRegistrationResult(null)
@@ -529,30 +564,35 @@ export default function NodeRegistrationWizard() {
       rewardToken: nextDraft.rewardToken,
       status: 'draft',
     }
+    const nodeIdentityTokenURI = buildNodeIdentityTokenUri(preStakeNodeIdentity)
+    const nodeIdentityMetadata =
+      buildNodeIdentityMetadataEntries(preStakeNodeIdentity)
 
-    setIsRegisteringNodeIdentity(true)
-    const nodeIdentityResult = await registerNodeIdentity(
-      preStakeNodeIdentity,
-      {
-        gasless: useGasless,
-      },
-    )
-    setIsRegisteringNodeIdentity(false)
+    if (!supportsAtomicNodeIdentityRegistration) {
+      setIsRegisteringNodeIdentity(true)
+      const nodeIdentityResult = await registerNodeIdentity(
+        preStakeNodeIdentity,
+        {
+          gasless: useGasless,
+        },
+      )
+      setIsRegisteringNodeIdentity(false)
 
-    if (
-      !nodeIdentityResult.success ||
-      nodeIdentityResult.agentId === undefined
-    ) {
-      const message =
-        nodeIdentityResult.error ??
-        'Required node identity registration failed. Staking was blocked.'
-      setNodeIdentityError(message)
-      setError(message)
-      return
+      if (
+        !nodeIdentityResult.success ||
+        nodeIdentityResult.agentId === undefined
+      ) {
+        const message =
+          nodeIdentityResult.error ??
+          'Required node identity registration failed. Staking was blocked.'
+        setNodeIdentityError(message)
+        setError(message)
+        return
+      }
+
+      createdNodeIdentityId = nodeIdentityResult.agentId.toString()
+      setPendingNodeIdentityId(createdNodeIdentityId)
     }
-
-    createdNodeIdentityId = nodeIdentityResult.agentId.toString()
-    setPendingNodeIdentityId(createdNodeIdentityId)
 
     if (useGasless) {
       if (!gaslessReadiness.isReady) {
@@ -576,18 +616,33 @@ export default function NodeRegistrationWizard() {
             },
             {
               to: stakingManagerAddress,
-              data: encodeFunctionData({
-                abi: NODE_STAKING_REGISTRATION_ABI,
-                functionName: 'registerNodeWithAgent',
-                args: [
-                  DEFAULT_STAKING_TOKEN,
-                  requiredStake,
-                  DEFAULT_REWARD_TOKEN,
-                  normalizedNodeRpcUrl,
-                  selectedRegion,
-                  selectedAgentId,
-                ],
-              }),
+              data: supportsAtomicNodeIdentityRegistration
+                ? encodeFunctionData({
+                    abi: NODE_STAKING_REGISTRATION_ABI,
+                    functionName: 'registerNodeWithAgentAndIdentity',
+                    args: [
+                      DEFAULT_STAKING_TOKEN,
+                      requiredStake,
+                      DEFAULT_REWARD_TOKEN,
+                      normalizedNodeRpcUrl,
+                      selectedRegion,
+                      selectedAgentId,
+                      nodeIdentityTokenURI,
+                      nodeIdentityMetadata,
+                    ],
+                  })
+                : encodeFunctionData({
+                    abi: NODE_STAKING_REGISTRATION_ABI,
+                    functionName: 'registerNodeWithAgent',
+                    args: [
+                      DEFAULT_STAKING_TOKEN,
+                      requiredStake,
+                      DEFAULT_REWARD_TOKEN,
+                      normalizedNodeRpcUrl,
+                      selectedRegion,
+                      selectedAgentId,
+                    ],
+                  }),
             },
           ],
         })
@@ -615,6 +670,8 @@ export default function NodeRegistrationWizard() {
         rpcUrl: normalizedNodeRpcUrl,
         region: selectedRegion,
         operatorAgentId: selectedAgentId,
+        nodeIdentityTokenURI,
+        nodeIdentityMetadata,
       })
     } catch (registrationError) {
       const message = describeNodeRegistrationError(registrationError)
@@ -635,6 +692,8 @@ export default function NodeRegistrationWizard() {
     selectedServiceIds,
     gasless,
     gaslessReadiness.isReady,
+    isAtomicNodeIdentitySupportKnown,
+    supportsAtomicNodeIdentityRegistration,
     useGasless,
     cpuCores,
     diskGb,
@@ -1102,17 +1161,30 @@ export default function NodeRegistrationWizard() {
     if (processedRegistrationHash === effectiveRegistrationHash) return
 
     const nodeId = getNodeRegisteredIdFromReceipt(effectiveRegistrationReceipt)
+    const linkedNodeIdentityAgentId = getNodeIdentityLinkedAgentIdFromReceipt(
+      effectiveRegistrationReceipt,
+    )
+    const linkedNodeIdentityId = linkedNodeIdentityAgentId?.toString()
+    const resolvedNodeIdentityId =
+      linkedNodeIdentityId ?? pendingNodeIdentityId ?? undefined
     setProcessedRegistrationHash(effectiveRegistrationHash)
+
+    if (
+      linkedNodeIdentityId &&
+      linkedNodeIdentityId !== pendingNodeIdentityId
+    ) {
+      setPendingNodeIdentityId(linkedNodeIdentityId)
+    }
 
     if (!nodeId) {
       setNodeIdentityError(
-        pendingNodeIdentityId
-          ? `Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Node Identity #${pendingNodeIdentityId} was created. Refresh your nodes view and explorer to confirm on-chain state.`
+        resolvedNodeIdentityId
+          ? `Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Node Identity #${resolvedNodeIdentityId} was created. Refresh your nodes view and explorer to confirm on-chain state.`
           : 'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh your nodes view and explorer to confirm on-chain state.',
       )
       setNodeRegistrationResult({
         operatorAgentId: submittedDraft.operatorAgentId,
-        nodeIdentityId: pendingNodeIdentityId ?? undefined,
+        nodeIdentityId: resolvedNodeIdentityId,
         txHash: effectiveRegistrationHash,
       })
       return
@@ -1121,7 +1193,7 @@ export default function NodeRegistrationWizard() {
     setNodeRegistrationResult({
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
-      nodeIdentityId: pendingNodeIdentityId ?? undefined,
+      nodeIdentityId: resolvedNodeIdentityId,
       txHash: effectiveRegistrationHash,
     })
   }, [

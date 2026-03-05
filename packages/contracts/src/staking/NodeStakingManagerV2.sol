@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {INodeStakingManagerV2} from "./INodeStakingManagerV2.sol";
 import {NodeStakingManager} from "./NodeStakingManager.sol";
+import {IIdentityRegistry} from "../registry/interfaces/IIdentityRegistry.sol";
 
 /**
  * @title NodeStakingManagerV2
@@ -16,10 +17,13 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
 
     mapping(bytes32 => bytes32) public nodeServicesHash;
     mapping(bytes32 => string) private _nodeMetadataURI;
+    mapping(bytes32 => uint256) private _nodeIdentityAgentIds;
+    mapping(uint256 => bytes32) private _nodeIdsByIdentityAgent;
     bool public bootstrapOwnershipCapExemptionEnabled = true;
     uint256 public bootstrapOwnershipCapExemptionNodeThreshold = 20;
 
     error InvalidRpcUrl();
+    error IdentityAgentAlreadyLinked(uint256 nodeIdentityAgentId);
 
     constructor(
         address _tokenRegistry,
@@ -28,6 +32,34 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         address _performanceOracle,
         address initialOwner
     ) NodeStakingManager(_tokenRegistry, _paymasterFactory, _priceOracle, _performanceOracle, initialOwner) {}
+
+    function registerNodeWithAgentAndIdentity(
+        address stakingToken,
+        uint256 stakeAmount,
+        address rewardToken,
+        string calldata rpcUrl,
+        Region region,
+        uint256 operatorAgentId,
+        string calldata nodeIdentityTokenURI,
+        IIdentityRegistry.MetadataEntry[] calldata nodeIdentityMetadata
+    ) external whenNotPaused returns (bytes32 nodeId, uint256 nodeIdentityAgentId) {
+        if (address(identityRegistry) == address(0)) revert InvalidAddress();
+        if (!identityRegistry.agentExists(operatorAgentId)) revert InvalidAgentId();
+        if (identityRegistry.ownerOf(operatorAgentId) != msg.sender) revert NotAgentOwner();
+
+        nodeIdentityAgentId = identityRegistry.registerFor(msg.sender, nodeIdentityTokenURI, nodeIdentityMetadata);
+        if (_nodeIdsByIdentityAgent[nodeIdentityAgentId] != bytes32(0)) {
+            revert IdentityAgentAlreadyLinked(nodeIdentityAgentId);
+        }
+
+        nodeId = _registerNodeInternal(stakingToken, stakeAmount, rewardToken, rpcUrl, region, operatorAgentId);
+
+        agentNodes[operatorAgentId].push(nodeId);
+        _nodeIdentityAgentIds[nodeId] = nodeIdentityAgentId;
+        _nodeIdsByIdentityAgent[nodeIdentityAgentId] = nodeId;
+
+        emit NodeIdentityLinked(nodeId, nodeIdentityAgentId, operatorAgentId, msg.sender);
+    }
 
     function increaseStake(bytes32 nodeId, uint256 amount) external whenNotPaused nonReentrant {
         NodeStake storage node = nodes[nodeId];
@@ -147,6 +179,14 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         return _nodeMetadataURI[nodeId];
     }
 
+    function getNodeIdentityAgentId(bytes32 nodeId) external view returns (uint256 nodeIdentityAgentId) {
+        return _nodeIdentityAgentIds[nodeId];
+    }
+
+    function getNodeIdByIdentityAgent(uint256 nodeIdentityAgentId) external view returns (bytes32 nodeId) {
+        return _nodeIdsByIdentityAgent[nodeIdentityAgentId];
+    }
+
     function getCurrentStakeValueUSD(bytes32 nodeId) external view returns (uint256 currentStakeValueUSD) {
         NodeStake storage node = nodes[nodeId];
 
@@ -192,5 +232,9 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         (uint256 tokenPrice,) = priceOracle.getPrice(stakingToken);
         if (tokenPrice == 0) revert("Invalid token price");
         return (stakeAmount * tokenPrice) / 1e18;
+    }
+
+    function supportsAtomicNodeIdentityRegistration() external pure returns (bool) {
+        return true;
     }
 }

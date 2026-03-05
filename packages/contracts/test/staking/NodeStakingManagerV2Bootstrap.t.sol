@@ -9,6 +9,7 @@ import {NodeStakingManager} from "../../src/staking/NodeStakingManager.sol";
 import {NodeStakingManagerV2} from "../../src/staking/NodeStakingManagerV2.sol";
 import {IPaymasterFactory, ITokenRegistry} from "../../src/interfaces/IPaymaster.sol";
 import {IPriceOracle} from "../../src/interfaces/IPriceOracle.sol";
+import {IIdentityRegistry} from "../../src/registry/interfaces/IIdentityRegistry.sol";
 
 contract MockStakeToken is ERC20 {
     constructor() ERC20("Stake Token", "STK") {
@@ -73,16 +74,61 @@ contract MockPriceOracle is IPriceOracle {
     }
 }
 
+contract MockAtomicIdentityRegistry {
+    error UnauthorizedRegistrar();
+    error InvalidOwner();
+    error InvalidAgent();
+
+    mapping(uint256 => address) private _owners;
+    mapping(uint256 => bool) private _exists;
+    mapping(address => bool) private _authorizedRegistrars;
+    uint256 private _nextAgentId = 1;
+
+    function createAgent(address owner_) external returns (uint256 agentId) {
+        if (owner_ == address(0)) revert InvalidOwner();
+        agentId = _nextAgentId++;
+        _owners[agentId] = owner_;
+        _exists[agentId] = true;
+    }
+
+    function setRegistrarAuthorization(address registrar, bool authorized) external {
+        _authorizedRegistrars[registrar] = authorized;
+    }
+
+    function registerFor(address owner_, string calldata, IIdentityRegistry.MetadataEntry[] calldata)
+        external
+        returns (uint256 agentId)
+    {
+        if (!_authorizedRegistrars[msg.sender]) revert UnauthorizedRegistrar();
+        if (owner_ == address(0)) revert InvalidOwner();
+
+        agentId = _nextAgentId++;
+        _owners[agentId] = owner_;
+        _exists[agentId] = true;
+    }
+
+    function agentExists(uint256 agentId) external view returns (bool) {
+        return _exists[agentId];
+    }
+
+    function ownerOf(uint256 agentId) external view returns (address) {
+        if (!_exists[agentId]) revert InvalidAgent();
+        return _owners[agentId];
+    }
+}
+
 contract NodeStakingManagerV2BootstrapTest is Test {
     MockStakeToken internal token;
     MockTokenRegistry internal tokenRegistry;
     MockPaymasterFactory internal paymasterFactory;
     MockPriceOracle internal priceOracle;
+    MockAtomicIdentityRegistry internal identityRegistry;
     NodeStakingManagerV2 internal manager;
 
     address internal constant PERFORMANCE_ORACLE = address(0x1234);
     address internal constant FAKE_PAYMASTER = address(0x5678);
     address internal alice = makeAddr("alice");
+    uint256 internal aliceOperatorAgentId;
 
     uint256 internal constant STAKE_AMOUNT = 1000 ether;
     uint256 internal constant TOKEN_PRICE_USD = 1 ether;
@@ -101,6 +147,11 @@ contract NodeStakingManagerV2BootstrapTest is Test {
         manager = new NodeStakingManagerV2(
             address(tokenRegistry), address(paymasterFactory), address(priceOracle), PERFORMANCE_ORACLE, address(this)
         );
+
+        identityRegistry = new MockAtomicIdentityRegistry();
+        manager.setIdentityRegistry(address(identityRegistry));
+        identityRegistry.setRegistrarAuthorization(address(manager), true);
+        aliceOperatorAgentId = identityRegistry.createAgent(alice);
 
         IERC20(address(token)).transfer(alice, 100_000 ether);
 
@@ -270,5 +321,53 @@ contract NodeStakingManagerV2BootstrapTest is Test {
 
         (INodeStakingManager.NodeStake memory node,,) = manager.getNodeInfo(nodeId);
         assertEq(node.stakedValueUSD, 1500 ether);
+    }
+
+    function test_RegisterNodeWithAgentAndIdentity_MintsAndLinksIdentityAtomically() public {
+        IIdentityRegistry.MetadataEntry[] memory metadata = new IIdentityRegistry.MetadataEntry[](1);
+        metadata[0] = IIdentityRegistry.MetadataEntry({key: "operatorAgentId", value: bytes("1")});
+
+        vm.startPrank(alice);
+        (bytes32 nodeId, uint256 nodeIdentityAgentId) = manager.registerNodeWithAgentAndIdentity(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-atomic.jeju.test",
+            INodeStakingManager.Region.NorthAmerica,
+            aliceOperatorAgentId,
+            "ipfs://node-atomic",
+            metadata
+        );
+        vm.stopPrank();
+
+        assertEq(manager.getNodeIdentityAgentId(nodeId), nodeIdentityAgentId);
+        assertEq(manager.getNodeIdByIdentityAgent(nodeIdentityAgentId), nodeId);
+
+        (INodeStakingManager.NodeStake memory node,,) = manager.getNodeInfo(nodeId);
+        assertEq(node.operatorAgentId, aliceOperatorAgentId);
+        assertEq(identityRegistry.ownerOf(nodeIdentityAgentId), alice);
+    }
+
+    function test_RegisterNodeWithAgentAndIdentity_RevertsWhenRegistrarNotAuthorized() public {
+        identityRegistry.setRegistrarAuthorization(address(manager), false);
+        IIdentityRegistry.MetadataEntry[] memory metadata = new IIdentityRegistry.MetadataEntry[](0);
+
+        vm.startPrank(alice);
+        vm.expectRevert(MockAtomicIdentityRegistry.UnauthorizedRegistrar.selector);
+        manager.registerNodeWithAgentAndIdentity(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-atomic-fail.jeju.test",
+            INodeStakingManager.Region.NorthAmerica,
+            aliceOperatorAgentId,
+            "ipfs://node-atomic-fail",
+            metadata
+        );
+        vm.stopPrank();
+    }
+
+    function test_SupportsAtomicNodeIdentityRegistration_ReturnsTrue() public {
+        assertTrue(manager.supportsAtomicNodeIdentityRegistration());
     }
 }

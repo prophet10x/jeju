@@ -59,6 +59,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     mapping(address => uint256) public totalStakedByToken;
     address public governance;
     address public reputationOracle;
+    mapping(address => bool) public authorizedRegistrars;
 
     event Registered(
         uint256 indexed agentId, address indexed owner, StakeTier tier, uint256 stakedAmount, string tokenURI
@@ -76,6 +77,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     event StakeTokenRemoved(address indexed token);
     event StakeTiersUpdated(uint256 small, uint256 medium, uint256 high);
     event Heartbeat(uint256 indexed agentId, uint256 timestamp);
+    event RegistrarAuthorizationUpdated(address indexed registrar, bool authorized);
 
     error MetadataTooLarge();
     error KeyTooLong();
@@ -92,6 +94,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     error InvalidStakeTier();
     error AgentNotFound();
     error InvalidAgentWallet();
+    error UnauthorizedRegistrar();
 
     modifier onlyGovernance() {
         if (msg.sender != governance) revert OnlyGovernance();
@@ -100,6 +103,11 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
     modifier notBanned(uint256 agentId) {
         if (agents[agentId].isBanned) revert AgentIsBanned();
+        _;
+    }
+
+    modifier onlyAuthorizedRegistrar() {
+        if (!authorizedRegistrars[msg.sender]) revert UnauthorizedRegistrar();
         _;
     }
 
@@ -189,6 +197,39 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
     function register() external nonReentrant whenNotPaused returns (uint256 agentId) {
         agentId = _mintAgent(msg.sender, "");
+    }
+
+    /**
+     * @notice Register a new agent for a specific owner (authorized registrars only)
+     * @param owner_ Address that will own the minted agent identity
+     * @param tokenURI_ URI pointing to identity metadata JSON
+     * @param metadata Optional metadata entries to set on mint
+     */
+    function registerFor(address owner_, string calldata tokenURI_, MetadataEntry[] calldata metadata)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyAuthorizedRegistrar
+        returns (uint256 agentId)
+    {
+        require(owner_ != address(0), "Invalid owner");
+        agentId = _mintAgent(owner_, tokenURI_);
+        if (metadata.length > 0) {
+            _setMetadataBatch(agentId, metadata);
+        }
+    }
+
+    /**
+     * @notice Configure whether a registrar is allowed to mint identities via registerFor()
+     */
+    function setRegistrarAuthorization(address registrar, bool authorized) external onlyGovernance {
+        require(registrar != address(0), "Invalid registrar");
+        authorizedRegistrars[registrar] = authorized;
+        emit RegistrarAuthorizationUpdated(registrar, authorized);
+    }
+
+    function isRegistrarAuthorized(address registrar) external view returns (bool authorized) {
+        return authorizedRegistrars[registrar];
     }
 
     function registerWithStake(

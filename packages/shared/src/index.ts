@@ -56,7 +56,12 @@ export {
   type TransactionRequest,
 } from './api/moderation'
 // Auth Types
-export type { OAuth3AppConfig, OAuth3Network, SIWEMessage, SIWFMessage } from './auth/types'
+export type {
+  OAuth3AppConfig,
+  OAuth3Network,
+  SIWEMessage,
+  SIWFMessage,
+} from './auth/types'
 // Branding
 export {
   applyBrandingToDocument,
@@ -96,7 +101,6 @@ export {
   getTestnetChain,
   inferChainFromRpcUrl,
 } from './chains'
-export * from './paymaster-services'
 // Components
 export {
   BanBanner,
@@ -245,31 +249,6 @@ export {
   requireEnv,
   setEnv,
 } from './env'
-export {
-  DEFAULT_GASLESS_BOOTSTRAP_CREDIT_JEJU,
-  DEFAULT_GASLESS_BOOTSTRAP_EXTRA_JEJU,
-  DEFAULT_GASLESS_BOOTSTRAP_MAX_STAKE_JEJU,
-  DEFAULT_GASLESS_PAYMENT_AMOUNT,
-  getGaslessEntryPointVersion,
-  GaslessBootstrapRequestSchema,
-  GASLESS_BOOTSTRAP_PURPOSES,
-  getConfiguredAddress,
-  getGaslessReadiness,
-  isConfiguredAddress,
-  predictSimpleAccountAddress,
-  SIMPLE_ACCOUNT_FACTORY_ABI,
-  type GaslessBootstrapPurpose,
-  type GaslessBootstrapRequest,
-  type GaslessBootstrapResponse,
-  type GaslessEntryPointVersion,
-  type GaslessReadiness,
-  type GaslessReadinessInput,
-} from './gasless'
-export {
-  toJejuSimpleSmartAccount,
-  type JejuSimpleSmartAccount,
-  type JejuSimpleSmartAccountImplementation,
-} from './gasless-smart-account'
 // Errors
 export {
   AuthenticationError,
@@ -348,6 +327,31 @@ export {
   toSafeNumber,
   toSafeString,
 } from './format'
+export {
+  DEFAULT_GASLESS_BOOTSTRAP_CREDIT_JEJU,
+  DEFAULT_GASLESS_BOOTSTRAP_EXTRA_JEJU,
+  DEFAULT_GASLESS_BOOTSTRAP_MAX_STAKE_JEJU,
+  DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  GASLESS_BOOTSTRAP_PURPOSES,
+  type GaslessBootstrapPurpose,
+  type GaslessBootstrapRequest,
+  GaslessBootstrapRequestSchema,
+  type GaslessBootstrapResponse,
+  type GaslessEntryPointVersion,
+  type GaslessReadiness,
+  type GaslessReadinessInput,
+  getConfiguredAddress,
+  getGaslessEntryPointVersion,
+  getGaslessReadiness,
+  isConfiguredAddress,
+  predictSimpleAccountAddress,
+  SIMPLE_ACCOUNT_FACTORY_ABI,
+} from './gasless'
+export {
+  type JejuSimpleSmartAccount,
+  type JejuSimpleSmartAccountImplementation,
+  toJejuSimpleSmartAccount,
+} from './gasless-smart-account'
 // Health Check Middleware
 export {
   healthChecks,
@@ -362,6 +366,26 @@ export {
   getBanTypeLabel,
   useBanStatus,
 } from './hooks/useBanStatus'
+export {
+  buildNodeIdentityMetadataEntries,
+  buildNodeIdentityPresentation,
+  buildNodeIdentityTokenUri,
+  fetchAgentWallet,
+  fetchOwnedAgentIdentities,
+  getNodeIdentityLinkedAgentIdFromReceipt,
+  getNodeRegisteredIdFromReceipt,
+  getRegisteredAgentIdFromReceipt,
+  IDENTITY_REGISTRY_ABI,
+  type IdentityRegistryMetadataEntry,
+  isNodeIdentityAgent,
+  NODE_IDENTITY_LINKED_EVENT_ABI,
+  NODE_REGISTERED_EVENT_ABI,
+  type NodeIdentityPresentation,
+  type OwnedAgentIdentity,
+  type OwnedIdentityLookupResult,
+  REGISTERED_EVENT_ABI,
+  waitForAgentWallet,
+} from './identity-registry'
 // IPFS Client
 export {
   cidToBytes32,
@@ -518,6 +542,27 @@ export {
   type StorageMetrics,
   type SystemMetrics,
 } from './monitoring'
+export {
+  ChallengeRequestSchema,
+  createNodeProofService,
+  NODE_PROOF_PATH,
+  type NodeProofChallenge,
+  type NodeProofSigner,
+  type NodeProofVerification,
+  VerifyRequestSchema,
+} from './node-proof'
+export * from './node-registration-errors'
+export {
+  getNodeServiceMinimumStakeUsd,
+  NODE_SERVICE_DEFINITIONS,
+  type NodeIdentityMetadata,
+  type NodeRegistrationDraft,
+  type NodeRegistrationResult,
+  type NodeServiceDefinition,
+  type NodeServiceId,
+  type NodeServiceScoreMap,
+  type OperatorIdentityOption,
+} from './node-services'
 // Moderation Notifications
 export {
   createBanNotification,
@@ -574,6 +619,7 @@ export {
   type PaymasterOption,
   preparePaymasterData,
 } from './paymaster'
+export * from './paymaster-services'
 // Protocol Servers
 export {
   type A2AConfig,
@@ -678,6 +724,7 @@ export {
   createIPNSClient,
   // JNS
   createJNSService,
+  createKMSService,
   createPreviewManager,
   // Storage
   createStorageService,
@@ -691,6 +738,7 @@ export {
   encodeIPNSContenthash,
   getCurrentDeploymentMode,
   getIPNSKeyName,
+  getKMSServiceFromEnv,
   IPNSClient,
   type IPNSKey,
   type IPNSPublishResult,
@@ -701,8 +749,6 @@ export {
   type JNSService,
   type KMSConfig,
   type KMSServiceClient,
-  createKMSService,
-  getKMSServiceFromEnv,
   type PinOptions,
   PreviewDeploymentManager,
   type QueryParam,
@@ -862,42 +908,3 @@ export {
   type X402PaymentOption,
   type X402PaymentRequirement,
 } from './x402'
-export {
-  getNodeServiceMinimumStakeUsd,
-  NODE_SERVICE_DEFINITIONS,
-  type NodeIdentityMetadata,
-  type NodeRegistrationDraft,
-  type NodeRegistrationResult,
-  type NodeServiceDefinition,
-  type NodeServiceId,
-  type NodeServiceScoreMap,
-  type OperatorIdentityOption,
-} from './node-services'
-export {
-  buildNodeIdentityMetadataEntries,
-  buildNodeIdentityPresentation,
-  buildNodeIdentityTokenUri,
-  fetchAgentWallet,
-  fetchOwnedAgentIdentities,
-  getNodeRegisteredIdFromReceipt,
-  getRegisteredAgentIdFromReceipt,
-  IDENTITY_REGISTRY_ABI,
-  isNodeIdentityAgent,
-  REGISTERED_EVENT_ABI,
-  NODE_REGISTERED_EVENT_ABI,
-  waitForAgentWallet,
-  type IdentityRegistryMetadataEntry,
-  type OwnedAgentIdentity,
-  type OwnedIdentityLookupResult,
-  type NodeIdentityPresentation,
-} from './identity-registry'
-export {
-  ChallengeRequestSchema,
-  createNodeProofService,
-  NODE_PROOF_PATH,
-  VerifyRequestSchema,
-  type NodeProofChallenge,
-  type NodeProofSigner,
-  type NodeProofVerification,
-} from './node-proof'
-export * from './node-registration-errors'

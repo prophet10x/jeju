@@ -1,8 +1,11 @@
 import {
+  buildNodeIdentityMetadataEntries,
+  buildNodeIdentityTokenUri,
   calculateUsdValue as calculateUSDValue,
   describeNodeRegistrationError,
   fetchAgentWallet,
   formatTokenUsd as formatUSD,
+  getNodeIdentityLinkedAgentIdFromReceipt,
   getNodeRegisteredIdFromReceipt,
   getNodeServiceMinimumStakeUsd,
   JEJU_NODE_REGISTRATION_SERVICE,
@@ -91,6 +94,8 @@ export default function RegisterNodeForm() {
     isRegistering,
     registrationHash,
     registrationReceipt,
+    supportsAtomicNodeIdentityRegistration,
+    isAtomicNodeIdentitySupportKnown,
     operatorStats,
     gasless,
   } = useNodeStaking()
@@ -268,6 +273,9 @@ export default function RegisterNodeForm() {
       return 'Operator agent ID must be a number'
     if (!isOwnershipVerified)
       return 'Verify endpoint ownership before registering'
+    if (!isAtomicNodeIdentitySupportKnown) {
+      return 'Checking staking contract capabilities'
+    }
     if (useGasless && !gaslessSupportsSelectedToken) {
       return 'Gasless node registration currently supports JEJU staking only'
     }
@@ -293,6 +301,7 @@ export default function RegisterNodeForm() {
     stakeAmount,
     stakeValueUSD,
     stakingToken,
+    isAtomicNodeIdentitySupportKnown,
     useGasless,
     selectedServices.length,
     isOwnershipVerified,
@@ -778,30 +787,41 @@ export default function RegisterNodeForm() {
         rewardToken: nextDraft.rewardToken,
         status: 'draft',
       }
+      const nodeIdentityTokenURI =
+        buildNodeIdentityTokenUri(preStakeNodeIdentity)
+      const nodeIdentityMetadata =
+        buildNodeIdentityMetadataEntries(preStakeNodeIdentity)
 
-      setIsRegisteringNodeIdentity(true)
-      const nodeIdentityResult = await registerNodeIdentity(
-        preStakeNodeIdentity,
-        {
-          gasless: useGasless,
-        },
-      )
-      setIsRegisteringNodeIdentity(false)
-
-      if (
-        !nodeIdentityResult.success ||
-        nodeIdentityResult.agentId === undefined
-      ) {
-        const message =
-          nodeIdentityResult.error ??
-          'Required node identity registration failed. Staking was blocked.'
-        setNodeIdentityError(message)
-        setSubmitError(message)
+      if (!isAtomicNodeIdentitySupportKnown) {
+        setSubmitError('Checking staking contract capabilities. Retry shortly.')
         return
       }
 
-      createdNodeIdentityId = nodeIdentityResult.agentId.toString()
-      setPendingNodeIdentityId(createdNodeIdentityId)
+      if (!supportsAtomicNodeIdentityRegistration) {
+        setIsRegisteringNodeIdentity(true)
+        const nodeIdentityResult = await registerNodeIdentity(
+          preStakeNodeIdentity,
+          {
+            gasless: useGasless,
+          },
+        )
+        setIsRegisteringNodeIdentity(false)
+
+        if (
+          !nodeIdentityResult.success ||
+          nodeIdentityResult.agentId === undefined
+        ) {
+          const message =
+            nodeIdentityResult.error ??
+            'Required node identity registration failed. Staking was blocked.'
+          setNodeIdentityError(message)
+          setSubmitError(message)
+          return
+        }
+
+        createdNodeIdentityId = nodeIdentityResult.agentId.toString()
+        setPendingNodeIdentityId(createdNodeIdentityId)
+      }
 
       await registerNode(
         stakingToken.address as `0x${string}`,
@@ -810,7 +830,11 @@ export default function RegisterNodeForm() {
         rpcUrl,
         region,
         parsedOperatorAgentId ?? undefined,
-        { gasless: useGasless },
+        {
+          gasless: useGasless,
+          nodeIdentityTokenURI,
+          nodeIdentityMetadata,
+        },
       )
     } catch (error) {
       setIsRegisteringNodeIdentity(false)
@@ -828,17 +852,29 @@ export default function RegisterNodeForm() {
     if (processedRegistrationHash === registrationHash) return
 
     const nodeId = getNodeRegisteredIdFromReceipt(registrationReceipt)
+    const linkedNodeIdentityAgentId =
+      getNodeIdentityLinkedAgentIdFromReceipt(registrationReceipt)
+    const linkedNodeIdentityId = linkedNodeIdentityAgentId?.toString()
+    const resolvedNodeIdentityId =
+      linkedNodeIdentityId ?? pendingNodeIdentityId ?? undefined
     setProcessedRegistrationHash(registrationHash)
+
+    if (
+      linkedNodeIdentityId &&
+      linkedNodeIdentityId !== pendingNodeIdentityId
+    ) {
+      setPendingNodeIdentityId(linkedNodeIdentityId)
+    }
 
     if (!nodeId) {
       setNodeIdentityError(
-        pendingNodeIdentityId
-          ? `Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Node Identity #${pendingNodeIdentityId} was created. Refresh My Nodes and the explorer to confirm on-chain state.`
+        resolvedNodeIdentityId
+          ? `Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Node Identity #${resolvedNodeIdentityId} was created. Refresh My Nodes and the explorer to confirm on-chain state.`
           : 'Node staking transaction succeeded, but the node ID could not be decoded from the receipt. Refresh My Nodes and the explorer to confirm on-chain state.',
       )
       setNodeRegistrationResult({
         operatorAgentId: submittedDraft.operatorAgentId,
-        nodeIdentityId: pendingNodeIdentityId ?? undefined,
+        nodeIdentityId: resolvedNodeIdentityId,
         txHash: registrationHash,
       })
       return
@@ -847,7 +883,7 @@ export default function RegisterNodeForm() {
     setNodeRegistrationResult({
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
-      nodeIdentityId: pendingNodeIdentityId ?? undefined,
+      nodeIdentityId: resolvedNodeIdentityId,
       txHash: registrationHash,
     })
   }, [
