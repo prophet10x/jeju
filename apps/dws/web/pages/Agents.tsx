@@ -14,6 +14,7 @@ import {
 import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAccount } from 'wagmi'
+import AgentSettingsModal from '../components/AgentSettingsModal'
 import AgentWalletMigrationCard from '../components/AgentWalletMigrationCard'
 import RegisterAgentForm from '../components/RegisterAgentForm'
 import {
@@ -24,6 +25,11 @@ import {
 } from '../hooks'
 
 type TabType = 'agents' | 'tasks' | 'mcp' | 'register' | 'wallets'
+
+function shortAddress(address: string | undefined): string {
+  if (!address || address.length < 10) return address ?? ''
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
 
 export default function AgentsPage() {
   const location = useLocation()
@@ -46,6 +52,11 @@ export default function AgentsPage() {
 
   const [activeTab, setActiveTab] = useState<TabType>(initialTab)
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  const [settingsAgent, setSettingsAgent] = useState<{
+    id: string
+    name: string
+    owner: string
+  } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
   const { data: tasksData, isLoading: tasksLoading } = useAgentTasks(
@@ -252,7 +263,9 @@ export default function AgentsPage() {
                         <Bot size={20} style={{ color: 'white' }} />
                       </div>
                       <div>
-                        <div style={{ fontWeight: 600 }}>{agent.name}</div>
+                        <div style={{ fontWeight: 600 }}>
+                          {agent.name || `Agent #${agent.id}`}
+                        </div>
                         <div
                           style={{
                             display: 'flex',
@@ -266,7 +279,7 @@ export default function AgentsPage() {
                               color: 'var(--text-muted)',
                             }}
                           >
-                            {agent.id.slice(0, 12)}...
+                            #{agent.id} · {shortAddress(agent.owner)}
                           </code>
                           <button
                             type="button"
@@ -316,7 +329,14 @@ export default function AgentsPage() {
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSettingsAgent({
+                            id: agent.id,
+                            name: agent.name || `Agent #${agent.id}`,
+                            owner: agent.owner,
+                          })
+                        }}
                       >
                         <Settings size={14} />
                       </button>
@@ -542,6 +562,18 @@ export default function AgentsPage() {
 
         {activeTab === 'wallets' && <AgentWalletMigrationCard />}
       </div>
+
+      {settingsAgent && (
+        <AgentSettingsModal
+          agentId={settingsAgent.id}
+          fallbackName={settingsAgent.name}
+          fallbackOwner={settingsAgent.owner}
+          onClose={() => setSettingsAgent(null)}
+          onUpdated={() => {
+            refetchAgents()
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -2,16 +2,24 @@ import {
   Edit,
   ExternalLink,
   Github,
+  Loader2,
   type LucideProps,
+  Plus,
+  Save,
   Trash2,
+  Wallet,
   X,
 } from 'lucide-react'
-import { type ComponentType, useEffect, useState } from 'react'
+import { type ComponentType, useEffect, useMemo, useState } from 'react'
+import { type Address, getAddress, isAddress } from 'viem'
 import { useAccount } from 'wagmi'
 import {
   IDENTITY_REGISTRY_ADDRESS,
+  StakeTier,
+  type StakeTierValue,
   useRegistry,
   useRegistryAppDetails,
+  useStakeAmount,
 } from '../hooks/useRegistry'
 import GitHubReputationPanel from './GitHubReputationPanel'
 
@@ -19,6 +27,10 @@ const XIcon = X as ComponentType<LucideProps>
 const ExternalLinkIcon = ExternalLink as ComponentType<LucideProps>
 const Trash2Icon = Trash2 as ComponentType<LucideProps>
 const EditIcon = Edit as ComponentType<LucideProps>
+const SaveIcon = Save as ComponentType<LucideProps>
+const PlusIcon = Plus as ComponentType<LucideProps>
+const WalletIcon = Wallet as ComponentType<LucideProps>
+const Loader2Icon = Loader2 as ComponentType<LucideProps>
 const GithubIcon = Github as ComponentType<LucideProps>
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -34,6 +46,19 @@ const CATEGORY_LABELS: Record<string, string> = {
   mcp: 'MCP',
 }
 
+const STAKE_TIER_OPTIONS: Array<{ value: StakeTierValue; label: string }> = [
+  { value: StakeTier.SMALL, label: 'Small' },
+  { value: StakeTier.MEDIUM, label: 'Medium' },
+  { value: StakeTier.HIGH, label: 'High' },
+]
+
+const STAKE_TIER_LABELS: Record<number, string> = {
+  [StakeTier.NONE]: 'None',
+  [StakeTier.SMALL]: 'Small',
+  [StakeTier.MEDIUM]: 'Medium',
+  [StakeTier.HIGH]: 'High',
+}
+
 function formatCategoryLabel(value?: string): string {
   if (!value) return ''
 
@@ -47,6 +72,50 @@ function formatCategoryLabel(value?: string): string {
   )
 }
 
+function toShortAddress(value: string | null | undefined): string {
+  if (!value) return 'Not set'
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+function formatTokenAmount(raw: bigint): string {
+  if (raw <= 0n) return '0'
+  const asFloat = Number(raw) / 1e18
+  if (!Number.isFinite(asFloat)) return raw.toString()
+  return asFloat.toLocaleString(undefined, { maximumFractionDigits: 4 })
+}
+
+function buildUpdatedTokenUri(params: {
+  currentTokenURI: string
+  fallbackName: string
+  owner: string
+  description: string
+}): string {
+  const { currentTokenURI, fallbackName, owner, description } = params
+
+  let payload: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(currentTokenURI) as Record<string, unknown>
+    if (parsed && typeof parsed === 'object') {
+      payload = parsed
+    }
+  } catch {
+    payload = {}
+  }
+
+  payload.name =
+    typeof payload.name === 'string' && payload.name.length > 0
+      ? payload.name
+      : fallbackName
+  payload.owner =
+    typeof payload.owner === 'string' && payload.owner.length > 0
+      ? payload.owner
+      : owner
+  payload.description = description
+  payload.updatedAt = new Date().toISOString()
+
+  return JSON.stringify(payload)
+}
+
 interface AppDetailModalProps {
   agentId: bigint
   onClose: () => void
@@ -57,37 +126,259 @@ export default function AppDetailModal({
   onClose,
 }: AppDetailModalProps) {
   const { address } = useAccount()
-  const { app, isLoading } = useRegistryAppDetails(agentId)
-  const { withdrawStake } = useRegistry()
+  const { app, isLoading, refetch } = useRegistryAppDetails(agentId)
+  const {
+    withdrawStake,
+    increaseAgentStake,
+    setAgentWallet,
+    updateAgentCategory,
+    updateAgentTags,
+    updateAgentUri,
+  } = useRegistry()
+
   const [isWithdrawing, setIsWithdrawing] = useState(false)
-  const categoryTags = app
-    ? [
-        ...new Set(
-          [app.category, ...(app.tags ?? [])].filter(
-            (value): value is string => Boolean(value),
-          ),
+  const [isSavingWallet, setIsSavingWallet] = useState(false)
+  const [isSavingCategory, setIsSavingCategory] = useState(false)
+  const [isSavingDescription, setIsSavingDescription] = useState(false)
+  const [isIncreasingStake, setIsIncreasingStake] = useState(false)
+
+  const [walletInput, setWalletInput] = useState('')
+  const [categoryInput, setCategoryInput] = useState('')
+  const [tagsInput, setTagsInput] = useState('')
+  const [descriptionInput, setDescriptionInput] = useState('')
+  const [targetTier, setTargetTier] = useState<StakeTierValue>(StakeTier.SMALL)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formSuccess, setFormSuccess] = useState<string | null>(null)
+
+  const targetTierStake = useStakeAmount(targetTier)
+
+  const categoryTags = useMemo(() => {
+    if (!app) return []
+    return [
+      ...new Set(
+        [app.category, ...(app.tags ?? [])].filter(
+          (value): value is string => Boolean(value),
         ),
-      ]
-    : []
+      ),
+    ]
+  }, [app])
 
   const isOwner =
     app && address && app.owner.toLowerCase() === address.toLowerCase()
 
-  const handleWithdraw = async () => {
-    if (!isOwner) return
-    setIsWithdrawing(true)
-    const result = await withdrawStake(agentId)
-    setIsWithdrawing(false)
-    if (result.success) onClose()
-  }
+  const currentTier = (app?.stakeTier ?? StakeTier.NONE) as StakeTierValue
+  const upgradeTiers = STAKE_TIER_OPTIONS.filter((tier) => tier.value > currentTier)
+
+  const additionalStake = useMemo(() => {
+    if (!app || targetTierStake === undefined) return 0n
+    if (targetTierStake <= app.stakeAmountRaw) return 0n
+    return targetTierStake - app.stakeAmountRaw
+  }, [app, targetTierStake])
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    if (!app) return
+
+    const tags = [
+      ...new Set(
+        [app.category, ...(app.tags ?? [])].filter(
+          (value): value is string => Boolean(value),
+        ),
+      ),
+    ]
+    const preferredUpgrade = STAKE_TIER_OPTIONS.find(
+      (tier) => tier.value > (app.stakeTier ?? StakeTier.NONE),
+    )
+
+    setWalletInput(app.agentWallet ?? '')
+    setCategoryInput(app.category ?? tags[0] ?? '')
+    setTagsInput(tags.join(', '))
+    setDescriptionInput(app.description ?? '')
+    setTargetTier(preferredUpgrade?.value ?? StakeTier.HIGH)
+  }, [app])
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
   }, [onClose])
+
+  const clearMessages = () => {
+    setFormError(null)
+    setFormSuccess(null)
+  }
+
+  const handleWithdraw = async () => {
+    if (!isOwner) return
+    clearMessages()
+    setIsWithdrawing(true)
+    try {
+      const result = await withdrawStake(agentId)
+      if (!result.success) {
+        setFormError(result.error ?? 'Failed to unstake agent.')
+        return
+      }
+      onClose()
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : 'Failed to unstake agent.',
+      )
+    } finally {
+      setIsWithdrawing(false)
+    }
+  }
+
+  const handleSetWallet = async () => {
+    if (!app || !isOwner) return
+    clearMessages()
+
+    if (!isAddress(walletInput.trim())) {
+      setFormError('Enter a valid wallet address.')
+      return
+    }
+
+    setIsSavingWallet(true)
+    try {
+      const result = await setAgentWallet(
+        agentId,
+        getAddress(walletInput.trim()) as Address,
+      )
+      if (!result.success) {
+        setFormError(result.error ?? 'Failed to update delegated wallet.')
+        return
+      }
+      setFormSuccess('Delegated wallet updated on-chain.')
+      await refetch()
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update delegated wallet.',
+      )
+    } finally {
+      setIsSavingWallet(false)
+    }
+  }
+
+  const handleSaveCategories = async () => {
+    if (!app || !isOwner) return
+    clearMessages()
+
+    const normalizedTags = Array.from(
+      new Set(
+        tagsInput
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0),
+      ),
+    )
+    const resolvedCategory = categoryInput.trim() || normalizedTags[0] || ''
+
+    if (!resolvedCategory) {
+      setFormError('Category is required.')
+      return
+    }
+
+    setIsSavingCategory(true)
+    try {
+      const categoryResult = await updateAgentCategory(agentId, resolvedCategory)
+      if (!categoryResult.success) {
+        setFormError(categoryResult.error ?? 'Failed to update category.')
+        return
+      }
+
+      const tagsResult = await updateAgentTags(agentId, normalizedTags)
+      if (!tagsResult.success) {
+        setFormError(tagsResult.error ?? 'Failed to update tags.')
+        return
+      }
+
+      setFormSuccess('Category and tags updated on-chain.')
+      await refetch()
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update category and tags.',
+      )
+    } finally {
+      setIsSavingCategory(false)
+    }
+  }
+
+  const handleSaveDescription = async () => {
+    if (!app || !isOwner) return
+    clearMessages()
+
+    setIsSavingDescription(true)
+    try {
+      const nextTokenURI = buildUpdatedTokenUri({
+        currentTokenURI: app.tokenURI,
+        fallbackName: app.name,
+        owner: app.owner,
+        description: descriptionInput.trim(),
+      })
+
+      const result = await updateAgentUri(agentId, nextTokenURI)
+      if (!result.success) {
+        setFormError(result.error ?? 'Failed to update description.')
+        return
+      }
+
+      setFormSuccess('Description updated on-chain.')
+      await refetch()
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : 'Failed to update description.',
+      )
+    } finally {
+      setIsSavingDescription(false)
+    }
+  }
+
+  const handleIncreaseStake = async () => {
+    if (!app || !isOwner) return
+    clearMessages()
+
+    if (targetTier <= currentTier) {
+      setFormError('Select a stake tier above your current tier.')
+      return
+    }
+    if (targetTierStake === undefined) {
+      setFormError('Unable to load target tier stake requirement.')
+      return
+    }
+    if (additionalStake <= 0n) {
+      setFormError('No additional stake required for this tier.')
+      return
+    }
+
+    setIsIncreasingStake(true)
+    try {
+      const result = await increaseAgentStake({
+        agentId,
+        newTier: targetTier,
+        stakeToken: app.stakeTokenAddress,
+        additionalStake,
+      })
+      if (!result.success) {
+        setFormError(result.error ?? 'Failed to increase stake.')
+        return
+      }
+
+      setFormSuccess(
+        `Stake increased to ${STAKE_TIER_LABELS[targetTier] ?? targetTier}.`,
+      )
+      await refetch()
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : 'Failed to increase stake.',
+      )
+    } finally {
+      setIsIncreasingStake(false)
+    }
+  }
 
   return (
     <div
@@ -118,29 +409,13 @@ export default function AppDetailModal({
         role="dialog"
         aria-modal="true"
         style={{
-          maxWidth: '600px',
+          maxWidth: '680px',
           width: '100%',
           maxHeight: '90vh',
           overflow: 'auto',
           position: 'relative',
         }}
       >
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            position: 'absolute',
-            top: '1rem',
-            right: '1rem',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '0.5rem',
-          }}
-        >
-          <XIcon size={24} />
-        </button>
-
         {isLoading && (
           <div style={{ textAlign: 'center', padding: '3rem' }}>
             <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⏳</div>
@@ -150,43 +425,59 @@ export default function AppDetailModal({
 
         {!isLoading && app && (
           <div>
-            <div style={{ marginBottom: '1.5rem', paddingRight: '2rem' }}>
-              <h2
-                style={{
-                  fontSize: 'clamp(1.25rem, 4vw, 1.75rem)',
-                  marginBottom: '0.5rem',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {app.name}
-              </h2>
-              <p
-                style={{
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.875rem',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                Agent ID: {agentId.toString()}
-              </p>
-            </div>
-
-            {app.description && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <h3
+            <div
+              style={{
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: '1rem',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <h2
                   style={{
-                    fontSize: '1rem',
-                    fontWeight: 600,
+                    fontSize: 'clamp(1.25rem, 4vw, 1.75rem)',
                     marginBottom: '0.5rem',
+                    wordBreak: 'break-word',
                   }}
                 >
-                  Description
-                </h3>
-                <p style={{ color: 'var(--text-secondary)' }}>
-                  {app.description}
+                  {app.name}
+                </h2>
+                <p
+                  style={{
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.875rem',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  Agent ID: {agentId.toString()}
                 </p>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="button button-ghost"
+                style={{ padding: '0.5rem', flexShrink: 0 }}
+              >
+                <XIcon size={18} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3
+                style={{
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Description
+              </h3>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                {app.description || 'No description set.'}
+              </p>
+            </div>
 
             <div style={{ marginBottom: '1.5rem' }}>
               <h3
@@ -293,7 +584,21 @@ export default function AppDetailModal({
                   <span style={{ color: 'var(--text-secondary)' }}>
                     Amount:
                   </span>
-                  <span style={{ fontWeight: 600 }}>{app.stakeAmount} {app.stakeToken !== 'None' ? app.stakeToken : ''}</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {app.stakeAmount} {app.stakeToken !== 'None' ? app.stakeToken : ''}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-secondary)' }}>Tier:</span>
+                  <span className="badge badge-info">
+                    {STAKE_TIER_LABELS[app.stakeTier ?? 0] ?? 'Unknown'}
+                  </span>
                 </div>
                 <div
                   style={{
@@ -306,17 +611,11 @@ export default function AppDetailModal({
                     Deposited:
                   </span>
                   <span>
-                    {new Date(
-                      Number(app.depositedAt) * 1000,
-                    ).toLocaleDateString()}
+                    {new Date(Number(app.depositedAt) * 1000).toLocaleDateString()}
                   </span>
                 </div>
-                <div
-                  style={{ display: 'flex', justifyContent: 'space-between' }}
-                >
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    Status:
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
                   <span className="badge badge-success">Active</span>
                 </div>
               </div>
@@ -345,6 +644,22 @@ export default function AppDetailModal({
               >
                 {app.owner}
               </code>
+            </div>
+
+            <div
+              style={{
+                marginBottom: '1.5rem',
+                padding: '0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface-hover)',
+                fontSize: '0.85rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              GitHub Reputation links a developer profile to this identity and
+              can power stake discounts/verification when the reputation
+              contracts and leaderboard attestation are configured.
             </div>
 
             <div style={{ marginBottom: '1.5rem' }}>
@@ -386,30 +701,240 @@ export default function AppDetailModal({
                 >
                   Owner Actions
                 </h3>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                    gap: '0.75rem',
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="button button-secondary"
+
+                <div style={{ display: 'grid', gap: '0.9rem' }}>
+                  <div
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      display: 'grid',
                       gap: '0.5rem',
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
                     }}
                   >
-                    <EditIcon size={16} />
-                    Edit
-                  </button>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <WalletIcon size={15} />
+                      Delegated Wallet
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      Current: <code>{toShortAddress(app.agentWallet)}</code>
+                    </div>
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="0x..."
+                      value={walletInput}
+                      onChange={(event) => setWalletInput(event.target.value)}
+                      disabled={isSavingWallet}
+                    />
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => void handleSetWallet()}
+                      disabled={isSavingWallet}
+                    >
+                      {isSavingWallet ? (
+                        <>
+                          <Loader2Icon size={14} className="animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <WalletIcon size={14} />
+                          Set Agent Wallet
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '0.5rem',
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <EditIcon size={15} />
+                      Categories
+                    </div>
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Primary category (e.g. agent)"
+                      value={categoryInput}
+                      onChange={(event) => setCategoryInput(event.target.value)}
+                      disabled={isSavingCategory}
+                    />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Tags (comma-separated)"
+                      value={tagsInput}
+                      onChange={(event) => setTagsInput(event.target.value)}
+                      disabled={isSavingCategory}
+                    />
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => void handleSaveCategories()}
+                      disabled={isSavingCategory}
+                    >
+                      {isSavingCategory ? (
+                        <>
+                          <Loader2Icon size={14} className="animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <SaveIcon size={14} />
+                          Save Categories
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '0.5rem',
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <EditIcon size={15} />
+                      Description
+                    </div>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      value={descriptionInput}
+                      onChange={(event) =>
+                        setDescriptionInput(event.target.value)
+                      }
+                      disabled={isSavingDescription}
+                    />
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => void handleSaveDescription()}
+                      disabled={isSavingDescription}
+                    >
+                      {isSavingDescription ? (
+                        <>
+                          <Loader2Icon size={14} className="animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <SaveIcon size={14} />
+                          Save Description
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '0.5rem',
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <PlusIcon size={15} />
+                      Increase Stake
+                    </div>
+                    {upgradeTiers.length === 0 ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        Already at highest tier.
+                      </span>
+                    ) : (
+                      <>
+                        <select
+                          className="input"
+                          value={targetTier}
+                          onChange={(event) =>
+                            setTargetTier(
+                              Number(event.target.value) as StakeTierValue,
+                            )
+                          }
+                          disabled={isIncreasingStake}
+                        >
+                          {upgradeTiers.map((tier) => (
+                            <option key={tier.value} value={tier.value}>
+                              {tier.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          Additional required: {formatTokenAmount(additionalStake)}{' '}
+                          {app.stakeToken !== 'None' ? app.stakeToken : 'ETH'}
+                        </div>
+                        <button
+                          type="button"
+                          className="button"
+                          onClick={() => void handleIncreaseStake()}
+                          disabled={isIncreasingStake}
+                        >
+                          {isIncreasingStake ? (
+                            <>
+                              <Loader2Icon size={14} className="animate-spin" />
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <PlusIcon size={14} />
+                              Increase Stake
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
                   <button
                     type="button"
                     className="button"
-                    onClick={handleWithdraw}
+                    onClick={() => void handleWithdraw()}
                     disabled={isWithdrawing}
                     style={{
                       display: 'flex',
@@ -420,19 +945,24 @@ export default function AppDetailModal({
                     }}
                   >
                     <Trash2Icon size={16} />
-                    {isWithdrawing ? 'Withdrawing...' : 'Withdraw'}
+                    {isWithdrawing ? 'Unstaking...' : 'Unstake & Burn Agent'}
                   </button>
+
+                  <p
+                    style={{
+                      fontSize: '0.75rem',
+                      color: 'var(--warning)',
+                      marginTop: 0,
+                    }}
+                  >
+                    Unstaking withdraws stake and de-registers this agent NFT.
+                  </p>
                 </div>
-                <p
-                  style={{
-                    fontSize: '0.75rem',
-                    color: 'var(--warning)',
-                    marginTop: '0.75rem',
-                  }}
-                >
-                  Withdrawing will de-register your app and refund your full
-                  stake
-                </p>
+
+                {formError && <div className="banner banner-error">{formError}</div>}
+                {formSuccess && (
+                  <div className="banner banner-success">{formSuccess}</div>
+                )}
               </div>
             )}
           </div>

@@ -92,6 +92,16 @@ const IDENTITY_REGISTRY_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { internalType: 'uint8', name: 'newTier', type: 'uint8' },
+    ],
+    name: 'increaseStake',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
   // Get stake amount for a tier
   {
     inputs: [{ internalType: 'uint8', name: 'tier', type: 'uint8' }],
@@ -301,6 +311,33 @@ const IDENTITY_REGISTRY_ABI = [
     name: 'setX402Support',
     outputs: [],
     stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { internalType: 'string', name: 'newTokenURI', type: 'string' },
+    ],
+    name: 'setAgentUri',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { internalType: 'address', name: 'wallet', type: 'address' },
+    ],
+    name: 'setAgentWallet',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'agentId', type: 'uint256' }],
+    name: 'getAgentWallet',
+    outputs: [{ internalType: 'address', name: 'wallet', type: 'address' }],
+    stateMutability: 'view',
     type: 'function',
   },
   // Supported tokens
@@ -664,12 +701,115 @@ export function useRegistry() {
       args: [agentId],
     })
     setLastTx(hash)
+    await waitForSuccessfulReceipt(hash)
+    return { success: true }
+  }
+
+  async function setAgentWallet(
+    agentId: bigint,
+    wallet: Address,
+  ): Promise<{ success: boolean; error?: string }> {
+    const hash = await writeAsync({
+      address: REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'setAgentWallet',
+      args: [agentId, wallet],
+    })
+    setLastTx(hash)
+    await waitForSuccessfulReceipt(hash)
+    return { success: true }
+  }
+
+  async function updateAgentTags(
+    agentId: bigint,
+    tags: string[],
+  ): Promise<{ success: boolean; error?: string }> {
+    const normalized = tags
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0)
+    const hash = await writeAsync({
+      address: REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'updateTags',
+      args: [agentId, normalized],
+    })
+    setLastTx(hash)
+    await waitForSuccessfulReceipt(hash)
+    return { success: true }
+  }
+
+  async function updateAgentCategory(
+    agentId: bigint,
+    category: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const hash = await writeAsync({
+      address: REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'setCategory',
+      args: [agentId, category.trim()],
+    })
+    setLastTx(hash)
+    await waitForSuccessfulReceipt(hash)
+    return { success: true }
+  }
+
+  async function updateAgentUri(
+    agentId: bigint,
+    tokenURI: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const hash = await writeAsync({
+      address: REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'setAgentUri',
+      args: [agentId, tokenURI],
+    })
+    setLastTx(hash)
+    await waitForSuccessfulReceipt(hash)
+    return { success: true }
+  }
+
+  async function increaseAgentStake(params: {
+    agentId: bigint
+    newTier: StakeTierValue
+    stakeToken: Address
+    additionalStake: bigint
+  }): Promise<{ success: boolean; error?: string }> {
+    const { agentId, newTier, stakeToken, additionalStake } = params
+    if (additionalStake <= 0n) {
+      return { success: false, error: 'Selected tier is not above current tier.' }
+    }
+
+    if (stakeToken !== ZERO_ADDRESS) {
+      const approvalHash = await writeAsync({
+        address: stakeToken,
+        abi: IERC20_ABI,
+        functionName: 'approve',
+        args: [REGISTRY_ADDRESS, additionalStake],
+      })
+      setLastTx(approvalHash)
+      await waitForSuccessfulReceipt(approvalHash)
+    }
+
+    const hash = await writeAsync({
+      address: REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: 'increaseStake',
+      args: [agentId, newTier],
+      value: stakeToken === ZERO_ADDRESS ? additionalStake : 0n,
+    })
+    setLastTx(hash)
+    await waitForSuccessfulReceipt(hash)
     return { success: true }
   }
 
   return {
     registerApp,
     withdrawStake,
+    increaseAgentStake,
+    setAgentWallet,
+    updateAgentTags,
+    updateAgentCategory,
+    updateAgentUri,
     lastTransaction: txReceipt ?? gasless.lastTransactionReceipt,
     gasless,
   }
@@ -757,15 +897,19 @@ interface RegisteredApp {
   agentId: bigint
   name: string
   description?: string
+  tokenURI: string
   owner: string
   tags: string[]
   a2aEndpoint?: string
+  category?: string
+  agentWallet?: Address | null
   mcpEndpoint?: string
   serviceType?: string
-  category?: string
   x402Support?: boolean
   stakeToken: string
+  stakeTokenAddress: Address
   stakeAmount: string
+  stakeAmountRaw: bigint
   stakeTier?: number
   depositedAt: bigint
 }
@@ -809,10 +953,24 @@ export function useRegistryAppDetails(agentId: bigint) {
     args: [agentId],
   })
 
+  const { data: category, refetch: refetchCategory } = useReadContract({
+    address: REGISTRY_ADDRESS,
+    abi: IDENTITY_REGISTRY_ABI,
+    functionName: 'getCategory',
+    args: [agentId],
+  })
+
   const { data: a2aEndpoint, refetch: refetchEndpoint } = useReadContract({
     address: REGISTRY_ADDRESS,
     abi: IDENTITY_REGISTRY_ABI,
     functionName: 'getA2AEndpoint',
+    args: [agentId],
+  })
+
+  const { data: agentWallet, refetch: refetchWallet } = useReadContract({
+    address: REGISTRY_ADDRESS,
+    abi: IDENTITY_REGISTRY_ABI,
+    functionName: 'getAgentWallet',
     args: [agentId],
   })
 
@@ -851,11 +1009,17 @@ export function useRegistryAppDetails(agentId: bigint) {
         agentId,
         name: parsedName,
         description: parsedDescription,
+        tokenURI: tokenURI ?? '',
         owner,
         tags: tags ? [...tags] : [],
+        category: category || undefined,
+        agentWallet:
+          agentWallet && agentWallet !== ZERO_ADDRESS ? agentWallet : null,
         a2aEndpoint,
         stakeToken: resolveTokenName(stakedToken),
+        stakeTokenAddress: stakedToken as Address,
         stakeAmount: stakeAmountFormatted,
+        stakeAmountRaw: stakedAmount,
         stakeTier: tier,
         depositedAt: registeredAt,
       }
@@ -867,7 +1031,9 @@ export function useRegistryAppDetails(agentId: bigint) {
       refetchTokenURI(),
       refetchAgent(),
       refetchTags(),
+      refetchCategory(),
       refetchEndpoint(),
+      refetchWallet(),
     ])
   }
 

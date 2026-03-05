@@ -100,6 +100,18 @@ function getIdentityRegistryAddress(): Address | null {
   return address as Address | null
 }
 
+function parseAgentName(tokenURI: string, fallback: string): string {
+  if (!tokenURI) return fallback
+  try {
+    const parsed = JSON.parse(tokenURI) as { name?: unknown }
+    return typeof parsed.name === 'string' && parsed.name.trim().length > 0
+      ? parsed.name.trim()
+      : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export function createA2ARouter() {
   return (
     new Elysia({ prefix: '/a2a' })
@@ -218,7 +230,7 @@ export function createA2ARouter() {
 
                 return {
                   id: Number(id).toString(),
-                  name: `Agent #${id}`,
+                  name: parseAgentName(uri as string, `Agent #${id}`),
                   owner: owner as string,
                   status: Number(lastActivityAt) > 0 ? 'active' : 'registered',
                   endpoint: a2aEndpoint || mcpEndpoint || '',
