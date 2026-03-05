@@ -151,6 +151,14 @@ export function useNodeStaking() {
   } = useTypedWriteContract()
 
   const { writeAsync: approveAsync } = useTypedWriteContract()
+  const {
+    writeAsync: nodeActionWriteAsync,
+    hash: nodeActionHash,
+    isPending: isNodeActionPending,
+    isConfirming: isNodeActionConfirming,
+    isSuccess: isNodeActionSuccess,
+    receipt: nodeActionReceipt,
+  } = useTypedWriteContract()
 
   const registerNode = async (
     stakingToken: Address,
@@ -293,6 +301,161 @@ export function useNodeStaking() {
     })
   }
 
+  const increaseNodeStake = async (
+    nodeId: string,
+    stakingToken: Address,
+    amount: bigint,
+    options?: { gasless?: boolean },
+  ): Promise<Hex> => {
+    if (amount <= 0n) {
+      throw new Error('Stake increase amount must be greater than zero')
+    }
+
+    if (options?.gasless) {
+      const calls = [
+        {
+          to: stakingToken,
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [stakingManager, amount],
+          }),
+        },
+        {
+          to: stakingManager,
+          data: encodeFunctionData({
+            abi: NODE_STAKING_MANAGER_ABI,
+            functionName: 'increaseStake',
+            args: [nodeId as `0x${string}`, amount],
+          }),
+        },
+      ]
+
+      return gasless.executeGaslessCalls({
+        serviceName: JEJU_NODE_REGISTRATION_SERVICE,
+        calls,
+        requiredJejuBalance:
+          stakingToken.toLowerCase() === CONTRACTS.jeju.toLowerCase()
+            ? amount
+            : undefined,
+      })
+    }
+
+    await approveAsync({
+      address: stakingToken,
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [stakingManager, amount],
+    })
+
+    return nodeActionWriteAsync({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'increaseStake',
+      args: [nodeId as `0x${string}`, amount],
+    })
+  }
+
+  const updateNodeConfig = async (
+    nodeId: string,
+    rpcUrl: string,
+    region: Region,
+    options?: { gasless?: boolean },
+  ): Promise<Hex> => {
+    if (!rpcUrl.trim()) {
+      throw new Error('RPC URL is required')
+    }
+
+    if (options?.gasless) {
+      return gasless.executeGaslessCalls({
+        serviceName: JEJU_NODE_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: stakingManager,
+            data: encodeFunctionData({
+              abi: NODE_STAKING_MANAGER_ABI,
+              functionName: 'updateNodeConfig',
+              args: [nodeId as `0x${string}`, rpcUrl, region],
+            }),
+          },
+        ],
+      })
+    }
+
+    return nodeActionWriteAsync({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'updateNodeConfig',
+      args: [nodeId as `0x${string}`, rpcUrl, region],
+    })
+  }
+
+  const updateNodeServices = async (
+    nodeId: string,
+    servicesHash: Hex,
+    options?: { gasless?: boolean },
+  ): Promise<Hex> => {
+    if (!servicesHash || servicesHash.length !== 66) {
+      throw new Error('servicesHash must be a 32-byte hex value')
+    }
+
+    if (options?.gasless) {
+      return gasless.executeGaslessCalls({
+        serviceName: JEJU_NODE_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: stakingManager,
+            data: encodeFunctionData({
+              abi: NODE_STAKING_MANAGER_ABI,
+              functionName: 'updateNodeServices',
+              args: [nodeId as `0x${string}`, servicesHash],
+            }),
+          },
+        ],
+      })
+    }
+
+    return nodeActionWriteAsync({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'updateNodeServices',
+      args: [nodeId as `0x${string}`, servicesHash],
+    })
+  }
+
+  const updateNodeMetadataURI = async (
+    nodeId: string,
+    metadataURI: string,
+    options?: { gasless?: boolean },
+  ): Promise<Hex> => {
+    if (!metadataURI.trim()) {
+      throw new Error('Metadata URI is required')
+    }
+
+    if (options?.gasless) {
+      return gasless.executeGaslessCalls({
+        serviceName: JEJU_NODE_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: stakingManager,
+            data: encodeFunctionData({
+              abi: NODE_STAKING_MANAGER_ABI,
+              functionName: 'setNodeMetadataURI',
+              args: [nodeId as `0x${string}`, metadataURI],
+            }),
+          },
+        ],
+      })
+    }
+
+    return nodeActionWriteAsync({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'setNodeMetadataURI',
+      args: [nodeId as `0x${string}`, metadataURI],
+    })
+  }
+
   return {
     operatorAddresses,
     operatorNodeIds,
@@ -300,8 +463,14 @@ export function useNodeStaking() {
     networkStats: networkStats as [bigint, bigint, bigint] | undefined,
     registerNode,
     deregisterNode,
+    increaseNodeStake,
+    updateNodeConfig,
+    updateNodeServices,
+    updateNodeMetadataURI,
     isRegistering: isRegistering || isConfirmingRegister || gasless.isExecuting,
     isDeregistering: isDeregistering || isConfirmingDeregister,
+    isMutatingNode:
+      isNodeActionPending || isNodeActionConfirming || gasless.isExecuting,
     isRegisterSuccess:
       isRegisterSuccess || Boolean(gasless.lastTransactionReceipt),
     registrationHash:
@@ -309,6 +478,11 @@ export function useNodeStaking() {
       lastRegistrationHash ??
       gasless.lastTransactionHash,
     registrationReceipt: registerReceipt ?? gasless.lastTransactionReceipt,
+    nodeActionHash:
+      (nodeActionHash as Hex | undefined) ?? gasless.lastTransactionHash,
+    nodeActionReceipt: nodeActionReceipt ?? gasless.lastTransactionReceipt,
+    isNodeActionSuccess:
+      isNodeActionSuccess || Boolean(gasless.lastTransactionReceipt),
     isDeregisterSuccess,
     refetchNodes,
     gasless,
