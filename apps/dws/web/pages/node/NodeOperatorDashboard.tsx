@@ -29,7 +29,7 @@ import { useSearchParams } from "react-router-dom";
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from "viem";
 import { useAccount, usePublicClient } from "wagmi";
 import { SkeletonStatCard } from "../../components/Skeleton";
-import { CONTRACTS, EXPLORER_URL, NETWORK } from "../../config";
+import { CONTRACTS, EXPLORER_URL, NETWORK, TOKENS } from "../../config";
 import { useConfirm, useToast } from "../../context/AppContext";
 import {
   useClaimRewards,
@@ -365,7 +365,7 @@ export default function NodeOperatorDashboard() {
         const [tokenAddress, priceUsd] = result;
         if (
           NETWORK === "testnet" &&
-          tokenAddress === CONTRACTS.jeju.toLowerCase()
+          tokenAddress === TOKENS.jeju.toLowerCase()
         ) {
           nextPrices[tokenAddress] = 1;
           continue;
@@ -393,7 +393,7 @@ export default function NodeOperatorDashboard() {
       : undefined;
     const stakedAmount = Number(node.stakedAmount);
     const isJejuToken =
-      tokenAddress === CONTRACTS.jeju.toLowerCase() ||
+      tokenAddress === TOKENS.jeju.toLowerCase() ||
       tokenAddress === "0xb224f7607215139130ea79111358c1908e69f30e";
 
     // Testnet display fallback: JEJU is intended to be displayed at a $1 peg.

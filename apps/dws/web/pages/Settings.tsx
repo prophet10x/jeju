@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react'
 import type { Address } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
 import { Skeleton } from '../components/Skeleton'
-import { CONTRACTS, EXPLORER_URL, NETWORK } from '../config'
+import { CONTRACTS, EXPLORER_URL, NETWORK, TOKENS } from '../config'
 import { useConfirm, useToast } from '../context/AppContext'
 import { useProviderStats } from '../hooks'
 import { useAgentId } from '../hooks/useAgentId'
@@ -128,7 +128,7 @@ export default function SettingsPage() {
         const [tokenAddress, priceUsd] = result
         if (
           NETWORK === 'testnet' &&
-          tokenAddress === CONTRACTS.jeju.toLowerCase()
+          tokenAddress === TOKENS.jeju.toLowerCase()
         ) {
           nextPrices[tokenAddress] = 1
           continue
@@ -153,7 +153,7 @@ export default function SettingsPage() {
     const livePriceUsd = tokenAddress ? tokenPricesUsd[tokenAddress] : undefined
     const stakedAmount = Number(node.stakedAmount)
     const isJejuToken =
-      tokenAddress === CONTRACTS.jeju.toLowerCase() ||
+      tokenAddress === TOKENS.jeju.toLowerCase() ||
       tokenAddress === '0xb224f7607215139130ea79111358c1908e69f30e'
 
     if (NETWORK === 'testnet' && Number.isFinite(stakedAmount) && stakedAmount > 0) {

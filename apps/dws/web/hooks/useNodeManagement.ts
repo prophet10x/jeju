@@ -7,7 +7,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS, resolveNodeStakingWriteAddress } from '../config'
+import { CONTRACTS, TOKENS, resolveNodeStakingWriteAddress } from '../config'
 import { useGaslessSmartAccount } from './useGaslessSmartAccount'
 
 const NODE_STAKING_MUTATION_ABI = [
@@ -146,7 +146,7 @@ export function useNodeManagement() {
               },
             ],
             requiredJejuBalance:
-              stakingToken.toLowerCase() === CONTRACTS.jeju.toLowerCase()
+              stakingToken.toLowerCase() === TOKENS.jeju.toLowerCase()
                 ? amount
                 : undefined,
           })
