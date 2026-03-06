@@ -37,7 +37,6 @@ import {
   Region,
 } from '../../lib/nodeStaking'
 import { useAgentId } from '../hooks/useAgentId'
-import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
 import { useNodeStaking } from '../hooks/useNodeStaking'
 import { useProtocolTokens } from '../hooks/useProtocolTokens'
 import type { TokenOption } from './TokenSelector'
@@ -99,7 +98,6 @@ export default function RegisterNodeForm() {
     operatorStats,
     gasless,
   } = useNodeStaking()
-  const { registerNodeIdentity } = useNodeIdentityRegistry()
   const { agents, agentId, hasAgent, isLoading: isAgentLoading } = useAgentId()
 
   const [stakingToken, setStakingToken] = useState<TokenOption | null>(null)
@@ -743,7 +741,6 @@ export default function RegisterNodeForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitError(null)
-    let createdNodeIdentityId: string | null = null
 
     if (disabledReason || !stakingToken || !rewardToken) {
       if (disabledReason) setSubmitError(disabledReason)
@@ -798,29 +795,11 @@ export default function RegisterNodeForm() {
       }
 
       if (!supportsAtomicNodeIdentityRegistration) {
-        setIsRegisteringNodeIdentity(true)
-        const nodeIdentityResult = await registerNodeIdentity(
-          preStakeNodeIdentity,
-          {
-            gasless: useGasless,
-          },
-        )
-        setIsRegisteringNodeIdentity(false)
-
-        if (
-          !nodeIdentityResult.success ||
-          nodeIdentityResult.agentId === undefined
-        ) {
-          const message =
-            nodeIdentityResult.error ??
-            'Required node identity registration failed. Staking was blocked.'
-          setNodeIdentityError(message)
-          setSubmitError(message)
-          return
-        }
-
-        createdNodeIdentityId = nodeIdentityResult.agentId.toString()
-        setPendingNodeIdentityId(createdNodeIdentityId)
+        const message =
+          'Selected staking manager does not support atomic node identity registration. Registration blocked.'
+        setNodeIdentityError(message)
+        setSubmitError(message)
+        return
       }
 
       await registerNode(
@@ -839,11 +818,7 @@ export default function RegisterNodeForm() {
     } catch (error) {
       setIsRegisteringNodeIdentity(false)
       const message = describeNodeRegistrationError(error)
-      setSubmitError(
-        createdNodeIdentityId
-          ? `${message} Node identity #${createdNodeIdentityId} remains registered.`
-          : message,
-      )
+      setSubmitError(message)
     }
   }
 

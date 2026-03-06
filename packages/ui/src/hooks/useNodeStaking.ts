@@ -45,20 +45,6 @@ const NODE_STAKING_MANAGER_ABI = [
     stateMutability: 'nonpayable',
   },
   {
-    name: 'registerNodeWithAgent',
-    type: 'function',
-    inputs: [
-      { name: 'stakingToken', type: 'address' },
-      { name: 'stakeAmount', type: 'uint256' },
-      { name: 'rewardToken', type: 'address' },
-      { name: 'rpcUrl', type: 'string' },
-      { name: 'region', type: 'uint8' },
-      { name: 'operatorAgentId', type: 'uint256' },
-    ],
-    outputs: [{ name: 'nodeId', type: 'bytes32' }],
-    stateMutability: 'nonpayable',
-  },
-  {
     name: 'registerNodeWithAgentAndIdentity',
     type: 'function',
     inputs: [
@@ -337,59 +323,38 @@ export function useNodeStaking(
       if (!stakingManagerAddress) {
         throw new Error('Staking manager address not configured')
       }
-
-      const shouldUseAtomicRegistration =
-        supportsAtomicNodeIdentityRegistration === true &&
-        params.operatorAgentId !== undefined &&
-        params.nodeIdentityTokenURI !== undefined &&
-        params.nodeIdentityMetadata !== undefined
-
-      if (shouldUseAtomicRegistration) {
-        writeRegister({
-          address: stakingManagerAddress,
-          abi: NODE_STAKING_MANAGER_ABI,
-          functionName: 'registerNodeWithAgentAndIdentity',
-          args: [
-            params.stakingToken,
-            params.stakeAmount,
-            params.rewardToken,
-            params.rpcUrl,
-            params.region,
-            params.operatorAgentId as bigint,
-            params.nodeIdentityTokenURI as string,
-            params.nodeIdentityMetadata as IdentityRegistryMetadataEntry[],
-          ],
-        })
-        return
+      if (params.operatorAgentId === undefined) {
+        throw new Error(
+          'Operator agent ID is required. Node registration without identity is disabled.',
+        )
       }
-
-      if (params.operatorAgentId !== undefined) {
-        writeRegister({
-          address: stakingManagerAddress,
-          abi: NODE_STAKING_MANAGER_ABI,
-          functionName: 'registerNodeWithAgent',
-          args: [
-            params.stakingToken,
-            params.stakeAmount,
-            params.rewardToken,
-            params.rpcUrl,
-            params.region,
-            params.operatorAgentId,
-          ],
-        })
-        return
+      if (
+        params.nodeIdentityTokenURI === undefined ||
+        params.nodeIdentityMetadata === undefined
+      ) {
+        throw new Error(
+          'Node identity metadata is required. Registration must use atomic identity linking.',
+        )
+      }
+      if (supportsAtomicNodeIdentityRegistration !== true) {
+        throw new Error(
+          'Selected staking manager does not support atomic node identity registration.',
+        )
       }
 
       writeRegister({
         address: stakingManagerAddress,
         abi: NODE_STAKING_MANAGER_ABI,
-        functionName: 'registerNode',
+        functionName: 'registerNodeWithAgentAndIdentity',
         args: [
           params.stakingToken,
           params.stakeAmount,
           params.rewardToken,
           params.rpcUrl,
           params.region,
+          params.operatorAgentId,
+          params.nodeIdentityTokenURI,
+          params.nodeIdentityMetadata,
         ],
       })
     },

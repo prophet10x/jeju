@@ -78,7 +78,6 @@ import {
 import { useAgentId } from '../hooks/useAgentId'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
-import { useNodeIdentityRegistry } from '../hooks/useNodeIdentityRegistry'
 
 type WizardStep =
   | 'connect'
@@ -240,7 +239,6 @@ export default function NodeRegistrationWizard() {
   const { hasAgent, agentId, agents, isLoading: isAgentLoading } = useAgentId()
   const gasless = useGaslessSmartAccount()
   const gaslessBootstrap = useGaslessBootstrap({ gasless })
-  const { registerNodeIdentity } = useNodeIdentityRegistry()
 
   // Get staking manager address from config
   const stakingManagerAddress = resolveNodeStakingWriteAddress(
@@ -509,7 +507,6 @@ export default function NodeRegistrationWizard() {
   }, [stakingManagerAddress, requiredStake, approveStaking])
 
   const handleRegister = useCallback(async () => {
-    let createdNodeIdentityId: string | null = null
     if (!stakingManagerAddress) {
       setError('Staking manager not configured for this network')
       return
@@ -579,29 +576,11 @@ export default function NodeRegistrationWizard() {
       buildNodeIdentityMetadataEntries(preStakeNodeIdentity)
 
     if (!supportsAtomicNodeIdentityRegistration) {
-      setIsRegisteringNodeIdentity(true)
-      const nodeIdentityResult = await registerNodeIdentity(
-        preStakeNodeIdentity,
-        {
-          gasless: useGasless,
-        },
-      )
-      setIsRegisteringNodeIdentity(false)
-
-      if (
-        !nodeIdentityResult.success ||
-        nodeIdentityResult.agentId === undefined
-      ) {
-        const message =
-          nodeIdentityResult.error ??
-          'Required node identity registration failed. Staking was blocked.'
-        setNodeIdentityError(message)
-        setError(message)
-        return
-      }
-
-      createdNodeIdentityId = nodeIdentityResult.agentId.toString()
-      setPendingNodeIdentityId(createdNodeIdentityId)
+      const message =
+        'Selected staking manager does not support atomic node identity registration. Registration blocked.'
+      setNodeIdentityError(message)
+      setError(message)
+      return
     }
 
     if (useGasless) {
@@ -626,47 +605,27 @@ export default function NodeRegistrationWizard() {
             },
             {
               to: stakingManagerAddress,
-              data: supportsAtomicNodeIdentityRegistration
-                ? encodeFunctionData({
-                    abi: NODE_STAKING_REGISTRATION_ABI,
-                    functionName: 'registerNodeWithAgentAndIdentity',
-                    args: [
-                      DEFAULT_STAKING_TOKEN,
-                      requiredStake,
-                      DEFAULT_REWARD_TOKEN,
-                      normalizedNodeRpcUrl,
-                      selectedRegion,
-                      selectedAgentId,
-                      nodeIdentityTokenURI,
-                      nodeIdentityMetadata,
-                    ],
-                  })
-                : encodeFunctionData({
-                    abi: NODE_STAKING_REGISTRATION_ABI,
-                    functionName: 'registerNodeWithAgent',
-                    args: [
-                      DEFAULT_STAKING_TOKEN,
-                      requiredStake,
-                      DEFAULT_REWARD_TOKEN,
-                      normalizedNodeRpcUrl,
-                      selectedRegion,
-                      selectedAgentId,
-                    ],
-                  }),
+              data: encodeFunctionData({
+                abi: NODE_STAKING_REGISTRATION_ABI,
+                functionName: 'registerNodeWithAgentAndIdentity',
+                args: [
+                  DEFAULT_STAKING_TOKEN,
+                  requiredStake,
+                  DEFAULT_REWARD_TOKEN,
+                  normalizedNodeRpcUrl,
+                  selectedRegion,
+                  selectedAgentId,
+                  nodeIdentityTokenURI,
+                  nodeIdentityMetadata,
+                ],
+              }),
             },
           ],
         })
         setLastRegistrationHash(txHash)
         return
       } catch (registrationError) {
-        setError(
-          describeNodeRegistrationError(
-            registrationError,
-            createdNodeIdentityId
-              ? `Gasless registration failed. Node identity #${createdNodeIdentityId} remains registered.`
-              : 'Gasless registration failed',
-          ),
-        )
+        setError(describeNodeRegistrationError(registrationError))
         return
       }
     }
@@ -685,14 +644,9 @@ export default function NodeRegistrationWizard() {
       })
     } catch (registrationError) {
       const message = describeNodeRegistrationError(registrationError)
-      setError(
-        createdNodeIdentityId
-          ? `${message} Node identity #${createdNodeIdentityId} remains registered.`
-          : message,
-      )
+      setError(message)
     }
   }, [
-    registerNodeIdentity,
     stakingManagerAddress,
     normalizedNodeRpcUrl,
     selectedAgentId,

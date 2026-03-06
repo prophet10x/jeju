@@ -30,20 +30,6 @@ const NODE_STAKING_WITH_AGENT_ABI = [
   ...NODE_STAKING_MANAGER_ABI,
   {
     type: 'function',
-    name: 'registerNodeWithAgent',
-    inputs: [
-      { name: 'stakingToken', type: 'address' },
-      { name: 'stakeAmount', type: 'uint256' },
-      { name: 'rewardToken', type: 'address' },
-      { name: 'rpcUrl', type: 'string' },
-      { name: 'region', type: 'uint8' },
-      { name: 'operatorAgentId', type: 'uint256' },
-    ],
-    outputs: [{ name: 'nodeId', type: 'bytes32' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
     name: 'registerNodeWithAgentAndIdentity',
     inputs: [
       { name: 'stakingToken', type: 'address' },
@@ -345,13 +331,26 @@ export function useNodeStaking() {
       nodeIdentityMetadata?: IdentityRegistryMetadataEntry[]
     },
   ) => {
-    const shouldAttemptAtomicRegistration =
-      operatorAgentId !== undefined &&
-      options?.nodeIdentityTokenURI !== undefined &&
-      options?.nodeIdentityMetadata !== undefined
-    const shouldUseAtomicRegistration =
-      shouldAttemptAtomicRegistration &&
-      (await probeAtomicNodeIdentityRegistrationSupport())
+    if (operatorAgentId === undefined) {
+      throw new Error(
+        'Operator agent ID is required. Node registration without identity is disabled.',
+      )
+    }
+    if (
+      options?.nodeIdentityTokenURI === undefined ||
+      options.nodeIdentityMetadata === undefined
+    ) {
+      throw new Error(
+        'Node identity metadata is required. Registration must use atomic identity linking.',
+      )
+    }
+
+    const supportsAtomic = await probeAtomicNodeIdentityRegistrationSupport()
+    if (!supportsAtomic) {
+      throw new Error(
+        'Selected staking manager does not support atomic node identity registration.',
+      )
+    }
 
     if (options?.gasless) {
       if (stakingToken !== CONTRACTS.jeju) {
@@ -371,45 +370,20 @@ export function useNodeStaking() {
         },
         {
           to: stakingManager,
-          data: shouldUseAtomicRegistration
-            ? encodeFunctionData({
-                abi: NODE_STAKING_WITH_AGENT_ABI,
-                functionName: 'registerNodeWithAgentAndIdentity',
-                args: [
-                  stakingToken,
-                  stakeAmount,
-                  rewardToken,
-                  rpcUrl,
-                  region,
-                  operatorAgentId as bigint,
-                  options.nodeIdentityTokenURI as string,
-                  options.nodeIdentityMetadata as IdentityRegistryMetadataEntry[],
-                ],
-              })
-            : operatorAgentId !== undefined
-              ? encodeFunctionData({
-                  abi: NODE_STAKING_WITH_AGENT_ABI,
-                  functionName: 'registerNodeWithAgent',
-                  args: [
-                    stakingToken,
-                    stakeAmount,
-                    rewardToken,
-                    rpcUrl,
-                    region,
-                    operatorAgentId,
-                  ],
-                })
-              : encodeFunctionData({
-                  abi: NODE_STAKING_MANAGER_ABI,
-                  functionName: 'registerNode',
-                  args: [
-                    stakingToken,
-                    stakeAmount,
-                    rewardToken,
-                    rpcUrl,
-                    region,
-                  ],
-                }),
+          data: encodeFunctionData({
+            abi: NODE_STAKING_WITH_AGENT_ABI,
+            functionName: 'registerNodeWithAgentAndIdentity',
+            args: [
+              stakingToken,
+              stakeAmount,
+              rewardToken,
+              rpcUrl,
+              region,
+              operatorAgentId,
+              options.nodeIdentityTokenURI,
+              options.nodeIdentityMetadata,
+            ],
+          }),
         },
       ]
 
@@ -430,49 +404,20 @@ export function useNodeStaking() {
     })
 
     // Step 2: Register node (contract will transferFrom)
-    if (shouldUseAtomicRegistration) {
-      const hash = await registerAsync({
-        address: stakingManager,
-        abi: NODE_STAKING_WITH_AGENT_ABI,
-        functionName: 'registerNodeWithAgentAndIdentity',
-        args: [
-          stakingToken,
-          stakeAmount,
-          rewardToken,
-          rpcUrl,
-          region,
-          operatorAgentId as bigint,
-          options?.nodeIdentityTokenURI as string,
-          options?.nodeIdentityMetadata as IdentityRegistryMetadataEntry[],
-        ],
-      })
-      setLastRegistrationHash(hash)
-      return
-    }
-
-    if (operatorAgentId !== undefined) {
-      const hash = await registerAsync({
-        address: stakingManager,
-        abi: NODE_STAKING_WITH_AGENT_ABI,
-        functionName: 'registerNodeWithAgent',
-        args: [
-          stakingToken,
-          stakeAmount,
-          rewardToken,
-          rpcUrl,
-          region,
-          operatorAgentId,
-        ],
-      })
-      setLastRegistrationHash(hash)
-      return
-    }
-
     const hash = await registerAsync({
       address: stakingManager,
-      abi: NODE_STAKING_MANAGER_ABI,
-      functionName: 'registerNode',
-      args: [stakingToken, stakeAmount, rewardToken, rpcUrl, region],
+      abi: NODE_STAKING_WITH_AGENT_ABI,
+      functionName: 'registerNodeWithAgentAndIdentity',
+      args: [
+        stakingToken,
+        stakeAmount,
+        rewardToken,
+        rpcUrl,
+        region,
+        operatorAgentId,
+        options.nodeIdentityTokenURI,
+        options.nodeIdentityMetadata,
+      ],
     })
     setLastRegistrationHash(hash)
   }

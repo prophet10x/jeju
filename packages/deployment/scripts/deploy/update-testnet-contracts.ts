@@ -79,7 +79,8 @@ const CONTRACT_CATEGORIES: Record<string, string> = {
 
   // Node Staking
   NodeStakingManager: 'nodeStaking.manager',
-  NodeStakingManagerV2: 'nodeStaking.manager',
+  NodeStakingManagerV2: 'nodeStaking.managerV2',
+  NodeStakingManagerV2Atomic: 'nodeStaking.managerV2',
   NodeStateRegistry: 'nodeStaking.registry',
   NodeStakeVault: 'nodeStaking.vault',
   NodeManagerRouter: 'nodeStaking.router',
