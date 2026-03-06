@@ -134,6 +134,7 @@ export default function AppDetailModal({
     updateAgentCategory,
     updateAgentTags,
     updateAgentUri,
+    gasless,
   } = useRegistry()
 
   const [isWithdrawing, setIsWithdrawing] = useState(false)
@@ -165,6 +166,12 @@ export default function AppDetailModal({
 
   const isOwner =
     app && address && app.owner.toLowerCase() === address.toLowerCase()
+  const isSmartAccountOwner =
+    app &&
+    gasless.smartAccountAddress &&
+    app.owner.toLowerCase() === gasless.smartAccountAddress.toLowerCase()
+  const canEdit = Boolean(isOwner || isSmartAccountOwner)
+  const useGaslessOwnerPath = Boolean(!isOwner && isSmartAccountOwner)
 
   const currentTier = (app?.stakeTier ?? StakeTier.NONE) as StakeTierValue
   const upgradeTiers = STAKE_TIER_OPTIONS.filter((tier) => tier.value > currentTier)
@@ -210,11 +217,13 @@ export default function AppDetailModal({
   }
 
   const handleWithdraw = async () => {
-    if (!isOwner) return
+    if (!canEdit) return
     clearMessages()
     setIsWithdrawing(true)
     try {
-      const result = await withdrawStake(agentId)
+      const result = await withdrawStake(agentId, {
+        gasless: useGaslessOwnerPath,
+      })
       if (!result.success) {
         setFormError(result.error ?? 'Failed to unstake agent.')
         return
@@ -230,7 +239,7 @@ export default function AppDetailModal({
   }
 
   const handleSetWallet = async () => {
-    if (!app || !isOwner) return
+    if (!app || !canEdit) return
     clearMessages()
 
     if (!isAddress(walletInput.trim())) {
@@ -243,6 +252,9 @@ export default function AppDetailModal({
       const result = await setAgentWallet(
         agentId,
         getAddress(walletInput.trim()) as Address,
+        {
+          gasless: useGaslessOwnerPath,
+        },
       )
       if (!result.success) {
         setFormError(result.error ?? 'Failed to update delegated wallet.')
@@ -262,7 +274,7 @@ export default function AppDetailModal({
   }
 
   const handleSaveCategories = async () => {
-    if (!app || !isOwner) return
+    if (!app || !canEdit) return
     clearMessages()
 
     const normalizedTags = Array.from(
@@ -282,13 +294,17 @@ export default function AppDetailModal({
 
     setIsSavingCategory(true)
     try {
-      const categoryResult = await updateAgentCategory(agentId, resolvedCategory)
+      const categoryResult = await updateAgentCategory(agentId, resolvedCategory, {
+        gasless: useGaslessOwnerPath,
+      })
       if (!categoryResult.success) {
         setFormError(categoryResult.error ?? 'Failed to update category.')
         return
       }
 
-      const tagsResult = await updateAgentTags(agentId, normalizedTags)
+      const tagsResult = await updateAgentTags(agentId, normalizedTags, {
+        gasless: useGaslessOwnerPath,
+      })
       if (!tagsResult.success) {
         setFormError(tagsResult.error ?? 'Failed to update tags.')
         return
@@ -308,7 +324,7 @@ export default function AppDetailModal({
   }
 
   const handleSaveDescription = async () => {
-    if (!app || !isOwner) return
+    if (!app || !canEdit) return
     clearMessages()
 
     setIsSavingDescription(true)
@@ -320,7 +336,9 @@ export default function AppDetailModal({
         description: descriptionInput.trim(),
       })
 
-      const result = await updateAgentUri(agentId, nextTokenURI)
+      const result = await updateAgentUri(agentId, nextTokenURI, {
+        gasless: useGaslessOwnerPath,
+      })
       if (!result.success) {
         setFormError(result.error ?? 'Failed to update description.')
         return
@@ -338,7 +356,7 @@ export default function AppDetailModal({
   }
 
   const handleIncreaseStake = async () => {
-    if (!app || !isOwner) return
+    if (!app || !canEdit) return
     clearMessages()
 
     if (targetTier <= currentTier) {
@@ -361,6 +379,7 @@ export default function AppDetailModal({
         newTier: targetTier,
         stakeToken: app.stakeTokenAddress,
         additionalStake,
+        gasless: useGaslessOwnerPath,
       })
       if (!result.success) {
         setFormError(result.error ?? 'Failed to increase stake.')
@@ -701,7 +720,7 @@ export default function AppDetailModal({
                 Owner Actions
               </h3>
 
-              {!isOwner && (
+              {!canEdit && (
                 <div
                   className="banner banner-error"
                   style={{ marginBottom: '1rem' }}
@@ -710,6 +729,13 @@ export default function AppDetailModal({
                   {' '}
                   Connected: <code>{address ?? 'Not connected'}</code>
                   {' '}• Owner: <code>{app.owner}</code>
+                </div>
+              )}
+              {isSmartAccountOwner && !isOwner && (
+                <div className="banner banner-info" style={{ marginBottom: '1rem' }}>
+                  Smart account owner mode enabled.
+                  {' '}
+                  Smart account: <code>{gasless.smartAccountAddress}</code>
                 </div>
               )}
 
@@ -744,13 +770,13 @@ export default function AppDetailModal({
                       placeholder="0x..."
                       value={walletInput}
                       onChange={(event) => setWalletInput(event.target.value)}
-                      disabled={isSavingWallet || !isOwner}
+                      disabled={isSavingWallet || !canEdit}
                     />
                     <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => void handleSetWallet()}
-                      disabled={isSavingWallet || !isOwner}
+                      disabled={isSavingWallet || !canEdit}
                     >
                       {isSavingWallet ? (
                         <>
@@ -793,7 +819,7 @@ export default function AppDetailModal({
                       placeholder="Primary category (e.g. agent)"
                       value={categoryInput}
                       onChange={(event) => setCategoryInput(event.target.value)}
-                      disabled={isSavingCategory || !isOwner}
+                      disabled={isSavingCategory || !canEdit}
                     />
                     <input
                       className="input"
@@ -801,13 +827,13 @@ export default function AppDetailModal({
                       placeholder="Tags (comma-separated)"
                       value={tagsInput}
                       onChange={(event) => setTagsInput(event.target.value)}
-                      disabled={isSavingCategory || !isOwner}
+                      disabled={isSavingCategory || !canEdit}
                     />
                     <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => void handleSaveCategories()}
-                      disabled={isSavingCategory || !isOwner}
+                      disabled={isSavingCategory || !canEdit}
                     >
                       {isSavingCategory ? (
                         <>
@@ -851,13 +877,13 @@ export default function AppDetailModal({
                       onChange={(event) =>
                         setDescriptionInput(event.target.value)
                       }
-                      disabled={isSavingDescription || !isOwner}
+                      disabled={isSavingDescription || !canEdit}
                     />
                     <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => void handleSaveDescription()}
-                      disabled={isSavingDescription || !isOwner}
+                      disabled={isSavingDescription || !canEdit}
                     >
                       {isSavingDescription ? (
                         <>
@@ -908,7 +934,7 @@ export default function AppDetailModal({
                               Number(event.target.value) as StakeTierValue,
                             )
                           }
-                          disabled={isIncreasingStake || !isOwner}
+                          disabled={isIncreasingStake || !canEdit}
                         >
                           {upgradeTiers.map((tier) => (
                             <option key={tier.value} value={tier.value}>
@@ -924,7 +950,7 @@ export default function AppDetailModal({
                           type="button"
                           className="button"
                           onClick={() => void handleIncreaseStake()}
-                          disabled={isIncreasingStake || !isOwner}
+                          disabled={isIncreasingStake || !canEdit}
                         >
                           {isIncreasingStake ? (
                             <>
@@ -946,7 +972,7 @@ export default function AppDetailModal({
                     type="button"
                     className="button"
                     onClick={() => void handleWithdraw()}
-                    disabled={isWithdrawing || !isOwner}
+                    disabled={isWithdrawing || !canEdit}
                     style={{
                       display: 'flex',
                       alignItems: 'center',

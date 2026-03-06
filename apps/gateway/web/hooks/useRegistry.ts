@@ -693,7 +693,27 @@ export function useRegistry() {
 
   async function withdrawStake(
     agentId: bigint,
+    options?: { gasless?: boolean },
   ): Promise<{ success: boolean; error?: string }> {
+    if (options?.gasless) {
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: REGISTRY_ADDRESS,
+            data: encodeFunctionData({
+              abi: IDENTITY_REGISTRY_ABI,
+              functionName: 'withdrawStake',
+              args: [agentId],
+            }),
+          },
+        ],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+      return { success: true }
+    }
+
     const hash = await writeAsync({
       address: REGISTRY_ADDRESS,
       abi: IDENTITY_REGISTRY_ABI,
@@ -708,7 +728,27 @@ export function useRegistry() {
   async function setAgentWallet(
     agentId: bigint,
     wallet: Address,
+    options?: { gasless?: boolean },
   ): Promise<{ success: boolean; error?: string }> {
+    if (options?.gasless) {
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: REGISTRY_ADDRESS,
+            data: encodeFunctionData({
+              abi: IDENTITY_REGISTRY_ABI,
+              functionName: 'setAgentWallet',
+              args: [agentId, wallet],
+            }),
+          },
+        ],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+      return { success: true }
+    }
+
     const hash = await writeAsync({
       address: REGISTRY_ADDRESS,
       abi: IDENTITY_REGISTRY_ABI,
@@ -723,10 +763,31 @@ export function useRegistry() {
   async function updateAgentTags(
     agentId: bigint,
     tags: string[],
+    options?: { gasless?: boolean },
   ): Promise<{ success: boolean; error?: string }> {
     const normalized = tags
       .map((tag) => tag.trim())
       .filter((tag) => tag.length > 0)
+
+    if (options?.gasless) {
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+        calls: [
+          {
+            to: REGISTRY_ADDRESS,
+            data: encodeFunctionData({
+              abi: IDENTITY_REGISTRY_ABI,
+              functionName: 'updateTags',
+              args: [agentId, normalized],
+            }),
+          },
+        ],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+      return { success: true }
+    }
+
     const hash = await writeAsync({
       address: REGISTRY_ADDRESS,
       abi: IDENTITY_REGISTRY_ABI,
@@ -741,7 +802,27 @@ export function useRegistry() {
   async function updateAgentCategory(
     agentId: bigint,
     category: string,
+    options?: { gasless?: boolean },
   ): Promise<{ success: boolean; error?: string }> {
+    if (options?.gasless) {
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+        calls: [
+          {
+            to: REGISTRY_ADDRESS,
+            data: encodeFunctionData({
+              abi: IDENTITY_REGISTRY_ABI,
+              functionName: 'setCategory',
+              args: [agentId, category.trim()],
+            }),
+          },
+        ],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+      return { success: true }
+    }
+
     const hash = await writeAsync({
       address: REGISTRY_ADDRESS,
       abi: IDENTITY_REGISTRY_ABI,
@@ -756,7 +837,27 @@ export function useRegistry() {
   async function updateAgentUri(
     agentId: bigint,
     tokenURI: string,
+    options?: { gasless?: boolean },
   ): Promise<{ success: boolean; error?: string }> {
+    if (options?.gasless) {
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+        calls: [
+          {
+            to: REGISTRY_ADDRESS,
+            data: encodeFunctionData({
+              abi: IDENTITY_REGISTRY_ABI,
+              functionName: 'setAgentUri',
+              args: [agentId, tokenURI],
+            }),
+          },
+        ],
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+      return { success: true }
+    }
+
     const hash = await writeAsync({
       address: REGISTRY_ADDRESS,
       abi: IDENTITY_REGISTRY_ABI,
@@ -773,10 +874,44 @@ export function useRegistry() {
     newTier: StakeTierValue
     stakeToken: Address
     additionalStake: bigint
+    gasless?: boolean
   }): Promise<{ success: boolean; error?: string }> {
-    const { agentId, newTier, stakeToken, additionalStake } = params
+    const { agentId, newTier, stakeToken, additionalStake, gasless: useGasless } =
+      params
     if (additionalStake <= 0n) {
       return { success: false, error: 'Selected tier is not above current tier.' }
+    }
+
+    if (useGasless) {
+      const calls: GaslessCall[] = []
+      if (stakeToken !== ZERO_ADDRESS) {
+        calls.push({
+          to: stakeToken,
+          data: encodeFunctionData({
+            abi: IERC20_ABI,
+            functionName: 'approve',
+            args: [REGISTRY_ADDRESS, additionalStake],
+          }),
+        })
+      }
+      calls.push({
+        to: REGISTRY_ADDRESS,
+        data: encodeFunctionData({
+          abi: IDENTITY_REGISTRY_ABI,
+          functionName: 'increaseStake',
+          args: [agentId, newTier],
+        }),
+        value: stakeToken === ZERO_ADDRESS ? additionalStake : 0n,
+      })
+
+      const hash = await gasless.executeGaslessCalls({
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+        calls,
+        requiredJejuBalance: stakeToken === CONTRACTS.jeju ? additionalStake : 0n,
+      })
+      setLastTx(hash)
+      await waitForSuccessfulReceipt(hash)
+      return { success: true }
     }
 
     if (stakeToken !== ZERO_ADDRESS) {
