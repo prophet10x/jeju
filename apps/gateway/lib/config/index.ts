@@ -307,7 +307,8 @@ export function resolveNodeStakingWriteAddress(
   if (NODE_STAKING_WRITE_PATH === 'v2' && hasV2) return v2
   if (NODE_STAKING_WRITE_PATH === 'v1' && hasV1) return v1
 
-  if (hasRouter) return router
+  // Atomic-safe default: prefer V2 direct writes over router in auto mode.
   if (hasV2) return v2
+  if (hasRouter) return router
   return v1
 }
