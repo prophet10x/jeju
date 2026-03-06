@@ -179,11 +179,14 @@ export default function AppDetailModal({
   const targetTierStake = useStakeAmount(targetTier)
   const connectedAddress = useMemo<Address | undefined>(() => {
     if (address && isAddress(address)) return getAddress(address)
+    return undefined
+  }, [address])
+  const authSessionSmartAccountAddress = useMemo<Address | undefined>(() => {
     if (walletAddress && isAddress(walletAddress)) {
       return getAddress(walletAddress)
     }
     return undefined
-  }, [address, walletAddress])
+  }, [walletAddress])
   const effectiveSmartAccountAddress =
     gasless.smartAccountAddress ?? sessionSmartAccountAddress ?? undefined
 
@@ -966,6 +969,19 @@ export default function AppDetailModal({
                   <code>{app.owner}</code>
                 </div>
               )}
+              {!canEdit &&
+                authSessionSmartAccountAddress &&
+                !connectedAddress && (
+                  <div
+                    className="banner banner-warning"
+                    style={{ marginBottom: '1rem' }}
+                  >
+                    Auth session detected for smart account{' '}
+                    <code>{authSessionSmartAccountAddress}</code>, but no wallet
+                    signer is connected. Connect the owner EOA in Rabby/MetaMask
+                    to execute owner transactions.
+                  </div>
+                )}
               {!canEdit && gasless.smartAccountDerivationError && (
                 <div
                   className="banner banner-warning"

@@ -317,11 +317,14 @@ export default function AgentSettingsModal({
   const canUpgrade = tier < 3
   const connectedAddress = useMemo<Address | undefined>(() => {
     if (address && isAddress(address)) return getAddress(address)
+    return undefined
+  }, [address])
+  const authSessionSmartAccountAddress = useMemo<Address | undefined>(() => {
     if (walletAddress && isAddress(walletAddress)) {
       return getAddress(walletAddress)
     }
     return undefined
-  }, [address, walletAddress])
+  }, [walletAddress])
   const effectiveSmartAccountAddress =
     gasless.smartAccountAddress ?? sessionSmartAccountAddress ?? undefined
   const isOwner = Boolean(
@@ -796,6 +799,22 @@ export default function AgentSettingsModal({
             View-only mode. Connected:{' '}
             <code>{connectedAddress ?? 'Not connected'}</code> • Owner:{' '}
             <code>{owner}</code>
+          </div>
+        )}
+        {!canEdit && authSessionSmartAccountAddress && !connectedAddress && (
+          <div
+            style={{
+              marginTop: '1rem',
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--warning-soft)',
+              color: 'var(--warning)',
+            }}
+          >
+            Auth session detected for smart account{' '}
+            <code>{authSessionSmartAccountAddress}</code>, but no wallet signer
+            is connected. Connect the owner EOA in Rabby/MetaMask to execute
+            owner transactions.
           </div>
         )}
         {!canEdit && gasless.smartAccountDerivationError && (

@@ -24,7 +24,9 @@ export function useGaslessBootstrap({ gasless }: UseGaslessBootstrapParams) {
       endpoint?: string
     }) => {
       if (!params.ownerAddress) {
-        throw new Error('Connect your wallet first')
+        throw new Error(
+          'Wallet signer unavailable. Connect your EOA in Rabby/MetaMask to continue.',
+        )
       }
       if (!gasless.smartAccountAddress) {
         throw new Error(

@@ -1,4 +1,3 @@
-import { useJejuAuth } from '@jejunetwork/auth/react'
 import {
   getMultiTokenPaymasterData,
   toPaymasterV07Data,
@@ -14,7 +13,7 @@ import {
 } from '@jejunetwork/shared/gasless'
 import { toJejuSimpleSmartAccount } from '@jejunetwork/shared/gasless-smart-account'
 import { createSmartAccountClient } from 'permissionless/clients'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type {
   Account,
   Address,
@@ -23,14 +22,7 @@ import type {
   Transport,
   WalletClient,
 } from 'viem'
-import {
-  encodeFunctionData,
-  erc20Abi,
-  getAddress,
-  http,
-  isAddress,
-  parseEther,
-} from 'viem'
+import { encodeFunctionData, erc20Abi, http, parseEther } from 'viem'
 import {
   useAccount,
   usePublicClient,
@@ -111,19 +103,9 @@ async function buildSmartAccount(params: {
 }
 
 export function useGaslessSmartAccount() {
-  const { address: connectedOwnerAddress } = useAccount()
-  const { walletAddress } = useJejuAuth()
+  const { address: ownerAddress } = useAccount()
   const publicClient = usePublicClient()
   const { data: walletClient } = useWalletClient()
-  const ownerAddress = useMemo<Address | undefined>(() => {
-    if (connectedOwnerAddress && isAddress(connectedOwnerAddress)) {
-      return getAddress(connectedOwnerAddress)
-    }
-    if (walletAddress && isAddress(walletAddress)) {
-      return getAddress(walletAddress)
-    }
-    return undefined
-  }, [connectedOwnerAddress, walletAddress])
   const [smartAccountAddress, setSmartAccountAddress] = useState<Address>()
   const [isLoadingSmartAccount, setIsLoadingSmartAccount] = useState(false)
   const [smartAccountDerivationError, setSmartAccountDerivationError] =
@@ -307,7 +289,9 @@ export function useGaslessSmartAccount() {
       bootstrapPaymasterAllowance = DEFAULT_PAYMASTER_ALLOWANCE,
     }: ExecuteGaslessCallsParams): Promise<Hex> => {
       if (!walletClient || !publicClient) {
-        throw new Error('Connect a wallet first')
+        throw new Error(
+          'Wallet signer unavailable. Connect your EOA in Rabby/MetaMask to sign this transaction.',
+        )
       }
       if (!smartAccountAddress) {
         throw new Error('Smart account is not available yet')
