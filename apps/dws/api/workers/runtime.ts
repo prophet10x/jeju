@@ -5,6 +5,7 @@
 
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
+import { getCurrentNetwork, getIpfsGatewayUrl } from '@jejunetwork/config'
 import type { JSONValue } from '../shared/validation'
 import type { BackendManager } from '../storage/backends'
 import type {
@@ -790,12 +791,17 @@ export class WorkerRuntime {
       )
 
       // Try IPFS gateway as fallback
-      const ipfsGatewayUrls = [
-        `https://ipfs.testnet.jejunetwork.org/ipfs/${cid}`,
-        `https://ipfs.jejunetwork.org/ipfs/${cid}`,
-        `https://dweb.link/ipfs/${cid}`,
-        `https://cloudflare-ipfs.com/ipfs/${cid}`,
-      ]
+      const configuredGateway = getIpfsGatewayUrl(getCurrentNetwork()).replace(
+        /\/+$/,
+        '',
+      )
+      const ipfsGatewayUrls = Array.from(
+        new Set([
+          `${configuredGateway}/${cid}`,
+          `https://dweb.link/ipfs/${cid}`,
+          `https://cloudflare-ipfs.com/ipfs/${cid}`,
+        ]),
+      )
 
       let gatewayContent: Buffer | null = null
       for (const gatewayUrl of ipfsGatewayUrls) {

@@ -102,6 +102,22 @@ interface IIdentityRegistry is IERC721, IERC721Metadata {
      */
     function isRegistrarAuthorized(address registrar) external view returns (bool authorized);
 
+    /**
+     * @notice Configure whether an address can publish QoS metadata
+     * @dev Governance controlled
+     * @param reporter Reporter address to configure
+     * @param authorized Whether reporter is authorized
+     */
+    function setMetadataReporter(address reporter, bool authorized) external;
+
+    /**
+     * @notice Rotate authorized metadata reporter from old to new address
+     * @dev Governance controlled helper for reporter contract replacement
+     * @param oldReporter Existing reporter to revoke (optional: address(0) skips revoke)
+     * @param newReporter New reporter to authorize
+     */
+    function replaceMetadataReporter(address oldReporter, address newReporter) external;
+
     // ============ Metadata Functions ============
 
     /**

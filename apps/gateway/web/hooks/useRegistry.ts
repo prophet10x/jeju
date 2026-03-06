@@ -729,7 +729,7 @@ export function useRegistry() {
     agentId: bigint,
     wallet: Address,
     options?: { gasless?: boolean },
-  ): Promise<{ success: boolean; error?: string; txHash?: `0x${string}` }> {
+  ): Promise<{ success: boolean; error?: string }> {
     if (options?.gasless) {
       const hash = await gasless.executeGaslessCalls({
         serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
@@ -746,7 +746,7 @@ export function useRegistry() {
       })
       setLastTx(hash)
       await waitForSuccessfulReceipt(hash)
-      return { success: true, txHash: hash }
+      return { success: true }
     }
 
     const hash = await writeAsync({
@@ -757,7 +757,7 @@ export function useRegistry() {
     })
     setLastTx(hash)
     await waitForSuccessfulReceipt(hash)
-    return { success: true, txHash: hash }
+    return { success: true }
   }
 
   async function updateAgentTags(

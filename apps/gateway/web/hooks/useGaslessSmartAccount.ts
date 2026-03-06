@@ -22,13 +22,7 @@ import type {
   Transport,
   WalletClient,
 } from 'viem'
-import {
-  decodeAbiParameters,
-  encodeFunctionData,
-  erc20Abi,
-  http,
-  parseEther,
-} from 'viem'
+import { encodeFunctionData, erc20Abi, http, parseEther } from 'viem'
 import {
   useAccount,
   usePublicClient,
@@ -44,11 +38,8 @@ const DEFAULT_PAYMASTER_ALLOWANCE = parseEther('1')
 const FIRST_DEPLOY_CALL_GAS_LIMIT = 2_500_000n
 const FIRST_DEPLOY_VERIFICATION_GAS_LIMIT = 2_000_000n
 const FIRST_DEPLOY_PRE_VERIFICATION_GAS = 300_000n
-const USER_OPERATION_EVENT_TOPIC =
-  '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f'
-const USER_OPERATION_REVERT_REASON_TOPIC =
-  '0xf62676f440ff169a3a9afdbf812e89e7f95975ee8e5c31214ffdef631c5f4792'
-const POST_OP_REVERTED_SELECTOR = '0xad7954bc'
+const FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT = 500_000n
+const FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT = 120_000n
 
 const CREDIT_MANAGER_ABI = [
   {
@@ -59,13 +50,6 @@ const CREDIT_MANAGER_ABI = [
       { name: 'token', type: 'address' },
     ],
     outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'authorizedServices',
-    inputs: [{ name: 'service', type: 'address' }],
-    outputs: [{ name: '', type: 'bool' }],
     stateMutability: 'view',
   },
 ] as const
@@ -82,98 +66,6 @@ interface ExecuteGaslessCallsParams {
   requiredJejuBalance?: bigint
   requiredPaymentAmount?: bigint
   bootstrapPaymasterAllowance?: bigint
-}
-
-function topicForAddress(address: Address): Hex {
-  return `0x${address.toLowerCase().slice(2).padStart(64, '0')}` as Hex
-}
-
-function getUserOperationFailureMessage(params: {
-  receipt: Awaited<ReturnType<PublicClient['waitForTransactionReceipt']>>
-  entryPointAddress: Address
-  senderAddress: Address
-}): string | null {
-  const { receipt, entryPointAddress, senderAddress } = params
-  const senderTopic = topicForAddress(senderAddress).toLowerCase()
-  const entryPointLower = entryPointAddress.toLowerCase()
-
-  const entryPointLogs = receipt.logs
-    .filter((log) => log.address.toLowerCase() === entryPointLower)
-    .map(
-      (log) =>
-        log as {
-          address: Address
-          data: Hex
-          topics?: readonly Hex[]
-        },
-    )
-  const userOperationLog = entryPointLogs.find((log) => {
-    const topic0 = log.topics?.[0]?.toLowerCase()
-    const sender = log.topics?.[2]?.toLowerCase()
-    return (
-      topic0 === USER_OPERATION_EVENT_TOPIC && sender === senderTopic
-    )
-  })
-
-  if (!userOperationLog) return null
-
-  let success = false
-  try {
-    ;[, success] = decodeAbiParameters(
-      [
-        { type: 'uint256' }, // nonce
-        { type: 'bool' }, // success
-        { type: 'uint256' }, // actualGasCost
-        { type: 'uint256' }, // actualGasUsed
-      ],
-      userOperationLog.data,
-    )
-  } catch {
-    return 'Gasless transaction mined, but user operation status could not be decoded.'
-  }
-
-  if (success) return null
-
-  const userOpHash = userOperationLog.topics?.[1]?.toLowerCase()
-  if (!userOpHash) {
-    return 'Gasless user operation failed in EntryPoint.'
-  }
-
-  const revertReasonLog = entryPointLogs.find((log) => {
-    const topic0 = log.topics?.[0]?.toLowerCase()
-    const topic1 = log.topics?.[1]?.toLowerCase()
-    const topic2 = log.topics?.[2]?.toLowerCase()
-    return (
-      topic0 === USER_OPERATION_REVERT_REASON_TOPIC &&
-      topic1 === userOpHash &&
-      topic2 === senderTopic
-    )
-  })
-
-  if (!revertReasonLog) {
-    return 'Gasless user operation failed in EntryPoint.'
-  }
-
-  try {
-    const [, revertReason] = decodeAbiParameters(
-      [
-        { type: 'uint256' }, // nonce
-        { type: 'bytes' }, // revertReason
-      ],
-      revertReasonLog.data,
-    )
-
-    const reasonHex = (revertReason as Hex).toLowerCase()
-    if (!reasonHex || reasonHex === '0x') {
-      return 'Gasless user operation failed in EntryPoint.'
-    }
-    if (reasonHex.startsWith(POST_OP_REVERTED_SELECTOR)) {
-      return 'Paymaster postOp reverted (PostOpReverted).'
-    }
-    return `Gasless user operation reverted: ${reasonHex}`
-  } catch {
-    return 'Gasless user operation failed in EntryPoint.'
-  }
 }
 
 async function buildSmartAccount(params: {
@@ -401,11 +293,6 @@ export function useGaslessSmartAccount() {
           'Wallet signer unavailable. Connect your EOA in Rabby/MetaMask to sign this transaction.',
         )
       }
-      if (!ownerAddress) {
-        throw new Error(
-          'Wallet signer unavailable. Connect your EOA in Rabby/MetaMask to sign this transaction.',
-        )
-      }
       if (!smartAccountAddress) {
         throw new Error('Smart account is not available yet')
       }
@@ -413,116 +300,50 @@ export function useGaslessSmartAccount() {
         throw new Error('MultiTokenPaymaster is not configured')
       }
 
-      const loadReadiness = async (): Promise<GaslessReadiness> => {
-        const [latestJejuBalance, latestJejuCredit, latestPaymasterAllowance] =
-          await Promise.all([
-            publicClient.readContract({
-              address: CONTRACTS.jeju,
-              abi: erc20Abi,
-              functionName: 'balanceOf',
-              args: [smartAccountAddress],
-            }),
-            isConfiguredAddress(CONTRACTS.creditManager)
-              ? publicClient.readContract({
-                  address: CONTRACTS.creditManager,
-                  abi: CREDIT_MANAGER_ABI,
-                  functionName: 'balances',
-                  args: [smartAccountAddress, CONTRACTS.jeju],
-                })
-              : Promise.resolve(0n),
-            publicClient.readContract({
-              address: CONTRACTS.jeju,
-              abi: erc20Abi,
-              functionName: 'allowance',
-              args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
-            }),
-          ])
-
-        return getGaslessReadiness({
-          jejuBalance: latestJejuBalance as bigint,
-          jejuCredit: latestJejuCredit as bigint,
-          paymasterAllowance: latestPaymasterAllowance as bigint,
-          requiredJejuBalance,
-          requiredPaymentAmount,
-          targetPaymasterAllowance: bootstrapPaymasterAllowance,
-        })
-      }
-
-      const bootstrapSmartAccount = async () => {
-        const response = await fetch('./api/gasless/bootstrap', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ownerAddress,
-            smartAccountAddress,
-            purpose: 'registry',
-            requiredStakeAmount: requiredJejuBalance.toString(),
+      const [latestJejuBalance, latestJejuCredit, latestPaymasterAllowance] =
+        await Promise.all([
+          publicClient.readContract({
+            address: CONTRACTS.jeju,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [smartAccountAddress],
           }),
-        })
+          isConfiguredAddress(CONTRACTS.creditManager)
+            ? publicClient.readContract({
+                address: CONTRACTS.creditManager,
+                abi: CREDIT_MANAGER_ABI,
+                functionName: 'balances',
+                args: [smartAccountAddress, CONTRACTS.jeju],
+              })
+            : Promise.resolve(0n),
+          publicClient.readContract({
+            address: CONTRACTS.jeju,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
+          }),
+        ])
 
-        const rawBody = await response.text()
-        const payload = (
-          rawBody
-            ? JSON.parse(rawBody)
-            : {
-                success: false,
-                error: 'Empty response from bootstrap endpoint',
-              }
-        ) as { success?: boolean; error?: string }
-
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.error ?? 'Failed to prepare smart account')
-        }
-
-        await refreshState()
-      }
-
-      const normalizeExecutionError = (message: string): string => {
-        const normalized = message.toLowerCase()
-        if (
-          normalized.includes('0xdc0b34cd') ||
-          normalized.includes('unauthorizedservice')
-        ) {
-          return `Paymaster is not authorized in CreditManager. Operator must call CreditManager.setServiceAuthorization(${CONTRACTS.multiTokenPaymaster}, true).`
-        }
-        if (
-          normalized.includes(POST_OP_REVERTED_SELECTOR) ||
-          normalized.includes('postopreverted')
-        ) {
-          return 'Paymaster postOp reverted. Verify JEJU paymaster allowance/credit and paymaster service authorization.'
-        }
-        if (
-          normalized.includes('0xb0a6a455') ||
-          normalized.includes('insufficientcreditandnopayment')
-        ) {
-          return 'Insufficient JEJU credit and paymaster allowance for gasless execution.'
-        }
-        return message
-      }
-
-      const shouldRetryAfterBootstrap = (message: string): boolean => {
-        const normalized = message.toLowerCase()
-        return (
-          normalized.includes('aa33') ||
-          normalized.includes('0xb0a6a455') ||
-          normalized.includes('insufficientcreditandnopayment') ||
-          normalized.includes('not gasless-ready') ||
-          normalized.includes(
-            'failed to prime paymaster allowance via credit',
-          ) ||
-          normalized.includes('paymaster allowance priming did not complete')
+      let readiness = getGaslessReadiness({
+        jejuBalance: latestJejuBalance as bigint,
+        jejuCredit: latestJejuCredit as bigint,
+        paymasterAllowance: latestPaymasterAllowance as bigint,
+        requiredJejuBalance,
+        requiredPaymentAmount,
+        targetPaymasterAllowance: bootstrapPaymasterAllowance,
+      })
+      if (!readiness.isReady) {
+        throw new Error(
+          'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
         )
       }
+      const needsAllowancePriming =
+        readiness.readyViaCredit && !readiness.readyViaAllowance
 
-      const sendGaslessTransaction = async (
-        initialReadiness: GaslessReadiness,
-      ): Promise<Hex> => {
-        let readiness = initialReadiness
-        const needsAllowancePriming =
-          readiness.readyViaCredit && !readiness.readyViaAllowance
+      setIsExecuting(true)
+      setExecutionError(null)
 
+      try {
         const account = await buildSmartAccount({
           publicClient,
           walletClient,
@@ -535,25 +356,6 @@ export function useGaslessSmartAccount() {
           callsToSend: GaslessCall[],
           overpayment: bigint,
         ): Promise<Hex> => {
-          const buildPaymasterV07 = (): {
-            paymaster: Address
-            paymasterData: Hex
-          } => {
-            const paymasterData = getMultiTokenPaymasterData({
-              paymaster: CONTRACTS.multiTokenPaymaster,
-              serviceName,
-              paymentToken: PAYMENT_TOKEN_JEJU,
-              overpayment,
-            })
-            const v07Paymaster = toPaymasterV07Data(paymasterData)
-            // Leave gas limits undefined so the bundler can estimate
-            // paymasterVerificationGasLimit/paymasterPostOpGasLimit per tx.
-            return {
-              paymaster: v07Paymaster.paymaster,
-              paymasterData: v07Paymaster.paymasterData,
-            }
-          }
-
           const smartAccountClient = createSmartAccountClient({
             account,
             chain: publicClient.chain,
@@ -561,10 +363,22 @@ export function useGaslessSmartAccount() {
             bundlerTransport: http(BUNDLER_URL),
             paymaster: {
               getPaymasterStubData: async () => {
-                return buildPaymasterV07()
+                const paymasterData = getMultiTokenPaymasterData({
+                  paymaster: CONTRACTS.multiTokenPaymaster,
+                  serviceName,
+                  paymentToken: PAYMENT_TOKEN_JEJU,
+                  overpayment,
+                })
+                return toPaymasterV07Data(paymasterData)
               },
               getPaymasterData: async () => {
-                return buildPaymasterV07()
+                const paymasterData = getMultiTokenPaymasterData({
+                  paymaster: CONTRACTS.multiTokenPaymaster,
+                  serviceName,
+                  paymentToken: PAYMENT_TOKEN_JEJU,
+                  overpayment,
+                })
+                return toPaymasterV07Data(paymasterData)
               },
             },
           })
@@ -581,6 +395,10 @@ export function useGaslessSmartAccount() {
                   callGasLimit: FIRST_DEPLOY_CALL_GAS_LIMIT,
                   verificationGasLimit: FIRST_DEPLOY_VERIFICATION_GAS_LIMIT,
                   preVerificationGas: FIRST_DEPLOY_PRE_VERIFICATION_GAS,
+                  paymasterVerificationGasLimit:
+                    FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT,
+                  paymasterPostOpGasLimit:
+                    FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT,
                   maxFeePerGas: gasPrice,
                   maxPriorityFeePerGas: gasPrice,
                 },
@@ -588,25 +406,6 @@ export function useGaslessSmartAccount() {
         }
 
         if (needsAllowancePriming) {
-          const paymasterIsAuthorized = isConfiguredAddress(
-            CONTRACTS.creditManager,
-          )
-            ? await publicClient.readContract({
-                address: CONTRACTS.creditManager,
-                abi: CREDIT_MANAGER_ABI,
-                functionName: 'authorizedServices',
-                args: [CONTRACTS.multiTokenPaymaster],
-              })
-            : false
-
-          if (!paymasterIsAuthorized) {
-            throw new Error(
-              normalizeExecutionError(
-                'UnauthorizedService: paymaster is not authorized in CreditManager',
-              ),
-            )
-          }
-
           const primeHash = await sendWithOverpayment(
             [
               {
@@ -632,8 +431,41 @@ export function useGaslessSmartAccount() {
 
           await refreshState()
 
-          const postPrimeReadiness = await loadReadiness()
-          readiness = postPrimeReadiness
+          const [
+            postPrimeJejuBalance,
+            postPrimeJejuCredit,
+            postPrimeAllowance,
+          ] = await Promise.all([
+            publicClient.readContract({
+              address: CONTRACTS.jeju,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [smartAccountAddress],
+            }),
+            isConfiguredAddress(CONTRACTS.creditManager)
+              ? publicClient.readContract({
+                  address: CONTRACTS.creditManager,
+                  abi: CREDIT_MANAGER_ABI,
+                  functionName: 'balances',
+                  args: [smartAccountAddress, CONTRACTS.jeju],
+                })
+              : Promise.resolve(0n),
+            publicClient.readContract({
+              address: CONTRACTS.jeju,
+              abi: erc20Abi,
+              functionName: 'allowance',
+              args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
+            }),
+          ])
+
+          readiness = getGaslessReadiness({
+            jejuBalance: postPrimeJejuBalance as bigint,
+            jejuCredit: postPrimeJejuCredit as bigint,
+            paymasterAllowance: postPrimeAllowance as bigint,
+            requiredJejuBalance,
+            requiredPaymentAmount,
+            targetPaymasterAllowance: bootstrapPaymasterAllowance,
+          })
 
           if (!readiness.readyViaAllowance) {
             throw new Error(
@@ -661,70 +493,10 @@ export function useGaslessSmartAccount() {
           preparedCalls,
           requiredPaymentAmount,
         )
-        const receipt = await publicClient.waitForTransactionReceipt({
-          hash: txHash,
-        })
-        if (receipt.status !== 'success') {
-          throw new Error('Gasless transaction reverted on-chain.')
-        }
-
-        const entryPointAddress = getConfiguredAddress(
-          CONTRACTS.entryPointV07 || CONTRACTS.entryPoint,
-        )
-        if (entryPointAddress) {
-          const userOpFailure = getUserOperationFailureMessage({
-            receipt,
-            entryPointAddress,
-            senderAddress: smartAccountAddress,
-          })
-          if (userOpFailure) {
-            throw new Error(userOpFailure)
-          }
-        }
 
         setLastTx(txHash)
         await refreshState()
         return txHash
-      }
-
-      setIsExecuting(true)
-      setExecutionError(null)
-
-      try {
-        let readiness = await loadReadiness()
-
-        if (!readiness.isReady) {
-          await bootstrapSmartAccount()
-          readiness = await loadReadiness()
-          if (!readiness.isReady) {
-            throw new Error(
-              'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
-            )
-          }
-        }
-
-        try {
-          return await sendGaslessTransaction(readiness)
-        } catch (error) {
-          const rawMessage =
-            error instanceof Error
-              ? error.message
-              : 'Gasless transaction failed'
-          const message = normalizeExecutionError(rawMessage)
-
-          if (!shouldRetryAfterBootstrap(rawMessage)) {
-            throw new Error(message)
-          }
-
-          await bootstrapSmartAccount()
-          const retryReadiness = await loadReadiness()
-          if (!retryReadiness.isReady) {
-            throw new Error(
-              'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
-            )
-          }
-          return await sendGaslessTransaction(retryReadiness)
-        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Gasless transaction failed'
@@ -734,13 +506,7 @@ export function useGaslessSmartAccount() {
         setIsExecuting(false)
       }
     },
-    [
-      ownerAddress,
-      publicClient,
-      refreshState,
-      smartAccountAddress,
-      walletClient,
-    ],
+    [publicClient, refreshState, smartAccountAddress, walletClient],
   )
 
   return {

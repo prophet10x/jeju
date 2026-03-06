@@ -26,10 +26,16 @@ export const RPC_URL = getRpcUrl(NETWORK)
 // so use relative paths instead of absolute URLs from services.json.
 // This works regardless of domain/IP (e.g., 52.206.203.24, dws.testnet.jejunetwork.org, localhost).
 export const DWS_API_URL = ''
+const APP_ORIGIN = typeof window !== 'undefined' ? window.location.origin : ''
 // OAuth3 is served by DWS itself at /oauth3/*, so use origin-relative URL
 // (empty string is falsy and treated as "not configured" by the OAuth3 client)
-export const OAUTH3_AGENT_URL =
-  typeof window !== 'undefined' ? `${window.location.origin}/oauth3` : '/oauth3'
+export const OAUTH3_AGENT_URL = APP_ORIGIN ? `${APP_ORIGIN}/oauth3` : '/oauth3'
+export const DWS_IPFS_GATEWAY_URL = APP_ORIGIN
+  ? `${APP_ORIGIN}/storage/ipfs`
+  : '/storage/ipfs'
+export const DWS_IPFS_API_URL = APP_ORIGIN
+  ? `${APP_ORIGIN}/storage/api/v0`
+  : '/storage/api/v0'
 
 // Contract addresses from config
 const contracts = getContractsConfig(NETWORK)
@@ -180,10 +186,7 @@ export function resolveNodeStakingWriteAddress(
   return v1
 }
 
-export const BUNDLER_URL =
-  typeof window !== 'undefined'
-    ? `${window.location.origin}/bundler`
-    : '/bundler'
+export const BUNDLER_URL = APP_ORIGIN ? `${APP_ORIGIN}/bundler` : '/bundler'
 
 // Token addresses from config
 export const TOKENS = {

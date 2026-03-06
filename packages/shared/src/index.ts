@@ -543,6 +543,15 @@ export {
   type SystemMetrics,
 } from './monitoring'
 export {
+  buildQoSAttestationMessage,
+  normalizeAttestationOrigin,
+  QOS_ATTESTATION_PATH,
+  QoSAttestationProofSchema,
+  QoSAttestationRequestSchema,
+  type QoSAttestationProof,
+  type QoSAttestationRequest,
+} from './qos-attestation'
+export {
   ChallengeRequestSchema,
   createNodeProofService,
   NODE_PROOF_PATH,

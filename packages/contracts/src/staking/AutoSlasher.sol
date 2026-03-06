@@ -14,13 +14,13 @@ import {INodeStakingManager} from "./INodeStakingManager.sol";
  * - If uptime <95% for 3 months → 10% slash
  * - If uptime <90% for 2 months → 25% slash
  * - If uptime <80% for 1 month → 50% slash
- * - Grace period: First 30 days exempt
+ * - Grace period: First 24 hours exempt
  * - Appeal mechanism: Can dispute via governance
  *
  * Safety:
  * - Owner can pause automated slashing
  * - Governance can toggle via proposal
- * - Slashing requires confirmation period (7 days)
+ * - Slashing requires confirmation period (48 hours)
  * - Appeals pause execution
  */
 contract AutoSlasher is Ownable {
@@ -48,8 +48,8 @@ contract AutoSlasher is Ownable {
     mapping(bytes32 => PerformanceHistory) public performanceHistory;
     mapping(bytes32 => SlashProposal) public slashProposals;
 
-    uint256 public constant GRACE_PERIOD = 30 days;
-    uint256 public constant CONFIRMATION_PERIOD = 7 days;
+    uint256 public constant GRACE_PERIOD = 24 hours;
+    uint256 public constant CONFIRMATION_PERIOD = 48 hours;
     uint256 public constant MONTH_DURATION = 30 days;
 
     bool public autoSlashingEnabled = false;

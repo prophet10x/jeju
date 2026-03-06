@@ -9,6 +9,7 @@ import {
   Search,
 } from 'lucide-react'
 import { useState } from 'react'
+import { DWS_IPFS_GATEWAY_URL } from '../../config'
 import { usePackages } from '../../hooks'
 
 export default function PackagesPage() {
@@ -377,7 +378,7 @@ export default function PackagesPage() {
 
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <a
-                  href={`https://ipfs.jejunetwork.org/ipfs/${selectedPkg.cid}`}
+                  href={`${DWS_IPFS_GATEWAY_URL}/${selectedPkg.cid}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn btn-secondary"

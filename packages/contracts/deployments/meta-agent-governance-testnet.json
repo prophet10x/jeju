@@ -1,0 +1,38 @@
+{
+  "network": "testnet",
+  "chainId": 420690,
+  "rpcUrl": "https://jeju-testnet.fartbag.fun/",
+  "deployedAt": "2026-03-06",
+  "deployer": "0x1c8D40d6E81289B5a1B6e4E3a2E34eA23d1c2A0E",
+  "contracts": {
+    "metaAgentConstitutionalGovernor": "0x34440077eBE01203125cDEF730711545CC9ee5B0",
+    "metaAgentGovernanceParameters": "0x7324287d2587D75496C4aB0030610223A5bf28D2",
+    "metaAgentRunoffGovernor": "0xF866a84615c33Fa6a3e97084E67f3E355CBf6De1",
+    "metaAgentRoundCoordinator": "0x7ec4D589B4F9E2FE083c155d7E85829F4B4D0aaa",
+    "metaAgentActionRouter": "0xd0c7681A7A747c546680D78067feB5fC7Ff316BD"
+  },
+  "wiring": {
+    "nodeStakingManagerV2": "0x325f9145a020d616F168598377084e7768939435",
+    "slashAuthoritySetTo": "0x7ec4D589B4F9E2FE083c155d7E85829F4B4D0aaa",
+    "parametersGovernanceSetTo": "0xd0c7681A7A747c546680D78067feB5fC7Ff316BD",
+    "governanceTimelockUsed": "0x2d47410261a156cefae5ae5a6ca3f597d7612ba1",
+    "metaRequire7dTimelock": false,
+    "timelockDelaySecondsObserved": 2592000
+  },
+  "transactions": {
+    "createMetaAgentConstitutionalGovernor": "0x810e5c21317c8e67697120ef2d7ef1ac5faad1d6804afa62c26234e70ecbfd6e",
+    "createMetaAgentGovernanceParameters": "0x991a44f6e154c534787ae42032165444302004d68dd06cf7d6c48350e65f8a5c",
+    "createMetaAgentRunoffGovernor": "0x8e5e02fa4fa5df42bf1a3fe70d31d7745717f06f44c95fde3bbdc09e57fcc7cc",
+    "createMetaAgentRoundCoordinator": "0x953f3b49836f5b8f5ba0959fc7b42d925331a85fc2928fcc94102301e188465d",
+    "createMetaAgentActionRouter": "0x0ba9e32280b8a59c7a66349e343a0e35e5f13234f051d1c78c2b677531591fb3",
+    "setRunoffCoordinator": "0xf37ed2b771ee762ae15802d72d162f4af5484179782eb2abf00ab46465b5922c",
+    "setRunoffActionRouter": "0x6052df2fa84a2f8025d9cecc2f281a7258ea4f0c6e402865352d3a179e8e9b27",
+    "transferParametersGovernance": "0x523f17dc9311e0da82e401fc73214d4c3b13315009781becefd4f6826eb94a22",
+    "acceptParametersGovernance": "0x2bae351e9274a3139c48d8babcf3ac0a850a78afbe316e3bfefc29c98286c36b",
+    "setSlashAuthority": "0xd5cd08c3163f01aa290e95101b950be5bbb66172566a4a7781a7a64889522380"
+  },
+  "notes": [
+    "Broadcast executed from AWS host, targeting Oracle-hosted L2 RPC.",
+    "Constitutional lane currently sees 30-day timelock; strict 7-day requirement was bypassed for deployment."
+  ]
+}

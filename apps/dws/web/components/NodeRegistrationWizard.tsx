@@ -1662,27 +1662,45 @@ export default function NodeRegistrationWizard() {
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          gap: '0.5rem',
+          alignItems: 'center',
+          gap: '0.75rem',
           flexWrap: 'wrap',
           marginBottom: '0.75rem',
         }}
       >
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={selectAllServices}
-          disabled={selectedServices.length === services.length}
-        >
-          Pick all
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={clearAllServices}
-          disabled={selectedServices.length === 0}
-        >
-          Unpick all
-        </button>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          {selectedServices.length}/{services.length} selected
+        </span>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={selectAllServices}
+            disabled={selectedServices.length === services.length}
+          >
+            Pick all
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={clearAllServices}
+            disabled={selectedServices.length === 0}
+          >
+            Unpick all
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          marginBottom: '0.25rem',
+        }}
+      >
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+          Tap any service tile to toggle
+        </span>
       </div>
 
       <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1.5rem' }}>
@@ -1745,6 +1763,43 @@ export default function NodeRegistrationWizard() {
             </div>
           </button>
         ))}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '0.75rem',
+          flexWrap: 'wrap',
+          marginBottom: '1rem',
+          padding: '0.75rem',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--bg-tertiary)',
+          border: '1px solid var(--border)',
+        }}
+      >
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          Bulk selection
+        </span>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={selectAllServices}
+            disabled={selectedServices.length === services.length}
+          >
+            Pick all
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={clearAllServices}
+            disabled={selectedServices.length === 0}
+          >
+            Unpick all
+          </button>
+        </div>
       </div>
 
       <div

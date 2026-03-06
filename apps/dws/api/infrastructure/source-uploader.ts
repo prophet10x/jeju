@@ -14,7 +14,11 @@
 import { createHash } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
-import { getCurrentNetwork } from '@jejunetwork/config'
+import {
+  getCurrentNetwork,
+  getIpfsGatewayUrl,
+  type NetworkType,
+} from '@jejunetwork/config'
 import { getBackendManager } from '../storage/backends'
 
 // Types
@@ -41,19 +45,12 @@ export interface SourceReference {
 // Source Uploader
 
 export class SourceUploader {
-  private network: string
+  private network: NetworkType
   private gatewayEndpoint: string
 
   constructor() {
     this.network = getCurrentNetwork()
-    // Use network-specific gateway for URL generation
-    if (this.network === 'mainnet') {
-      this.gatewayEndpoint = 'https://ipfs.jejunetwork.org'
-    } else if (this.network === 'testnet') {
-      this.gatewayEndpoint = 'https://ipfs.testnet.jejunetwork.org'
-    } else {
-      this.gatewayEndpoint = 'http://localhost:8080'
-    }
+    this.gatewayEndpoint = getIpfsGatewayUrl(this.network).replace(/\/+$/, '')
   }
 
   /**
@@ -73,7 +70,7 @@ export class SourceUploader {
       cid: result.cid,
       hash: `0x${hash}`,
       size: buffer.length,
-      url: result.url || `${this.gatewayEndpoint}/ipfs/${result.cid}`,
+      url: result.url || `${this.gatewayEndpoint}/${result.cid}`,
     }
   }
 
@@ -140,7 +137,7 @@ export class SourceUploader {
           cid: source.ref,
           hash: '',
           size: 0,
-          url: `${this.gatewayEndpoint}/ipfs/${source.ref}`,
+          url: `${this.gatewayEndpoint}/${source.ref}`,
         }
 
       case 'local': {
@@ -152,7 +149,7 @@ export class SourceUploader {
             cid: result.rootCid,
             hash: '',
             size: result.totalSize,
-            url: `${this.gatewayEndpoint}/ipfs/${result.rootCid}`,
+            url: `${this.gatewayEndpoint}/${result.rootCid}`,
           }
         } else {
           const content = await readFile(source.ref)
@@ -306,7 +303,7 @@ export class SourceUploader {
    * Get the gateway URL for a CID
    */
   getGatewayUrl(cid: string): string {
-    return `${this.gatewayEndpoint}/ipfs/${cid}`
+    return `${this.gatewayEndpoint}/${cid}`
   }
 }
 

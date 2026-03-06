@@ -7,6 +7,15 @@ import {
   tryGetContract,
 } from '@jejunetwork/config'
 import { createMigrationWalletClient } from '@jejunetwork/kms'
+import {
+  QOS_ATTESTATION_PATH,
+  type QoSAttestationProof,
+  QoSAttestationProofSchema,
+  QoSAttestationRequestSchema,
+  buildQoSAttestationMessage,
+  normalizeAttestationOrigin,
+} from '@jejunetwork/shared'
+import { createHash, randomBytes } from 'node:crypto'
 import { NODE_STAKING_MANAGER_ABI } from '../../lib/nodeStaking'
 import {
   verifyStorageAuditChunks,
@@ -14,7 +23,7 @@ import {
   type StorageAuditCommitment,
 } from './storage-audit-verifier'
 import { QOS_VALIDATOR_SERVICE_PROFILES } from './qos-validator-types'
-import type { Address, Chain, Hex } from 'viem'
+import { isAddress, type Address, type Chain, type Hex, verifyMessage } from 'viem'
 import { base, baseSepolia, foundry } from 'viem/chains'
 
 export interface StorageReporterConfig {
@@ -28,14 +37,30 @@ export interface StorageReporterConfig {
   lookbackHours: number
   maxCommitmentsPerNode: number
   challengeChunkCount: number
+  slashEventLookbackBlocks: number
+  publishIdentityMetadata: boolean
+  metadataKey: string
+  metadataPublishIntervalSec: number
+  metadataProposalDurationSec: number
+  metadataConsensusAddress: Address | null
   submitOnChain: boolean
-  registerAsPerformanceOracle: boolean
+  registerAsQoSValidator: boolean
   enableAutoSlashing: boolean
   checkSlashing: boolean
   executeSlashing: boolean
   runOnce: boolean
   endpointOverrides: Map<string, string>
   allowedNodeIds: Set<Hex> | null
+  attestationEnabled: boolean
+  attestationPath: string
+  attestationChallengeWindowMs: number
+  attestationAllowedSkewMs: number
+  attestationSlashBps: number
+  attestationSlashPassRateThresholdBps: number
+  attestationSlashConsecutiveFailureThreshold: number
+  attestationSlashProposalCooldownSec: number
+  attestationMetadataKey: string
+  attestationMetadataPublishIntervalSec: number
 }
 
 interface NodeInfoResponse {
@@ -64,6 +89,16 @@ interface SlashProposal {
   executesAt: bigint
   executed: boolean
   appealed: boolean
+}
+
+interface PendingSlash {
+  nodeId: Hex
+  slashPercentageBPS: bigint
+  reason: string
+  proposedAt: bigint
+  executeAfter: bigint
+  executed: boolean
+  disputed: boolean
 }
 
 interface StorageActivitySummary {
@@ -135,6 +170,109 @@ interface NodeAuditMetrics {
   auditedCids: string[]
   invalidCids: string[]
   baseUrl: string
+  attestationPassRate1hBps?: number
+  attestationPassRate24hBps?: number
+  attestationConsecutiveFailures?: number
+  attestationReason?: string | null
+  attestationEvidenceHash?: Hex | null
+  attestationChecked?: boolean
+  attestationVerified?: boolean
+  effectiveUptimeBps?: number
+}
+
+interface NodeMetricSample {
+  timestamp: number
+  uptimeScore: number
+  requestsServed: number
+  avgResponseTime: number
+}
+
+interface NodeHistoryState {
+  samples: NodeMetricSample[]
+  currentDayBucket: number
+  currentDayUptimeSum: number
+  currentDaySampleCount: number
+  lifetimeDayUptimeSum: number
+  lifetimeDaysObserved: number
+}
+
+interface NodeMetadataSummary {
+  nodeId: Hex
+  updatedAt: number
+  latest: {
+    uptimeBps: number
+    requestsServed: number
+    avgResponseMs: number
+  }
+  avg1h: {
+    uptimeBps: number
+    requestsServed: number
+    avgResponseMs: number
+  }
+  avg24h: {
+    uptimeBps: number
+    requestsServed: number
+    avgResponseMs: number
+  }
+  lifetime: {
+    daysObserved: number
+    uptimeBps: number
+  }
+}
+
+interface NodeAttestationSample {
+  timestamp: number
+  passed: boolean
+}
+
+interface NodeAttestationState {
+  samples: NodeAttestationSample[]
+  currentDayBucket: number
+  currentDayPassCount: number
+  currentDaySampleCount: number
+  lifetimeDayPassRateSum: number
+  lifetimeDaysObserved: number
+  consecutiveFailures: number
+}
+
+interface NodeAttestationSnapshot {
+  nodeId: Hex
+  checked: boolean
+  verified: boolean
+  passRate1hBps: number
+  passRate24hBps: number
+  consecutiveFailures: number
+  lifetimeDaysObserved: number
+  lifetimePassRateBps: number
+  reason: string | null
+  expectedSigner: Address | null
+  signer: Address | null
+  evidenceHash: Hex | null
+  endpointOrigin: string | null
+}
+
+interface NodeAttestationMetadataSummary {
+  nodeId: Hex
+  updatedAt: number
+  latest: {
+    verified: boolean
+    checked: boolean
+    passRateBps: number
+    consecutiveFailures: number
+    reason: string | null
+    expectedSigner: Address | null
+    signer: Address | null
+    evidenceHash: Hex | null
+    endpointOrigin: string | null
+  }
+  avg1h: {
+    passRateBps: number
+  }
+  avg24h: {
+    passRateBps: number
+  }
+  lifetimeDays: number
+  lifetimePassRateBps: number
 }
 
 interface NodeReportResult {
@@ -148,6 +286,15 @@ interface NodeReportResult {
   slashingChecked: boolean
   slashingProposed: boolean
   slashExecuted: boolean
+  attestation?: {
+    checked: boolean
+    verified: boolean
+    passRate1hBps: number
+    passRate24hBps: number
+    consecutiveFailures: number
+    reason: string | null
+    evidenceHash: Hex | null
+  }
   errors: string[]
 }
 
@@ -204,11 +351,11 @@ const AUTO_SLASHER_ABI = [
   },
 ] as const
 
-const PERFORMANCE_ORACLE_ABI = [
+const QOS_VALIDATOR_REGISTRATION_ABI = [
   {
     type: 'function',
     name: 'isPerformanceOracle',
-    inputs: [{ name: 'oracle', type: 'address' }],
+    inputs: [{ name: 'validator', type: 'address' }],
     outputs: [{ type: 'bool' }],
     stateMutability: 'view',
   },
@@ -222,9 +369,38 @@ const PERFORMANCE_ORACLE_ABI = [
   {
     type: 'function',
     name: 'addPerformanceOracle',
-    inputs: [{ name: 'oracle', type: 'address' }],
+    inputs: [{ name: 'validator', type: 'address' }],
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+] as const
+
+const QOS_METADATA_CONSENSUS_ABI = [
+  {
+    type: 'function',
+    name: 'proposeOrApproveMetadataUpdate',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'keys', type: 'string[]' },
+      { name: 'values', type: 'bytes[]' },
+      { name: 'durationSeconds', type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'proposalId', type: 'bytes32' },
+      { name: 'created', type: 'bool' },
+      { name: 'executedNow', type: 'bool' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+const IDENTITY_REGISTRY_ABI = [
+  {
+    type: 'function',
+    name: 'getAgentWallet',
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    outputs: [{ name: 'wallet', type: 'address' }],
+    stateMutability: 'view',
   },
 ] as const
 
@@ -283,6 +459,13 @@ function parseAllowedNodeIds(raw?: string): Set<Hex> | null {
     .map((value) => value.trim())
     .filter(Boolean) as Hex[]
   return ids.length > 0 ? new Set(ids) : null
+}
+
+function parseOptionalAddress(raw?: string): Address | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) return null
+  return trimmed as Address
 }
 
 function normalizeBaseUrl(raw: string): string | null {
@@ -346,6 +529,20 @@ function average(values: number[]): number {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
 }
 
+function calculatePassRateBps(samples: NodeAttestationSample[]): number {
+  if (samples.length === 0) return 0
+  const passCount = samples.reduce(
+    (sum, sample) => sum + (sample.passed ? 1 : 0),
+    0,
+  )
+  return Math.max(0, Math.min(10_000, Math.round((passCount * 10_000) / samples.length)))
+}
+
+function buildEvidenceHash(parts: string[]): Hex {
+  const digest = createHash('sha256').update(parts.join('|')).digest('hex')
+  return `0x${digest}` as Hex
+}
+
 function sampleItems<T>(items: T[], count: number): T[] {
   if (items.length <= count) return items
   const pool = [...items]
@@ -370,6 +567,25 @@ async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
   }
 
   return (await response.json()) as T
+}
+
+function resolveNodeStakingAddress(network: NetworkType): Address {
+  const override =
+    process.env.QOS_VALIDATOR_NODE_STAKING_MANAGER_ADDRESS ??
+    process.env.QOS_VALIDATOR_NODE_STAKING_MANAGER
+  if (override !== undefined && override.length > 0) {
+    if (!isAddress(override)) {
+      throw new Error(
+        `Invalid QOS_VALIDATOR_NODE_STAKING_MANAGER_ADDRESS: ${override}`,
+      )
+    }
+    return override as Address
+  }
+
+  const managerV2 = tryGetContract('nodeStaking', 'managerV2', network)
+  if (managerV2) return managerV2 as Address
+
+  return getContract('nodeStaking', 'manager', network) as Address
 }
 
 export function loadStorageReporterConfig(): StorageReporterConfig {
@@ -423,13 +639,49 @@ export function loadStorageReporterConfig(): StorageReporterConfig {
         ),
       ),
     ),
+    slashEventLookbackBlocks: Math.max(
+      0,
+      getEnvInt(
+        'QOS_VALIDATOR_SLASH_EVENT_LOOKBACK_BLOCKS',
+        getEnvInt('STORAGE_REPORTER_SLASH_EVENT_LOOKBACK_BLOCKS', 100_000),
+      ),
+    ),
+    publishIdentityMetadata: getEnvBool(
+      'QOS_VALIDATOR_PUBLISH_IDENTITY_METADATA',
+      getEnvBool('STORAGE_REPORTER_PUBLISH_IDENTITY_METADATA'),
+    ),
+    metadataKey:
+      process.env.QOS_VALIDATOR_METADATA_KEY ??
+      process.env.STORAGE_REPORTER_METADATA_KEY ??
+      'qos.storage.summary.v1',
+    metadataPublishIntervalSec: Math.max(
+      60,
+      getEnvInt(
+        'QOS_VALIDATOR_METADATA_PUBLISH_INTERVAL_SEC',
+        getEnvInt('STORAGE_REPORTER_METADATA_PUBLISH_INTERVAL_SEC', 3600),
+      ),
+    ),
+    metadataProposalDurationSec: Math.max(
+      60,
+      getEnvInt(
+        'QOS_VALIDATOR_METADATA_PROPOSAL_DURATION_SEC',
+        getEnvInt('STORAGE_REPORTER_METADATA_PROPOSAL_DURATION_SEC', 3600),
+      ),
+    ),
+    metadataConsensusAddress: parseOptionalAddress(
+      process.env.QOS_VALIDATOR_METADATA_CONSENSUS_ADDRESS ??
+        process.env.STORAGE_REPORTER_METADATA_CONSENSUS_ADDRESS,
+    ),
     submitOnChain: getEnvBool(
       'QOS_VALIDATOR_SUBMIT_ON_CHAIN',
       getEnvBool('STORAGE_REPORTER_SUBMIT_ON_CHAIN'),
     ),
-    registerAsPerformanceOracle: getEnvBool(
-      'QOS_VALIDATOR_REGISTER_AS_PERFORMANCE_ORACLE',
-      getEnvBool('STORAGE_REPORTER_REGISTER_AS_PERFORMANCE_ORACLE'),
+    registerAsQoSValidator: getEnvBool(
+      'QOS_VALIDATOR_REGISTER_AS_QOS_VALIDATOR',
+      getEnvBool(
+        'QOS_VALIDATOR_REGISTER_AS_PERFORMANCE_ORACLE',
+        getEnvBool('STORAGE_REPORTER_REGISTER_AS_PERFORMANCE_ORACLE'),
+      ),
     ),
     enableAutoSlashing: getEnvBool(
       'QOS_VALIDATOR_ENABLE_AUTO_SLASHING',
@@ -455,6 +707,79 @@ export function loadStorageReporterConfig(): StorageReporterConfig {
       process.env.QOS_VALIDATOR_NODE_IDS ??
         process.env.STORAGE_REPORTER_NODE_IDS,
     ),
+    attestationEnabled: getEnvBool(
+      'QOS_VALIDATOR_ATTESTATION_ENABLED',
+      getEnvBool('STORAGE_REPORTER_ATTESTATION_ENABLED', true),
+    ),
+    attestationPath:
+      process.env.QOS_VALIDATOR_ATTESTATION_PATH ??
+      process.env.STORAGE_REPORTER_ATTESTATION_PATH ??
+      QOS_ATTESTATION_PATH,
+    attestationChallengeWindowMs: Math.max(
+      10_000,
+      getEnvInt(
+        'QOS_VALIDATOR_ATTESTATION_CHALLENGE_WINDOW_MS',
+        getEnvInt('STORAGE_REPORTER_ATTESTATION_CHALLENGE_WINDOW_MS', 90_000),
+      ),
+    ),
+    attestationAllowedSkewMs: Math.max(
+      0,
+      getEnvInt(
+        'QOS_VALIDATOR_ATTESTATION_ALLOWED_SKEW_MS',
+        getEnvInt('STORAGE_REPORTER_ATTESTATION_ALLOWED_SKEW_MS', 30_000),
+      ),
+    ),
+    attestationSlashBps: Math.max(
+      1,
+      Math.min(
+        10_000,
+        getEnvInt(
+          'QOS_VALIDATOR_ATTESTATION_SLASH_BPS',
+          getEnvInt('STORAGE_REPORTER_ATTESTATION_SLASH_BPS', 1000),
+        ),
+      ),
+    ),
+    attestationSlashPassRateThresholdBps: Math.max(
+      0,
+      Math.min(
+        10_000,
+        getEnvInt(
+          'QOS_VALIDATOR_ATTESTATION_SLASH_PASS_RATE_BPS',
+          getEnvInt('STORAGE_REPORTER_ATTESTATION_SLASH_PASS_RATE_BPS', 7000),
+        ),
+      ),
+    ),
+    attestationSlashConsecutiveFailureThreshold: Math.max(
+      1,
+      getEnvInt(
+        'QOS_VALIDATOR_ATTESTATION_SLASH_CONSECUTIVE_FAILURES',
+        getEnvInt('STORAGE_REPORTER_ATTESTATION_SLASH_CONSECUTIVE_FAILURES', 8),
+      ),
+    ),
+    attestationSlashProposalCooldownSec: Math.max(
+      60,
+      getEnvInt(
+        'QOS_VALIDATOR_ATTESTATION_SLASH_PROPOSAL_COOLDOWN_SEC',
+        getEnvInt(
+          'STORAGE_REPORTER_ATTESTATION_SLASH_PROPOSAL_COOLDOWN_SEC',
+          6 * 3600,
+        ),
+      ),
+    ),
+    attestationMetadataKey:
+      process.env.QOS_VALIDATOR_ATTESTATION_METADATA_KEY ??
+      process.env.STORAGE_REPORTER_ATTESTATION_METADATA_KEY ??
+      'qos.storage.attestation.v1',
+    attestationMetadataPublishIntervalSec: Math.max(
+      60,
+      getEnvInt(
+        'QOS_VALIDATOR_ATTESTATION_METADATA_PUBLISH_INTERVAL_SEC',
+        getEnvInt(
+          'STORAGE_REPORTER_ATTESTATION_METADATA_PUBLISH_INTERVAL_SEC',
+          3600,
+        ),
+      ),
+    ),
   }
 }
 
@@ -463,22 +788,40 @@ export class StorageReporter {
   private readonly chain: Chain
   private readonly nodeStakingAddress: Address
   private readonly autoSlasherAddress: Address | null
+  private readonly identityRegistryAddress: Address | null
+  private readonly qosMetadataConsensusAddress: Address | null
   private contractClient: Awaited<
     ReturnType<typeof createMigrationWalletClient>
   > | null = null
+  private readonly pendingSlashIdsByNode = new Map<Hex, Set<Hex>>()
+  private readonly slashScanCursorByNode = new Map<Hex, bigint>()
+  private readonly slashEventQueryChunkSize = 10_000n
+  private readonly nodeHistoryById = new Map<Hex, NodeHistoryState>()
+  private readonly nodeAttestationById = new Map<Hex, NodeAttestationState>()
+  private readonly lastMetadataPublishAtByNode = new Map<Hex, number>()
+  private readonly lastAttestationMetadataPublishAtByNode = new Map<Hex, number>()
+  private readonly lastAttestationSlashProposalAtByNode = new Map<Hex, number>()
   private running = false
   private timer?: ReturnType<typeof setInterval>
 
   constructor(config: StorageReporterConfig) {
     this.config = config
     this.chain = getChain(config.chainId)
-    this.nodeStakingAddress = getContract(
-      'nodeStaking',
-      'manager',
-      config.network,
-    ) as Address
+    this.nodeStakingAddress = resolveNodeStakingAddress(config.network)
     const autoSlasher = tryGetContract('nodeStaking', 'autoSlasher', config.network)
     this.autoSlasherAddress = autoSlasher ? (autoSlasher as Address) : null
+    const identityRegistry = tryGetContract('registry', 'identity', config.network)
+    this.identityRegistryAddress = identityRegistry
+      ? (identityRegistry as Address)
+      : null
+    const metadataConsensus =
+      config.metadataConsensusAddress ??
+      (tryGetContract(
+        'nodeStaking',
+        'qosMetadataReporterConsensus',
+        config.network,
+      ) as Address | null)
+    this.qosMetadataConsensusAddress = metadataConsensus ?? null
   }
 
   private async getContractClient() {
@@ -524,12 +867,12 @@ export class StorageReporter {
   async runCycle(): Promise<NodeReportResult[]> {
     const contractClient = await this.getContractClient()
 
-    if (this.config.registerAsPerformanceOracle) {
+    if (this.config.registerAsQoSValidator) {
       try {
-        await this.ensurePerformanceOracleRegistration(contractClient)
+        await this.ensureQoSValidatorRegistration(contractClient)
       } catch (error) {
         console.warn(
-          '[QoSV:storage] Could not register performance oracle:',
+          '[QoSV:storage] Could not register QoS Validator:',
           error,
         )
       }
@@ -582,6 +925,11 @@ export class StorageReporter {
           uptimeScore: result.metrics?.uptimeScore,
           requestsServed: result.metrics?.requestsServed,
           avgResponseTime: result.metrics?.avgResponseTime,
+          attestationChecked: result.attestation?.checked,
+          attestationVerified: result.attestation?.verified,
+          attestationPassRate24hBps: result.attestation?.passRate24hBps,
+          attestationConsecutiveFailures:
+            result.attestation?.consecutiveFailures,
           onChainSubmitted: result.onChainSubmitted,
           slashingChecked: result.slashingChecked,
           slashExecuted: result.slashExecuted,
@@ -635,8 +983,45 @@ export class StorageReporter {
         return result
       }
 
-      const metrics = await this.collectNodeMetrics(nodeId, node.operator, node.rpcUrl)
+      const collectedMetrics = await this.collectNodeMetrics(
+        nodeId,
+        node.operator,
+        node.rpcUrl,
+      )
+      const attestation = await this.verifyNodeAttestation(
+        contractClient,
+        nodeId,
+        node,
+        collectedMetrics.baseUrl,
+      )
+      const metrics = this.applyAttestationToMetrics(
+        collectedMetrics,
+        attestation,
+      )
       result.metrics = metrics
+      result.attestation = {
+        checked: attestation.checked,
+        verified: attestation.verified,
+        passRate1hBps: attestation.passRate1hBps,
+        passRate24hBps: attestation.passRate24hBps,
+        consecutiveFailures: attestation.consecutiveFailures,
+        reason: attestation.reason,
+        evidenceHash: attestation.evidenceHash,
+      }
+
+      if (this.config.publishIdentityMetadata && this.qosMetadataConsensusAddress) {
+        try {
+          await this.publishNodeQoSMetadata(contractClient, nodeId, node, metrics)
+          await this.publishNodeAttestationMetadata(
+            contractClient,
+            nodeId,
+            node,
+            attestation,
+          )
+        } catch (error) {
+          console.warn('[QoSV:storage] Could not publish node metadata:', error)
+        }
+      }
 
       if (this.config.submitOnChain) {
         const txHash = await contractClient.client.writeContract({
@@ -656,10 +1041,16 @@ export class StorageReporter {
         result.onChainSubmitted = true
         result.onChainHash = txHash
 
-        if (this.config.checkSlashing && this.autoSlasherAddress) {
+        if (this.config.checkSlashing) {
+          const attestationSlashProposed =
+            await this.maybeProposeAttestationSlash(
+              contractClient,
+              nodeId,
+              attestation,
+            )
           const slashing = await this.handleSlashing(contractClient, nodeId)
           result.slashingChecked = slashing.checked
-          result.slashingProposed = slashing.proposed
+          result.slashingProposed = slashing.proposed || attestationSlashProposed
           result.slashExecuted = slashing.executed
         }
       }
@@ -822,21 +1213,203 @@ export class StorageReporter {
     }
   }
 
-  private async ensurePerformanceOracleRegistration(
+  private getNodeHistoryState(nodeId: Hex): NodeHistoryState {
+    let history = this.nodeHistoryById.get(nodeId)
+    if (!history) {
+      history = {
+        samples: [],
+        currentDayBucket: 0,
+        currentDayUptimeSum: 0,
+        currentDaySampleCount: 0,
+        lifetimeDayUptimeSum: 0,
+        lifetimeDaysObserved: 0,
+      }
+      this.nodeHistoryById.set(nodeId, history)
+    }
+    return history
+  }
+
+  private averageSampleMetric(
+    samples: NodeMetricSample[],
+    pick: (sample: NodeMetricSample) => number,
+  ): number {
+    if (samples.length === 0) return 0
+    return Math.round(
+      samples.reduce((sum, sample) => sum + pick(sample), 0) / samples.length,
+    )
+  }
+
+  private buildNodeMetadataSummary(
+    nodeId: Hex,
+    metrics: NodeAuditMetrics,
+    nowUnixSeconds: number,
+  ): NodeMetadataSummary {
+    const history = this.getNodeHistoryState(nodeId)
+    const dayBucket = Math.floor(nowUnixSeconds / 86_400)
+
+    if (history.currentDayBucket === 0) {
+      history.currentDayBucket = dayBucket
+    } else if (dayBucket > history.currentDayBucket) {
+      if (history.currentDaySampleCount > 0) {
+        history.lifetimeDayUptimeSum += Math.round(
+          history.currentDayUptimeSum / history.currentDaySampleCount,
+        )
+        history.lifetimeDaysObserved += 1
+      }
+      history.currentDayBucket = dayBucket
+      history.currentDayUptimeSum = 0
+      history.currentDaySampleCount = 0
+    }
+
+    const sample: NodeMetricSample = {
+      timestamp: nowUnixSeconds,
+      uptimeScore: metrics.uptimeScore,
+      requestsServed: metrics.requestsServed,
+      avgResponseTime: metrics.avgResponseTime,
+    }
+
+    history.samples.push(sample)
+    history.currentDayUptimeSum += metrics.uptimeScore
+    history.currentDaySampleCount += 1
+
+    const dayCutoff = nowUnixSeconds - 86_400
+    history.samples = history.samples.filter((entry) => entry.timestamp >= dayCutoff)
+
+    const hourCutoff = nowUnixSeconds - 3_600
+    const oneHourSamples = history.samples.filter(
+      (entry) => entry.timestamp >= hourCutoff,
+    )
+
+    const currentDayAverage =
+      history.currentDaySampleCount > 0
+        ? Math.round(history.currentDayUptimeSum / history.currentDaySampleCount)
+        : 0
+    const lifetimeDays =
+      history.lifetimeDaysObserved + (history.currentDaySampleCount > 0 ? 1 : 0)
+    const lifetimeUptimeBps =
+      lifetimeDays > 0
+        ? Math.round(
+            (history.lifetimeDayUptimeSum + currentDayAverage) / lifetimeDays,
+          )
+        : metrics.uptimeScore
+
+    return {
+      nodeId,
+      updatedAt: nowUnixSeconds,
+      latest: {
+        uptimeBps: metrics.uptimeScore,
+        requestsServed: metrics.requestsServed,
+        avgResponseMs: metrics.avgResponseTime,
+      },
+      avg1h: {
+        uptimeBps: this.averageSampleMetric(oneHourSamples, (entry) => entry.uptimeScore),
+        requestsServed: this.averageSampleMetric(
+          oneHourSamples,
+          (entry) => entry.requestsServed,
+        ),
+        avgResponseMs: this.averageSampleMetric(
+          oneHourSamples,
+          (entry) => entry.avgResponseTime,
+        ),
+      },
+      avg24h: {
+        uptimeBps: this.averageSampleMetric(history.samples, (entry) => entry.uptimeScore),
+        requestsServed: this.averageSampleMetric(
+          history.samples,
+          (entry) => entry.requestsServed,
+        ),
+        avgResponseMs: this.averageSampleMetric(
+          history.samples,
+          (entry) => entry.avgResponseTime,
+        ),
+      },
+      lifetime: {
+        daysObserved: lifetimeDays,
+        uptimeBps: lifetimeUptimeBps,
+      },
+    }
+  }
+
+  private async resolveNodeAgentId(
+    contractClient: Awaited<ReturnType<typeof createMigrationWalletClient>>,
+    nodeId: Hex,
+    node: NodeInfoResponse['node'],
+  ): Promise<bigint> {
+    try {
+      const nodeIdentityAgentId = (await contractClient.publicClient.readContract({
+        address: this.nodeStakingAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        functionName: 'getNodeIdentityAgentId',
+        args: [nodeId],
+      })) as bigint
+      if (nodeIdentityAgentId > 0n) return nodeIdentityAgentId
+    } catch {
+      // Fallback to operator-level agent IDs on legacy managers.
+    }
+
+    return node.operatorAgentId > 0n ? node.operatorAgentId : 0n
+  }
+
+  private async publishNodeQoSMetadata(
+    contractClient: Awaited<ReturnType<typeof createMigrationWalletClient>>,
+    nodeId: Hex,
+    node: NodeInfoResponse['node'],
+    metrics: NodeAuditMetrics,
+  ): Promise<void> {
+    if (!this.qosMetadataConsensusAddress) return
+
+    const nowUnixSeconds = Math.floor(Date.now() / 1000)
+    const lastPublishedAt = this.lastMetadataPublishAtByNode.get(nodeId) ?? 0
+    if (
+      nowUnixSeconds - lastPublishedAt <
+      this.config.metadataPublishIntervalSec
+    ) {
+      return
+    }
+
+    const agentId = await this.resolveNodeAgentId(contractClient, nodeId, node)
+    if (agentId === 0n) return
+
+    const summary = this.buildNodeMetadataSummary(nodeId, metrics, nowUnixSeconds)
+    const summaryJson = JSON.stringify(summary)
+    const summaryHex = `0x${Buffer.from(summaryJson, 'utf8').toString('hex')}` as Hex
+
+    const txHash = await contractClient.client.writeContract({
+      address: this.qosMetadataConsensusAddress,
+      abi: QOS_METADATA_CONSENSUS_ABI,
+      functionName: 'proposeOrApproveMetadataUpdate',
+      args: [
+        agentId,
+        [this.config.metadataKey],
+        [summaryHex],
+        BigInt(this.config.metadataProposalDurationSec),
+      ],
+      chain: this.chain,
+      account: contractClient.account,
+    })
+    await contractClient.publicClient.waitForTransactionReceipt({ hash: txHash })
+    this.lastMetadataPublishAtByNode.set(nodeId, nowUnixSeconds)
+
+    console.log(
+      `[QoSV:storage] Published ${this.config.metadataKey} proposal for node ${nodeId} -> agent ${agentId}`,
+    )
+  }
+
+  private async ensureQoSValidatorRegistration(
     contractClient: Awaited<ReturnType<typeof createMigrationWalletClient>>,
   ): Promise<void> {
-    const isOracle = await contractClient.publicClient.readContract({
+    const isRegistered = await contractClient.publicClient.readContract({
       address: this.nodeStakingAddress,
-      abi: PERFORMANCE_ORACLE_ABI,
+      abi: QOS_VALIDATOR_REGISTRATION_ABI,
       functionName: 'isPerformanceOracle',
       args: [contractClient.address],
     })
 
-    if (isOracle) return
+    if (isRegistered) return
 
     const txHash = await contractClient.client.writeContract({
       address: this.nodeStakingAddress,
-      abi: PERFORMANCE_ORACLE_ABI,
+      abi: QOS_VALIDATOR_REGISTRATION_ABI,
       functionName: 'addPerformanceOracle',
       args: [contractClient.address],
       chain: this.chain,
@@ -844,8 +1417,115 @@ export class StorageReporter {
     })
     await contractClient.publicClient.waitForTransactionReceipt({ hash: txHash })
     console.log(
-      `[QoSV:storage] Registered ${contractClient.address} as performance oracle`,
+      `[QoSV:storage] Registered ${contractClient.address} as QoS Validator`,
     )
+  }
+
+  private getPendingSlashSet(nodeId: Hex): Set<Hex> {
+    let slashIds = this.pendingSlashIdsByNode.get(nodeId)
+    if (!slashIds) {
+      slashIds = new Set<Hex>()
+      this.pendingSlashIdsByNode.set(nodeId, slashIds)
+    }
+    return slashIds
+  }
+
+  private async syncPendingSlashIds(
+    contractClient: Awaited<ReturnType<typeof createMigrationWalletClient>>,
+    nodeId: Hex,
+  ): Promise<void> {
+    const latestBlock = await contractClient.publicClient.getBlockNumber()
+    const configuredLookback = BigInt(this.config.slashEventLookbackBlocks)
+    const fromCursor = this.slashScanCursorByNode.get(nodeId)
+    const fromBlock =
+      fromCursor !== undefined
+        ? fromCursor
+        : latestBlock > configuredLookback
+          ? latestBlock - configuredLookback
+          : 0n
+
+    if (fromBlock > latestBlock) {
+      return
+    }
+
+    const slashIds = this.getPendingSlashSet(nodeId)
+    let cursor = fromBlock
+
+    while (cursor <= latestBlock) {
+      const toBlock = (() => {
+        const upperBound = cursor + this.slashEventQueryChunkSize - 1n
+        return upperBound > latestBlock ? latestBlock : upperBound
+      })()
+
+      const events = await contractClient.publicClient.getContractEvents({
+        address: this.nodeStakingAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        eventName: 'SlashProposed',
+        args: { nodeId },
+        fromBlock: cursor,
+        toBlock,
+      })
+
+      for (const event of events) {
+        const slashId = (event as { args?: { slashId?: Hex } }).args?.slashId
+        if (slashId) {
+          slashIds.add(slashId)
+        }
+      }
+
+      cursor = toBlock + 1n
+    }
+
+    this.slashScanCursorByNode.set(nodeId, latestBlock + 1n)
+  }
+
+  private async executeMaturedPendingSlashes(
+    contractClient: Awaited<ReturnType<typeof createMigrationWalletClient>>,
+    nodeId: Hex,
+    nowUnixSeconds: bigint,
+  ): Promise<boolean> {
+    const slashIds = this.pendingSlashIdsByNode.get(nodeId)
+    if (!slashIds || slashIds.size === 0) return false
+
+    let executed = false
+
+    for (const slashId of [...slashIds]) {
+      const slash = (await contractClient.publicClient.readContract({
+        address: this.nodeStakingAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        functionName: 'pendingSlashes',
+        args: [slashId],
+      })) as unknown as PendingSlash
+
+      if (
+        slash.proposedAt === 0n ||
+        slash.executed ||
+        slash.disputed ||
+        slash.nodeId.toLowerCase() !== nodeId.toLowerCase()
+      ) {
+        slashIds.delete(slashId)
+        continue
+      }
+
+      if (slash.executeAfter > nowUnixSeconds) continue
+
+      const txHash = await contractClient.client.writeContract({
+        address: this.nodeStakingAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        functionName: 'executeSlash',
+        args: [slashId],
+        chain: this.chain,
+        account: contractClient.account,
+      })
+      await contractClient.publicClient.waitForTransactionReceipt({ hash: txHash })
+      slashIds.delete(slashId)
+      executed = true
+      console.log(
+        `[QoSV:storage] Executed staking slash ${slashId} for node ${nodeId}`,
+      )
+    }
+
+    return executed
   }
 
   private async ensureAutoSlashingEnabled(
@@ -876,69 +1556,86 @@ export class StorageReporter {
     contractClient: Awaited<ReturnType<typeof createMigrationWalletClient>>,
     nodeId: Hex,
   ): Promise<{ checked: boolean; proposed: boolean; executed: boolean }> {
-    if (!this.autoSlasherAddress) {
-      return { checked: false, proposed: false, executed: false }
-    }
-
-    const enabled = await contractClient.publicClient.readContract({
-      address: this.autoSlasherAddress,
-      abi: AUTO_SLASHER_ABI,
-      functionName: 'autoSlashingEnabled',
-    })
-    if (!enabled) {
-      return { checked: false, proposed: false, executed: false }
-    }
-
-    const before = (await contractClient.publicClient.readContract({
-      address: this.autoSlasherAddress,
-      abi: AUTO_SLASHER_ABI,
-      functionName: 'slashProposals',
-      args: [nodeId],
-    })) as unknown as SlashProposal
-
-    const checkHash = await contractClient.client.writeContract({
-      address: this.autoSlasherAddress,
-      abi: AUTO_SLASHER_ABI,
-      functionName: 'checkAndProposeSlashing',
-      args: [nodeId],
-      chain: this.chain,
-      account: contractClient.account,
-    })
-    await contractClient.publicClient.waitForTransactionReceipt({ hash: checkHash })
-
-    const after = (await contractClient.publicClient.readContract({
-      address: this.autoSlasherAddress,
-      abi: AUTO_SLASHER_ABI,
-      functionName: 'slashProposals',
-      args: [nodeId],
-    })) as unknown as SlashProposal
-
+    let checked = false
+    let proposed = false
     let executed = false
+    const nowUnixSeconds = BigInt(Math.floor(Date.now() / 1000))
 
-    if (
-      this.config.executeSlashing &&
-      after.proposedAt > before.proposedAt &&
-      !after.executed &&
-      !after.appealed &&
-      after.executesAt <= BigInt(Math.floor(Date.now() / 1000))
-    ) {
-      const executeHash = await contractClient.client.writeContract({
+    if (this.autoSlasherAddress) {
+      const enabled = await contractClient.publicClient.readContract({
         address: this.autoSlasherAddress,
         abi: AUTO_SLASHER_ABI,
-        functionName: 'executeSlashing',
-        args: [nodeId],
-        chain: this.chain,
-        account: contractClient.account,
+        functionName: 'autoSlashingEnabled',
       })
-      await contractClient.publicClient.waitForTransactionReceipt({
-        hash: executeHash,
-      })
-      executed = true
+
+      if (enabled) {
+        const before = (await contractClient.publicClient.readContract({
+          address: this.autoSlasherAddress,
+          abi: AUTO_SLASHER_ABI,
+          functionName: 'slashProposals',
+          args: [nodeId],
+        })) as unknown as SlashProposal
+
+        const checkHash = await contractClient.client.writeContract({
+          address: this.autoSlasherAddress,
+          abi: AUTO_SLASHER_ABI,
+          functionName: 'checkAndProposeSlashing',
+          args: [nodeId],
+          chain: this.chain,
+          account: contractClient.account,
+        })
+        await contractClient.publicClient.waitForTransactionReceipt({
+          hash: checkHash,
+        })
+
+        const after = (await contractClient.publicClient.readContract({
+          address: this.autoSlasherAddress,
+          abi: AUTO_SLASHER_ABI,
+          functionName: 'slashProposals',
+          args: [nodeId],
+        })) as unknown as SlashProposal
+
+        checked = true
+        proposed = after.proposedAt > before.proposedAt
+
+        if (
+          this.config.executeSlashing &&
+          !after.executed &&
+          !after.appealed &&
+          after.executesAt > 0n &&
+          after.executesAt <= nowUnixSeconds
+        ) {
+          const executeHash = await contractClient.client.writeContract({
+            address: this.autoSlasherAddress,
+            abi: AUTO_SLASHER_ABI,
+            functionName: 'executeSlashing',
+            args: [nodeId],
+            chain: this.chain,
+            account: contractClient.account,
+          })
+          await contractClient.publicClient.waitForTransactionReceipt({
+            hash: executeHash,
+          })
+          executed = true
+        }
+      }
+    }
+
+    await this.syncPendingSlashIds(contractClient, nodeId)
+    checked = true
+
+    if (this.config.executeSlashing) {
+      const stakingSlashExecuted = await this.executeMaturedPendingSlashes(
+        contractClient,
+        nodeId,
+        nowUnixSeconds,
+      )
+      executed = executed || stakingSlashExecuted
     }
 
     return {
-      checked: true,
-      proposed: after.proposedAt > before.proposedAt,
+      checked,
+      proposed,
       executed,
     }
   }

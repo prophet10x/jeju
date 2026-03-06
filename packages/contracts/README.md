@@ -66,6 +66,8 @@ import { isValidAddress, ZERO_ADDRESS, CHAIN_IDS } from '@jejunetwork/contracts'
 | `IdentityRegistry` | ERC-8004 agent identity system |
 | `MultiTokenPaymaster` | ERC-4337 paymaster for gas abstraction |
 | `Bazaar` | NFT marketplace |
+| `UpgradeValidationRegistry` | Stake-weighted QoSV validation gate for upgrades |
+| `ProtocolUpgradeManager` | DAO-owned mixed-mode upgrade executor |
 
 ## Exports
 

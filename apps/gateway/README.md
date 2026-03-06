@@ -74,3 +74,22 @@ bun test:unit
 # E2E tests
 bun run test:e2e
 ```
+
+## QoS Validator
+
+```bash
+# Short testnet command (auto-uses jeju-dws.fartbag.fun + first nodeId)
+bun run run:qosv:testnet -- storage dryrun
+bun run run:qosv:testnet -- compute dryrun
+bun run run:qosv:testnet -- email dryrun
+
+# Run a single module in one-shot mode (loads repo .env.testnet if present)
+bun run run:qos-validator:once -- storage onchain
+bun run run:qos-validator:once -- compute onchain
+bun run run:qos-validator:once -- rpc onchain
+bun run run:qos-validator:once -- cdn onchain
+
+# Any other supported DWS module (baseline health/stats scoring)
+bun run run:qos-validator:once -- da dryrun
+bun run run:qos-validator:once -- vpn dryrun
+```

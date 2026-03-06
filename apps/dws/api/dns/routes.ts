@@ -8,7 +8,14 @@
  * - DNS mirroring management
  */
 
-import { createAppConfig, getContract, getRpcUrl } from '@jejunetwork/config'
+import {
+  createAppConfig,
+  getContract,
+  getCurrentNetwork,
+  getIpfsGatewayUrl,
+  getRpcUrl,
+  getServiceUrl,
+} from '@jejunetwork/config'
 import { Elysia, t } from 'elysia'
 import type { Address } from 'viem'
 import { createDNSMirror } from './dns-mirror'
@@ -34,14 +41,31 @@ interface DNSRouterConfig {
   [key: string]: string | number | undefined
 }
 
+function hostFromUrl(urlOrHost: string): string {
+  const normalized = /^[a-zA-Z]+:\/\//.test(urlOrHost)
+    ? urlOrHost
+    : `https://${urlOrHost}`
+  try {
+    return new URL(normalized).hostname
+  } catch {
+    return urlOrHost.replace(/^https?:\/\//, '').split('/')[0] ?? urlOrHost
+  }
+}
+
+const activeNetwork = getCurrentNetwork()
+const defaultGatewayHost = hostFromUrl(
+  getServiceUrl('gateway', 'ui', activeNetwork),
+)
+const defaultIpfsHost = hostFromUrl(getIpfsGatewayUrl(activeNetwork))
+
 const { config: dnsRouterConfig, configure: configureDNSRouter } =
   createAppConfig<DNSRouterConfig>({
     cfDomain: 'jejunetwork.org',
     awsDomain: 'jejunetwork.org',
     dnsMirrorDomain: 'jeju.jejunetwork.org',
     dnsSyncInterval: 300,
-    gatewayEndpoint: 'gateway.jejunetwork.org',
-    ipfsGateway: 'ipfs.jejunetwork.org',
+    gatewayEndpoint: defaultGatewayHost,
+    ipfsGateway: defaultIpfsHost,
   })
 
 export function configureDNSRouterConfig(
@@ -147,9 +171,8 @@ function getDNSMirror(): ReturnType<typeof createDNSMirror> | null {
     targets,
     mirrorDomain: dnsRouterConfig.dnsMirrorDomain ?? 'jeju.jejunetwork.org',
     syncInterval: dnsRouterConfig.dnsSyncInterval ?? 300,
-    gatewayEndpoint:
-      dnsRouterConfig.gatewayEndpoint ?? 'gateway.jejunetwork.org',
-    ipfsGateway: dnsRouterConfig.ipfsGateway ?? 'ipfs.jejunetwork.org',
+    gatewayEndpoint: dnsRouterConfig.gatewayEndpoint ?? defaultGatewayHost,
+    ipfsGateway: dnsRouterConfig.ipfsGateway ?? defaultIpfsHost,
   })
 
   return dnsMirror

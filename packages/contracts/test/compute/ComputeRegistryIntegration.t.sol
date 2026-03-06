@@ -12,6 +12,7 @@ contract MockIdentityRegistry is IIdentityRegistry {
     mapping(uint256 => bool) private _exists;
     mapping(uint256 => bool) private _banned;
     mapping(address => bool) private _authorizedRegistrars;
+    mapping(address => bool) private _authorizedMetadataReporters;
     uint256 private _nextAgentId = 1;
 
     function _register(address owner_) internal returns (uint256) {
@@ -45,6 +46,17 @@ contract MockIdentityRegistry is IIdentityRegistry {
 
     function isRegistrarAuthorized(address registrar) external view returns (bool authorized) {
         return _authorizedRegistrars[registrar];
+    }
+
+    function setMetadataReporter(address reporter, bool authorized) external {
+        _authorizedMetadataReporters[reporter] = authorized;
+    }
+
+    function replaceMetadataReporter(address oldReporter, address newReporter) external {
+        if (oldReporter != address(0)) {
+            _authorizedMetadataReporters[oldReporter] = false;
+        }
+        _authorizedMetadataReporters[newReporter] = true;
     }
 
     function agentExists(uint256 agentId) external view returns (bool) {

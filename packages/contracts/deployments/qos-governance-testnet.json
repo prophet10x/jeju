@@ -1,0 +1,43 @@
+{
+  "network": "jeju-testnet",
+  "chainId": 420690,
+  "deployedAt": "2026-03-05",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "contracts": {
+    "oraclePowerRegistry": {
+      "address": "0x5133BBdfCCa3Eb4F739D599ee4eC45cBCD0E16c5",
+      "txHash": "0x83f571c315690b54e1ba8d17ecb8d2cd18cd5f825f48c750c0d613afd747b1fe"
+    },
+    "qosMetadataReporterConsensus": {
+      "address": "0x8F4ec854Dd12F1fe79500a1f53D0cbB30f9b6134",
+      "txHash": "0xa89259526de8b038b1575970b73fea773e1abb979acd0595fd895470ce0c2a1f"
+    },
+    "upgradeValidationRegistry": {
+      "address": "0xC66AB83418C20A65C3f8e83B3d11c8C3a6097b6F",
+      "txHash": "0x19b63655b57d4e1e55bc440599f4d2031dfd0d4c003520d5ea145da260096785"
+    },
+    "protocolUpgradeManager": {
+      "address": "0xeF31027350Be2c7439C1b0BE022d49421488b72C",
+      "txHash": "0xdd790e582a21c8bee6ed7d3fb240e3f205ca0411c48c6f1daa5a23a7f1c35b89"
+    }
+  },
+  "postDeployActions": {
+    "oracleBootstrapReporter": {
+      "address": "0xf2B043e02c9F813ac00bCb9383cc83a0882F763A",
+      "txHash": "0xf09cce799936b183005d5e11b46147d17ed0c6daaa511ad9734feb59204a2949"
+    },
+    "autoSlasherGovernanceSetToTimelock": {
+      "timelock": "0x1291be112d480055dafd8a610b7d1e203891c274",
+      "txHash": "0x9037de0c4909815f698462da8599b1442221e23efa0d61a647d81aa67cc1c170"
+    },
+    "ownershipTransferredToTimelock": {
+      "qosMetadataReporterConsensusTxHash": "0x97307f8d894b267eb7aea6b9f09f6719743856a001337d354ab04d1da8872cdb",
+      "upgradeValidationRegistryTxHash": "0xe3f4bc47214b77d300e0936509fde41eaffacb33f172660effdb04f5efb8ad80",
+      "protocolUpgradeManagerTxHash": "0xa0559a82416742e28e1aac91e48e64509d8cb7811d38355b3a6740f3fd1cf40c"
+    }
+  },
+  "notes": [
+    "IdentityRegistry metadata reporter wiring could not be completed because setMetadataReporter(address,bool) reverted on the currently deployed IdentityRegistry.",
+    "NodeStakingManager slashAuthority remains unset because owner is 0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c."
+  ]
+}

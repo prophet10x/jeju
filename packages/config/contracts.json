@@ -358,7 +358,12 @@
       "daoFunding": "0xd09faa0a824605760d48ca04d32add8db47ab8bc",
       "boardGovernance": "0x1ee48e51d8266be9b038db37ab55c935ecac9ef1",
       "upgradeValidationRegistry": "0xC66AB83418C20A65C3f8e83B3d11c8C3a6097b6F",
-      "protocolUpgradeManager": "0xeF31027350Be2c7439C1b0BE022d49421488b72C"
+      "protocolUpgradeManager": "0xeF31027350Be2c7439C1b0BE022d49421488b72C",
+      "metaAgentConstitutionalGovernor": "0x34440077eBE01203125cDEF730711545CC9ee5B0",
+      "metaAgentGovernanceParameters": "0x7324287d2587D75496C4aB0030610223A5bf28D2",
+      "metaAgentRunoffGovernor": "0xF866a84615c33Fa6a3e97084E67f3E355CBf6De1",
+      "metaAgentRoundCoordinator": "0x7ec4D589B4F9E2FE083c155d7E85829F4B4D0aaa",
+      "metaAgentActionRouter": "0xd0c7681A7A747c546680D78067feB5fC7Ff316BD"
     },
     "oif": {
       "solverRegistry": "0x2962566c122941412a8e30beaa62b235f88f912f",

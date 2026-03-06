@@ -103,6 +103,33 @@ staking.setPaymasterFees(500, 200);      // 5% reward cut, 2% stake cut
 staking.setIdentityRegistry(identityRegistry);
 ```
 
+QoS metadata reporter consensus (DAO-controlled):
+```solidity
+// 1) Deploy consensus with timelock as owner
+QoSMetadataReporterConsensus qosConsensus = new QoSMetadataReporterConsensus(
+    oraclePowerRegistry,
+    identityRegistry,
+    governanceTimelock, // owner
+    2,                  // minimumReporterCount (m-of-n)
+    5500,               // supportThresholdBps (>50%)
+    120,                // min proposal duration
+    7200                // max proposal duration
+);
+
+// 2) Move IdentityRegistry governance to timelock once
+identityRegistry.setGovernance(governanceTimelock);
+
+// 3) Authorize reporter through DAO/timelock proposal
+identityRegistry.setMetadataReporter(address(qosConsensus), true);
+```
+
+Replacement via DAO vote + timelock execution:
+```solidity
+// Rotate reporter authorization and deprecate old contract
+identityRegistry.replaceMetadataReporter(oldConsensus, newConsensus);
+oldConsensus.deprecateAndSetReplacement(newConsensus);
+```
+
 ### Phase 6: DWS Services
 Decentralized Web Services infrastructure.
 
@@ -133,6 +160,50 @@ HTTP 402 payment integration.
 | `X402Facilitator` | `src/x402/X402Facilitator.sol` | Gasless payment routing |
 | `X402IntentBridge` | `src/x402/X402IntentBridge.sol` | Intent-based payment bridging |
 
+### Phase 9: Governance Upgrade Control Plane
+Use DAO/timelock as decision layer, with stake-weighted QoSV validation as execution gate.
+
+| Contract | File | Purpose |
+|----------|------|---------|
+| `UpgradeValidationRegistry` | `src/governance/UpgradeValidationRegistry.sol` | Collects stake-weighted QoSV attestations for proposed changes |
+| `ProtocolUpgradeManager` | `src/governance/ProtocolUpgradeManager.sol` | Executes upgrades across mixed contract types after validation passes |
+
+Recommended ownership wiring:
+```solidity
+// Deploy with timelock/governance ownership
+UpgradeValidationRegistry validation = new UpgradeValidationRegistry(
+    oraclePowerRegistry,
+    governanceTimelock,
+    1 hours,
+    7 days,
+    2,
+    5500
+);
+
+ProtocolUpgradeManager upgradeManager = new ProtocolUpgradeManager(
+    governanceTimelock,
+    address(validation),
+    true // require validation before upgrade execution
+);
+```
+
+### Phase 10: Meta-Agent Dual-Lane Governance
+
+Contracts:
+- `MetaAgentGovernanceParameters`
+- `MetaAgentRoundCoordinator`
+- `MetaAgentRunoffGovernor`
+- `MetaAgentActionRouter`
+- `MetaAgentConstitutionalGovernor`
+
+Deployment notes:
+- Use `script/DeployMetaAgentGovernanceUpgrade.s.sol`.
+- The script wires runoff/coordinator/router circular dependencies.
+- It moves runtime parameter governance to `MetaAgentActionRouter`.
+- Optional: set `NodeStakingManager.slashAuthority` to coordinator (`META_SET_SLASH_AUTHORITY=true`).
+- Constitutional lane requires timelock delay of `7 days`; by default deployment enforces this (`META_REQUIRE_7D_TIMELOCK=true`).
+- If your existing timelock is not 7 days (for example 30-day global timelock), deploy a dedicated 7-day core timelock or explicitly bypass enforcement for non-prod tests.
+
 ## Deployment Scripts
 
 Available scripts in `script/`:
@@ -144,6 +215,8 @@ Available scripts in `script/`:
 | `DeployOIFLocalnet.s.sol` | OIF contracts |
 | `DeployProofOfCloud.s.sol` | Cloud computing |
 | `DeployX402.s.sol` | X402 payment layer |
+| `DeployQoSGovernanceUpgrade.s.sol` | QoS metadata consensus + upgrade validation manager |
+| `DeployMetaAgentGovernanceUpgrade.s.sol` | Meta-Agent dual-lane governance deployment and wiring |
 
 ### Running Deployments
 

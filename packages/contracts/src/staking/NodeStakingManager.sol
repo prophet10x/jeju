@@ -58,7 +58,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
 
     // SECURITY: Timelocks and limits
     uint256 public constant EMERGENCY_WITHDRAWAL_DELAY = 7 days;
-    uint256 public constant SLASH_DISPUTE_PERIOD = 3 days;
+    uint256 public constant SLASH_DISPUTE_PERIOD = 24 hours;
     uint256 public constant MAX_NETWORK_OWNERSHIP_BPS = 2000; // 20% max per operator
 
     error TokenNotRegistered(address token);

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
+import { DWS_IPFS_API_URL, DWS_IPFS_GATEWAY_URL } from '../../config'
 import { useStorageHealth, useUploadFile } from '../../hooks'
 
 interface IPFSFile {
@@ -27,6 +28,8 @@ export default function IPFSPage() {
   const { data: healthData } = useStorageHealth()
   const uploadFile = useUploadFile()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const publicGateway = DWS_IPFS_GATEWAY_URL
+  const ipfsApiEndpoint = DWS_IPFS_API_URL
 
   const [searchQuery, setSearchQuery] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -269,7 +272,7 @@ export default function IPFSPage() {
                     </td>
                     <td style={{ display: 'flex', gap: '0.25rem' }}>
                       <a
-                        href={`https://ipfs.jejunetwork.org/ipfs/${file.cid}`}
+                        href={`${publicGateway}/${file.cid}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn btn-ghost btn-sm"
@@ -314,14 +317,12 @@ export default function IPFSPage() {
             <code
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
-              https://ipfs.jejunetwork.org
+              {publicGateway}
               <button
                 type="button"
                 className="btn btn-ghost btn-icon"
                 style={{ padding: '0.25rem' }}
-                onClick={() =>
-                  handleCopy('https://ipfs.jejunetwork.org', 'gateway')
-                }
+                onClick={() => handleCopy(publicGateway, 'gateway')}
               >
                 {copied === 'gateway' ? (
                   <Check size={14} />
@@ -345,15 +346,13 @@ export default function IPFSPage() {
             <code
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
-              {healthData?.backends[0] ?? 'Not available'}
-              {healthData?.backends[0] && (
+              {ipfsApiEndpoint}
+              {ipfsApiEndpoint && (
                 <button
                   type="button"
                   className="btn btn-ghost btn-icon"
                   style={{ padding: '0.25rem' }}
-                  onClick={() =>
-                    handleCopy(healthData.backends[0] ?? '', 'api')
-                  }
+                  onClick={() => handleCopy(ipfsApiEndpoint, 'api')}
                 >
                   {copied === 'api' ? <Check size={14} /> : <Copy size={14} />}
                 </button>

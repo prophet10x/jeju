@@ -60,6 +60,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     address public governance;
     address public reputationOracle;
     mapping(address => bool) public authorizedRegistrars;
+    mapping(address => bool) public authorizedMetadataReporters;
 
     event Registered(
         uint256 indexed agentId, address indexed owner, StakeTier tier, uint256 stakedAmount, string tokenURI
@@ -78,6 +79,8 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     event StakeTiersUpdated(uint256 small, uint256 medium, uint256 high);
     event Heartbeat(uint256 indexed agentId, uint256 timestamp);
     event RegistrarAuthorizationUpdated(address indexed registrar, bool authorized);
+    event MetadataReporterAuthorizationUpdated(address indexed reporter, bool authorized);
+    event MetadataReporterRotated(address indexed oldReporter, address indexed newReporter);
 
     error MetadataTooLarge();
     error KeyTooLong();
@@ -95,6 +98,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     error AgentNotFound();
     error InvalidAgentWallet();
     error UnauthorizedRegistrar();
+    error UnauthorizedMetadataReporter();
 
     modifier onlyGovernance() {
         if (msg.sender != governance) revert OnlyGovernance();
@@ -230,6 +234,34 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
     function isRegistrarAuthorized(address registrar) external view returns (bool authorized) {
         return authorizedRegistrars[registrar];
+    }
+
+    /**
+     * @notice Configure whether an address can publish QoS metadata
+     * @dev Intended for consensus/gateway contracts, not direct human wallets
+     */
+    function setMetadataReporter(address reporter, bool authorized) external onlyGovernance {
+        require(reporter != address(0), "Invalid reporter");
+        authorizedMetadataReporters[reporter] = authorized;
+        emit MetadataReporterAuthorizationUpdated(reporter, authorized);
+    }
+
+    /**
+     * @notice Rotate authorized metadata reporter from an old contract to a new one
+     * @dev Governance helper so reporter replacement can be done in one proposal
+     */
+    function replaceMetadataReporter(address oldReporter, address newReporter) external onlyGovernance {
+        require(newReporter != address(0), "Invalid reporter");
+        require(oldReporter != newReporter, "Reporter unchanged");
+
+        if (oldReporter != address(0)) {
+            authorizedMetadataReporters[oldReporter] = false;
+            emit MetadataReporterAuthorizationUpdated(oldReporter, false);
+        }
+
+        authorizedMetadataReporters[newReporter] = true;
+        emit MetadataReporterAuthorizationUpdated(newReporter, true);
+        emit MetadataReporterRotated(oldReporter, newReporter);
     }
 
     function registerWithStake(
@@ -457,6 +489,26 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
         _metadata[agentId][key] = value;
 
+        agents[agentId].lastActivityAt = block.timestamp;
+
+        emit MetadataSet(agentId, key, key, value);
+    }
+
+    /**
+     * @notice Set QoS namespaced metadata via an authorized reporter contract
+     * @dev Restricts writes to `qos.*` keys to prevent broad metadata tampering
+     */
+    function setMetadataByAuthorizedReporter(uint256 agentId, string calldata key, bytes calldata value)
+        external
+        notBanned(agentId)
+    {
+        if (!authorizedMetadataReporters[msg.sender]) revert UnauthorizedMetadataReporter();
+        require(_ownerOf(agentId) != address(0), "Agent does not exist");
+        require(_isQoSMetadataKey(key), "Invalid metadata namespace");
+        if (bytes(key).length > MAX_KEY_LENGTH) revert KeyTooLong();
+        if (value.length > MAX_METADATA_SIZE) revert MetadataTooLarge();
+
+        _metadata[agentId][key] = value;
         agents[agentId].lastActivityAt = block.timestamp;
 
         emit MetadataSet(agentId, key, key, value);
@@ -765,6 +817,7 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
     string public constant KEY_CATEGORY = "category";
     string public constant KEY_ACTIVE = "active";
     string public constant KEY_X402_SUPPORT = "x402Support";
+    string public constant KEY_QOS_PREFIX = "qos.";
 
     /**
      * @notice Set the A2A endpoint for an agent
@@ -1031,5 +1084,17 @@ contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, Pausable, IIdent
 
         agents[agentId].lastActivityAt = block.timestamp;
         emit Heartbeat(agentId, block.timestamp);
+    }
+
+    function _isQoSMetadataKey(string memory key) internal pure returns (bool) {
+        bytes memory keyBytes = bytes(key);
+        bytes memory prefix = bytes(KEY_QOS_PREFIX);
+        if (keyBytes.length < prefix.length) return false;
+
+        for (uint256 i = 0; i < prefix.length; i++) {
+            if (keyBytes[i] != prefix[i]) return false;
+        }
+
+        return true;
     }
 }

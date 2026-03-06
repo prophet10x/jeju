@@ -425,10 +425,7 @@ export default function AppDetailModal({
         setFormError(result.error ?? 'Failed to update delegated wallet.')
         return
       }
-      const txLabel = result.txHash
-        ? ` Tx: ${result.txHash.slice(0, 10)}...${result.txHash.slice(-8)}`
-        : ''
-      setFormSuccess(`Delegated wallet updated on-chain.${txLabel}`)
+      setFormSuccess('Delegated wallet updated on-chain.')
       await refetch()
     } catch (error) {
       setFormError(

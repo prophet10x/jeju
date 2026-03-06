@@ -1,4 +1,7 @@
 {
+  "../../contracts/lib/forge-std": {
+    "rev": "1801b0541f4fda118a10798fd3486bb7051c5dd6"
+  },
   "lib/forge-std": {
     "tag": {
       "name": "v1.12.0",

@@ -6,7 +6,7 @@
  *
  * URL patterns:
  * - myapp.jns.jejunetwork.org -> Resolve myapp.jns to contenthash
- * - ipfs.jejunetwork.org/ipfs/CID -> Direct IPFS access
+ * - <ipfs-gateway-host>/ipfs/CID -> Direct IPFS access
  * - storage.jejunetwork.org/api/... -> Storage API
  */
 
