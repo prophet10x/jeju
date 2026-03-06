@@ -22,7 +22,13 @@ import type {
   Transport,
   WalletClient,
 } from 'viem'
-import { encodeFunctionData, erc20Abi, http, parseEther } from 'viem'
+import {
+  decodeAbiParameters,
+  encodeFunctionData,
+  erc20Abi,
+  http,
+  parseEther,
+} from 'viem'
 import {
   useAccount,
   usePublicClient,
@@ -40,6 +46,11 @@ const FIRST_DEPLOY_VERIFICATION_GAS_LIMIT = 2_000_000n
 const FIRST_DEPLOY_PRE_VERIFICATION_GAS = 300_000n
 const FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT = 500_000n
 const FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT = 120_000n
+const USER_OPERATION_EVENT_TOPIC =
+  '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f'
+const USER_OPERATION_REVERT_REASON_TOPIC =
+  '0xf62676f440ff169a3a9afdbf812e89e7f95975ee8e5c31214ffdef631c5f4792'
+const POST_OP_REVERTED_SELECTOR = '0xad7954bc'
 
 const CREDIT_MANAGER_ABI = [
   {
@@ -73,6 +84,98 @@ interface ExecuteGaslessCallsParams {
   requiredJejuBalance?: bigint
   requiredPaymentAmount?: bigint
   bootstrapPaymasterAllowance?: bigint
+}
+
+function topicForAddress(address: Address): Hex {
+  return `0x${address.toLowerCase().slice(2).padStart(64, '0')}` as Hex
+}
+
+function getUserOperationFailureMessage(params: {
+  receipt: Awaited<ReturnType<PublicClient['waitForTransactionReceipt']>>
+  entryPointAddress: Address
+  senderAddress: Address
+}): string | null {
+  const { receipt, entryPointAddress, senderAddress } = params
+  const senderTopic = topicForAddress(senderAddress).toLowerCase()
+  const entryPointLower = entryPointAddress.toLowerCase()
+
+  const entryPointLogs = receipt.logs
+    .filter((log) => log.address.toLowerCase() === entryPointLower)
+    .map(
+      (log) =>
+        log as {
+          address: Address
+          data: Hex
+          topics?: readonly Hex[]
+        },
+    )
+  const userOperationLog = entryPointLogs.find((log) => {
+    const topic0 = log.topics?.[0]?.toLowerCase()
+    const sender = log.topics?.[2]?.toLowerCase()
+    return (
+      topic0 === USER_OPERATION_EVENT_TOPIC && sender === senderTopic
+    )
+  })
+
+  if (!userOperationLog) return null
+
+  let success = false
+  try {
+    ;[, success] = decodeAbiParameters(
+      [
+        { type: 'uint256' }, // nonce
+        { type: 'bool' }, // success
+        { type: 'uint256' }, // actualGasCost
+        { type: 'uint256' }, // actualGasUsed
+      ],
+      userOperationLog.data,
+    )
+  } catch {
+    return 'Gasless transaction mined, but user operation status could not be decoded.'
+  }
+
+  if (success) return null
+
+  const userOpHash = userOperationLog.topics?.[1]?.toLowerCase()
+  if (!userOpHash) {
+    return 'Gasless user operation failed in EntryPoint.'
+  }
+
+  const revertReasonLog = entryPointLogs.find((log) => {
+    const topic0 = log.topics?.[0]?.toLowerCase()
+    const topic1 = log.topics?.[1]?.toLowerCase()
+    const topic2 = log.topics?.[2]?.toLowerCase()
+    return (
+      topic0 === USER_OPERATION_REVERT_REASON_TOPIC &&
+      topic1 === userOpHash &&
+      topic2 === senderTopic
+    )
+  })
+
+  if (!revertReasonLog) {
+    return 'Gasless user operation failed in EntryPoint.'
+  }
+
+  try {
+    const [, revertReason] = decodeAbiParameters(
+      [
+        { type: 'uint256' }, // nonce
+        { type: 'bytes' }, // revertReason
+      ],
+      revertReasonLog.data,
+    )
+
+    const reasonHex = (revertReason as Hex).toLowerCase()
+    if (!reasonHex || reasonHex === '0x') {
+      return 'Gasless user operation failed in EntryPoint.'
+    }
+    if (reasonHex.startsWith(POST_OP_REVERTED_SELECTOR)) {
+      return 'Paymaster postOp reverted (PostOpReverted).'
+    }
+    return `Gasless user operation reverted: ${reasonHex}`
+  } catch {
+    return 'Gasless user operation failed in EntryPoint.'
+  }
 }
 
 async function buildSmartAccount(params: {
@@ -386,6 +489,18 @@ export function useGaslessSmartAccount() {
         ) {
           return `Paymaster is not authorized in CreditManager. Operator must call CreditManager.setServiceAuthorization(${CONTRACTS.multiTokenPaymaster}, true).`
         }
+        if (
+          normalized.includes(POST_OP_REVERTED_SELECTOR) ||
+          normalized.includes('postopreverted')
+        ) {
+          return 'Paymaster postOp reverted. Verify JEJU paymaster allowance/credit and paymaster service authorization.'
+        }
+        if (
+          normalized.includes('0xb0a6a455') ||
+          normalized.includes('insufficientcreditandnopayment')
+        ) {
+          return 'Insufficient JEJU credit and paymaster allowance for gasless execution.'
+        }
         return message
       }
 
@@ -545,6 +660,27 @@ export function useGaslessSmartAccount() {
           preparedCalls,
           requiredPaymentAmount,
         )
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: txHash,
+        })
+        if (receipt.status !== 'success') {
+          throw new Error('Gasless transaction reverted on-chain.')
+        }
+
+        const entryPointAddress = getConfiguredAddress(
+          CONTRACTS.entryPointV07 || CONTRACTS.entryPoint,
+        )
+        if (entryPointAddress) {
+          const userOpFailure = getUserOperationFailureMessage({
+            receipt,
+            entryPointAddress,
+            senderAddress: smartAccountAddress,
+          })
+          if (userOpFailure) {
+            throw new Error(userOpFailure)
+          }
+        }
+
         setLastTx(txHash)
         await refreshState()
         return txHash

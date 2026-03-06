@@ -439,14 +439,20 @@ export default function AgentSettingsModal({
     return hash
   }
 
-  const runAction = async (label: string, action: () => Promise<void>) => {
+  const runAction = async (
+    label: string,
+    action: () => Promise<`0x${string}` | void>,
+  ) => {
     setError(null)
     setSuccess(null)
     setIsBusy(true)
     try {
-      await action()
+      const txHash = await action()
       await refetchAll()
-      setSuccess(label)
+      const txLabel = txHash
+        ? ` Tx: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`
+        : ''
+      setSuccess(`${label}${txLabel}`)
       return true
     } catch (actionError) {
       setError(
@@ -484,7 +490,7 @@ export default function AgentSettingsModal({
         })
       }
 
-      await submitGaslessTx({
+      return await submitGaslessTx({
         serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
         calls: [
           {
@@ -497,10 +503,9 @@ export default function AgentSettingsModal({
           },
         ],
       })
-      return
     }
 
-    await submitTx(() =>
+    return await submitTx(() =>
       writeContractAsync({
         address: registryAddress,
         abi: REGISTRY_ABI,
