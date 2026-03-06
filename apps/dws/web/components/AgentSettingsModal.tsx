@@ -21,7 +21,7 @@ import {
   useReadContract,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS, TOKENS } from '../config'
+import { CONTRACTS, EXPLORER_URL, TOKENS } from '../config'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import type { GaslessCall } from '../hooks/useGaslessSmartAccount'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
@@ -299,6 +299,9 @@ export default function AgentSettingsModal({
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [lastActionTxHash, setLastActionTxHash] = useState<`0x${string}` | null>(
+    null,
+  )
 
   const { data: targetTierStake } = useReadContract({
     address: registryAddress,
@@ -442,17 +445,22 @@ export default function AgentSettingsModal({
   const runAction = async (
     label: string,
     action: () => Promise<`0x${string}` | void>,
+    options?: { requireTxHash?: boolean },
   ) => {
     setError(null)
     setSuccess(null)
+    setLastActionTxHash(null)
     setIsBusy(true)
     try {
       const txHash = await action()
+      if (options?.requireTxHash && !txHash) {
+        throw new Error(
+          'Transaction hash unavailable for this action. Please retry.',
+        )
+      }
       await refetchAll()
-      const txLabel = txHash
-        ? ` Tx: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`
-        : ''
-      setSuccess(`${label}${txLabel}`)
+      if (txHash) setLastActionTxHash(txHash)
+      setSuccess(label)
       return true
     } catch (actionError) {
       setError(
@@ -895,6 +903,7 @@ export default function AgentSettingsModal({
                   void runAction(
                     'Delegated wallet updated.',
                     setDelegatedWallet,
+                    { requireTxHash: true },
                   )
                 }
               >
@@ -1066,7 +1075,32 @@ export default function AgentSettingsModal({
               color: 'var(--success)',
             }}
           >
-            {success}
+            <div>{success}</div>
+            {lastActionTxHash && (
+              <div
+                style={{
+                  marginTop: '0.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <code style={{ fontSize: '0.78rem' }}>{lastActionTxHash}</code>
+                <a
+                  href={`${EXPLORER_URL}/tx/${lastActionTxHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    color: 'var(--info)',
+                    textDecoration: 'underline',
+                    fontSize: '0.82rem',
+                  }}
+                >
+                  View on explorer
+                </a>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -17,6 +17,27 @@ import { getExecutor } from './executor'
 import * as registry from './registry'
 import type { AgentMessage } from './types'
 
+async function maybeServeAgentsSpa(request: Request): Promise<Response | null> {
+  const accept = request.headers.get('accept')?.toLowerCase() ?? ''
+  const secFetchMode = request.headers.get('sec-fetch-mode')?.toLowerCase() ?? ''
+  const wantsHtml =
+    accept.includes('text/html') ||
+    secFetchMode === 'navigate' ||
+    secFetchMode === 'same-origin'
+
+  if (!wantsHtml) return null
+
+  const file = Bun.file('./dist/index.html')
+  if (!(await file.exists())) return null
+
+  return new Response(await file.text(), {
+    headers: {
+      'Content-Type': 'text/html',
+      'X-DWS-SPA-Fallback': 'agents',
+    },
+  })
+}
+
 export function createAgentRouter() {
   return (
     new Elysia({ name: 'agents', prefix: '/agents' })
@@ -98,6 +119,9 @@ export function createAgentRouter() {
 
       // List agents
       .get('/', async ({ request, query }) => {
+        const spaResponse = await maybeServeAgentsSpa(request)
+        if (spaResponse) return spaResponse
+
         const ownerHeader = request.headers.get('x-jeju-address')
         const owner =
           ownerHeader && isAddress(ownerHeader) ? ownerHeader : undefined
