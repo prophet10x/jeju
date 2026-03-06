@@ -226,14 +226,18 @@ export async function bootstrapGaslessSmartAccount(
       functionName: 'transfer',
       args: [smartAccountAddress, jejuFundedAmount],
     })
+    await publicClient.waitForTransactionReceipt({ hash: fundingTxHash })
   }
 
   if (creditAddedAmount > 0n) {
-    await walletClient.writeContract({
+    const transferToCreditManagerHash = await walletClient.writeContract({
       address: JEJU_TOKEN_ADDRESS,
       abi: erc20Abi,
       functionName: 'transfer',
       args: [CREDIT_MANAGER_ADDRESS, creditAddedAmount],
+    })
+    await publicClient.waitForTransactionReceipt({
+      hash: transferToCreditManagerHash,
     })
 
     creditTxHash = await walletClient.writeContract({
@@ -242,6 +246,45 @@ export async function bootstrapGaslessSmartAccount(
       functionName: 'addCredit',
       args: [smartAccountAddress, JEJU_TOKEN_ADDRESS, creditAddedAmount],
     })
+    await publicClient.waitForTransactionReceipt({ hash: creditTxHash })
+  }
+
+  // Confirm the bootstrap outcome on-chain before returning to the caller.
+  const [finalJejuBalance, finalJejuCredit, finalPaymasterAllowance] =
+    await Promise.all([
+      publicClient.readContract({
+        address: JEJU_TOKEN_ADDRESS,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [smartAccountAddress],
+      }),
+      publicClient.readContract({
+        address: CREDIT_MANAGER_ADDRESS,
+        abi: CREDIT_MANAGER_ABI,
+        functionName: 'balances',
+        args: [smartAccountAddress, JEJU_TOKEN_ADDRESS],
+      }),
+      isConfiguredAddress(MULTI_TOKEN_PAYMASTER_ADDRESS)
+        ? publicClient.readContract({
+            address: JEJU_TOKEN_ADDRESS,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [smartAccountAddress, MULTI_TOKEN_PAYMASTER_ADDRESS],
+          })
+        : Promise.resolve(0n),
+    ])
+
+  const finalReadiness = getGaslessReadiness({
+    jejuBalance: finalJejuBalance,
+    jejuCredit: finalJejuCredit,
+    paymasterAllowance: finalPaymasterAllowance,
+    requiredJejuBalance: requiredStakeAmount,
+    requiredPaymentAmount: DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  })
+  if (!finalReadiness.isReady) {
+    throw new Error(
+      'Bootstrap finished but smart account is still not gasless-ready on-chain.',
+    )
   }
 
   cooldownByOwner.set(cooldownKey, Date.now() + getBootstrapCooldownMs())
