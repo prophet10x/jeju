@@ -1,7 +1,12 @@
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import {
   JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
   JEJU_AGENT_REGISTRATION_SERVICE,
 } from '@jejunetwork/shared'
+import {
+  getConfiguredAddress,
+  predictSimpleAccountAddress,
+} from '@jejunetwork/shared/gasless'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type Address,
@@ -213,9 +218,12 @@ export default function AgentSettingsModal({
   onUpdated,
 }: AgentSettingsModalProps) {
   const { address } = useAccount()
+  const { walletAddress } = useJejuAuth()
   const publicClient = usePublicClient()
   const { writeContractAsync } = useWriteContract()
   const gasless = useGaslessSmartAccount()
+  const [sessionSmartAccountAddress, setSessionSmartAccountAddress] =
+    useState<Address | null>(null)
 
   const id = BigInt(agentId)
   const registryAddress = CONTRACTS.identityRegistry
@@ -301,17 +309,69 @@ export default function AgentSettingsModal({
   }, [targetTierStake, stakedAmount])
 
   const canUpgrade = tier < 3
+  const connectedAddress = useMemo<Address | undefined>(() => {
+    if (address && isAddress(address)) return getAddress(address)
+    if (walletAddress && isAddress(walletAddress)) {
+      return getAddress(walletAddress)
+    }
+    return undefined
+  }, [address, walletAddress])
+  const effectiveSmartAccountAddress =
+    gasless.smartAccountAddress ?? sessionSmartAccountAddress ?? undefined
   const isOwner = Boolean(
-    address && owner && address.toLowerCase() === owner.toLowerCase(),
+    connectedAddress &&
+      owner &&
+      connectedAddress.toLowerCase() === owner.toLowerCase(),
   )
   const isSmartAccountOwner = Boolean(
-    gasless.smartAccountAddress &&
+    effectiveSmartAccountAddress &&
       owner &&
-      gasless.smartAccountAddress.toLowerCase() === owner.toLowerCase(),
+      effectiveSmartAccountAddress.toLowerCase() === owner.toLowerCase(),
   )
   const canEdit = Boolean(isOwner || isSmartAccountOwner)
   const useGaslessOwnerPath = Boolean(!isOwner && isSmartAccountOwner)
   const registryConfigured = registryAddress !== ZERO_ADDRESS
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function resolveSessionSmartAccount() {
+      if (gasless.smartAccountAddress) {
+        setSessionSmartAccountAddress(null)
+        return
+      }
+      if (!publicClient || !connectedAddress) {
+        setSessionSmartAccountAddress(null)
+        return
+      }
+
+      const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
+      if (!factory) {
+        setSessionSmartAccountAddress(null)
+        return
+      }
+
+      try {
+        const predictedAddress = await predictSimpleAccountAddress({
+          publicClient,
+          factoryAddress: factory,
+          ownerAddress: connectedAddress,
+        })
+        if (!cancelled && isAddress(predictedAddress)) {
+          setSessionSmartAccountAddress(getAddress(predictedAddress))
+        }
+      } catch {
+        if (!cancelled) {
+          setSessionSmartAccountAddress(null)
+        }
+      }
+    }
+
+    void resolveSessionSmartAccount()
+    return () => {
+      cancelled = true
+    }
+  }, [connectedAddress, gasless.smartAccountAddress, publicClient])
 
   useEffect(() => {
     setWalletInput((agentWallet as string | undefined) ?? '')
@@ -709,8 +769,9 @@ export default function AgentSettingsModal({
               color: 'var(--warning)',
             }}
           >
-            View-only mode. Connected: <code>{address ?? 'Not connected'}</code>{' '}
-            • Owner: <code>{owner}</code>
+            View-only mode. Connected:{' '}
+            <code>{connectedAddress ?? 'Not connected'}</code> • Owner:{' '}
+            <code>{owner}</code>
           </div>
         )}
         {!canEdit && gasless.smartAccountDerivationError && (
@@ -728,9 +789,10 @@ export default function AgentSettingsModal({
           </div>
         )}
         {!canEdit &&
-          address &&
+          connectedAddress &&
           agentWallet &&
-          (agentWallet as string).toLowerCase() === address.toLowerCase() && (
+          (agentWallet as string).toLowerCase() ===
+            connectedAddress.toLowerCase() && (
             <div
               style={{
                 marginTop: '1rem',
@@ -756,7 +818,7 @@ export default function AgentSettingsModal({
             }}
           >
             Smart account owner mode enabled. Smart account:{' '}
-            <code>{gasless.smartAccountAddress}</code>
+            <code>{effectiveSmartAccountAddress}</code>
           </div>
         )}
 

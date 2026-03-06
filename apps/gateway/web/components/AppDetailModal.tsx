@@ -1,5 +1,9 @@
 import { AuthProvider, useJejuAuth, useOAuth3 } from '@jejunetwork/auth/react'
 import {
+  getConfiguredAddress,
+  predictSimpleAccountAddress,
+} from '@jejunetwork/shared/gasless'
+import {
   Edit,
   ExternalLink,
   Github,
@@ -13,7 +17,8 @@ import {
 } from 'lucide-react'
 import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
 import { type Address, getAddress, isAddress } from 'viem'
-import { useAccount } from 'wagmi'
+import { useAccount, usePublicClient } from 'wagmi'
+import { CONTRACTS } from '../../lib/config'
 import {
   IDENTITY_REGISTRY_ADDRESS,
   StakeTier,
@@ -127,7 +132,9 @@ export default function AppDetailModal({
   onClose,
 }: AppDetailModalProps) {
   const { address } = useAccount()
-  const { authenticated, getAccessToken, linkedAccounts } = useJejuAuth()
+  const publicClient = usePublicClient()
+  const { authenticated, getAccessToken, linkedAccounts, walletAddress } =
+    useJejuAuth()
   const { linkProvider } = useOAuth3()
   const { app, isLoading, refetch } = useRegistryAppDetails(agentId)
   const {
@@ -159,9 +166,20 @@ export default function AppDetailModal({
   const [githubLinkSuccess, setGithubLinkSuccess] = useState<string | null>(
     null,
   )
+  const [sessionSmartAccountAddress, setSessionSmartAccountAddress] =
+    useState<Address | null>(null)
   const lastHydratedSnapshotRef = useRef<string | null>(null)
 
   const targetTierStake = useStakeAmount(targetTier)
+  const connectedAddress = useMemo<Address | undefined>(() => {
+    if (address && isAddress(address)) return getAddress(address)
+    if (walletAddress && isAddress(walletAddress)) {
+      return getAddress(walletAddress)
+    }
+    return undefined
+  }, [address, walletAddress])
+  const effectiveSmartAccountAddress =
+    gasless.smartAccountAddress ?? sessionSmartAccountAddress ?? undefined
 
   const categoryTags = useMemo(() => {
     if (!app) return []
@@ -175,11 +193,13 @@ export default function AppDetailModal({
   }, [app])
 
   const isOwner =
-    app && address && app.owner.toLowerCase() === address.toLowerCase()
+    app &&
+    connectedAddress &&
+    app.owner.toLowerCase() === connectedAddress.toLowerCase()
   const isSmartAccountOwner =
     app &&
-    gasless.smartAccountAddress &&
-    app.owner.toLowerCase() === gasless.smartAccountAddress.toLowerCase()
+    effectiveSmartAccountAddress &&
+    app.owner.toLowerCase() === effectiveSmartAccountAddress.toLowerCase()
   const canEdit = Boolean(isOwner || isSmartAccountOwner)
   const useGaslessOwnerPath = Boolean(!isOwner && isSmartAccountOwner)
 
@@ -197,6 +217,47 @@ export default function AppDetailModal({
     () => linkedAccounts.find((account) => account.type === 'github'),
     [linkedAccounts],
   )
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function resolveSessionSmartAccount() {
+      if (gasless.smartAccountAddress) {
+        setSessionSmartAccountAddress(null)
+        return
+      }
+      if (!publicClient || !connectedAddress) {
+        setSessionSmartAccountAddress(null)
+        return
+      }
+
+      const factory = getConfiguredAddress(CONTRACTS.simpleAccountFactory)
+      if (!factory) {
+        setSessionSmartAccountAddress(null)
+        return
+      }
+
+      try {
+        const predictedAddress = await predictSimpleAccountAddress({
+          publicClient,
+          factoryAddress: factory,
+          ownerAddress: connectedAddress,
+        })
+        if (!cancelled && isAddress(predictedAddress)) {
+          setSessionSmartAccountAddress(getAddress(predictedAddress))
+        }
+      } catch {
+        if (!cancelled) {
+          setSessionSmartAccountAddress(null)
+        }
+      }
+    }
+
+    void resolveSessionSmartAccount()
+    return () => {
+      cancelled = true
+    }
+  }, [connectedAddress, gasless.smartAccountAddress, publicClient])
 
   useEffect(() => {
     if (!app) return
@@ -875,7 +936,7 @@ export default function AppDetailModal({
                   style={{ marginBottom: '1rem' }}
                 >
                   Owner actions are locked for this session. Connected:{' '}
-                  <code>{address ?? 'Not connected'}</code> • Owner:{' '}
+                  <code>{connectedAddress ?? 'Not connected'}</code> • Owner:{' '}
                   <code>{app.owner}</code>
                 </div>
               )}
@@ -889,9 +950,10 @@ export default function AppDetailModal({
                 </div>
               )}
               {!canEdit &&
-                address &&
+                connectedAddress &&
                 app.agentWallet &&
-                app.agentWallet.toLowerCase() === address.toLowerCase() && (
+                app.agentWallet.toLowerCase() ===
+                  connectedAddress.toLowerCase() && (
                   <div
                     className="banner banner-info"
                     style={{ marginBottom: '1rem' }}
@@ -907,7 +969,7 @@ export default function AppDetailModal({
                   style={{ marginBottom: '1rem' }}
                 >
                   Smart account owner mode enabled. Smart account:{' '}
-                  <code>{gasless.smartAccountAddress}</code>
+                  <code>{effectiveSmartAccountAddress}</code>
                 </div>
               )}
 
