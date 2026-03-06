@@ -202,7 +202,9 @@ export async function bootstrapGaslessSmartAccount(
   const minimumCreditForFirstGaslessTx =
     paymasterAllowance >= readiness.requiredPaymentAmount
       ? 0n
-      : readiness.requiredPaymentAmount
+      : getBootstrapExtraJeju() >= readiness.requiredPaymentAmount
+        ? getBootstrapExtraJeju()
+        : readiness.requiredPaymentAmount
   const targetCredit = (() => {
     const configuredCredit = getBootstrapCreditJeju()
     return configuredCredit >= minimumCreditForFirstGaslessTx

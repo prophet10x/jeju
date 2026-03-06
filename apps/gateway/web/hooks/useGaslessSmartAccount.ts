@@ -324,7 +324,7 @@ export function useGaslessSmartAccount() {
           }),
         ])
 
-      const readiness = getGaslessReadiness({
+      let readiness = getGaslessReadiness({
         jejuBalance: latestJejuBalance as bigint,
         jejuCredit: latestJejuCredit as bigint,
         paymasterAllowance: latestPaymasterAllowance as bigint,
@@ -337,7 +337,7 @@ export function useGaslessSmartAccount() {
           'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
         )
       }
-      const useCreditPath =
+      const needsAllowancePriming =
         readiness.readyViaCredit && !readiness.readyViaAllowance
 
       setIsExecuting(true)
@@ -352,12 +352,130 @@ export function useGaslessSmartAccount() {
         const isDeployed = await account.isDeployed()
         const gasPrice = await publicClient.getGasPrice()
 
-        const preparedCalls = [...calls]
+        const sendWithOverpayment = async (
+          callsToSend: GaslessCall[],
+          overpayment: bigint,
+        ): Promise<Hex> => {
+          const smartAccountClient = createSmartAccountClient({
+            account,
+            chain: publicClient.chain,
+            client: publicClient,
+            bundlerTransport: http(BUNDLER_URL),
+            paymaster: {
+              getPaymasterStubData: async () => {
+                const paymasterData = getMultiTokenPaymasterData({
+                  paymaster: CONTRACTS.multiTokenPaymaster,
+                  serviceName,
+                  paymentToken: PAYMENT_TOKEN_JEJU,
+                  overpayment,
+                })
+                return toPaymasterV07Data(paymasterData)
+              },
+              getPaymasterData: async () => {
+                const paymasterData = getMultiTokenPaymasterData({
+                  paymaster: CONTRACTS.multiTokenPaymaster,
+                  serviceName,
+                  paymentToken: PAYMENT_TOKEN_JEJU,
+                  overpayment,
+                })
+                return toPaymasterV07Data(paymasterData)
+              },
+            },
+          })
 
-        if (
-          readiness.needsPaymasterAllowance &&
-          isConfiguredAddress(CONTRACTS.multiTokenPaymaster)
-        ) {
+          return smartAccountClient.sendTransaction(
+            isDeployed
+              ? {
+                  calls: callsToSend,
+                  maxFeePerGas: gasPrice,
+                  maxPriorityFeePerGas: gasPrice,
+                }
+              : {
+                  calls: callsToSend,
+                  callGasLimit: FIRST_DEPLOY_CALL_GAS_LIMIT,
+                  verificationGasLimit: FIRST_DEPLOY_VERIFICATION_GAS_LIMIT,
+                  preVerificationGas: FIRST_DEPLOY_PRE_VERIFICATION_GAS,
+                  paymasterVerificationGasLimit:
+                    FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT,
+                  paymasterPostOpGasLimit:
+                    FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT,
+                  maxFeePerGas: gasPrice,
+                  maxPriorityFeePerGas: gasPrice,
+                },
+          )
+        }
+
+        if (needsAllowancePriming) {
+          const primeHash = await sendWithOverpayment(
+            [
+              {
+                to: CONTRACTS.jeju,
+                data: encodeFunctionData({
+                  abi: erc20Abi,
+                  functionName: 'approve',
+                  args: [
+                    CONTRACTS.multiTokenPaymaster,
+                    bootstrapPaymasterAllowance,
+                  ],
+                }),
+              },
+            ],
+            0n,
+          )
+          const primeReceipt = await publicClient.waitForTransactionReceipt({
+            hash: primeHash,
+          })
+          if (primeReceipt.status !== 'success') {
+            throw new Error('Failed to prime paymaster allowance via credit.')
+          }
+
+          await refreshState()
+
+          const [
+            postPrimeJejuBalance,
+            postPrimeJejuCredit,
+            postPrimeAllowance,
+          ] = await Promise.all([
+            publicClient.readContract({
+              address: CONTRACTS.jeju,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [smartAccountAddress],
+            }),
+            isConfiguredAddress(CONTRACTS.creditManager)
+              ? publicClient.readContract({
+                  address: CONTRACTS.creditManager,
+                  abi: CREDIT_MANAGER_ABI,
+                  functionName: 'balances',
+                  args: [smartAccountAddress, CONTRACTS.jeju],
+                })
+              : Promise.resolve(0n),
+            publicClient.readContract({
+              address: CONTRACTS.jeju,
+              abi: erc20Abi,
+              functionName: 'allowance',
+              args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
+            }),
+          ])
+
+          readiness = getGaslessReadiness({
+            jejuBalance: postPrimeJejuBalance as bigint,
+            jejuCredit: postPrimeJejuCredit as bigint,
+            paymasterAllowance: postPrimeAllowance as bigint,
+            requiredJejuBalance,
+            requiredPaymentAmount,
+            targetPaymasterAllowance: bootstrapPaymasterAllowance,
+          })
+
+          if (!readiness.readyViaAllowance) {
+            throw new Error(
+              'Paymaster allowance priming did not complete. Retry after confirmation.',
+            )
+          }
+        }
+
+        const preparedCalls = [...calls]
+        if (readiness.needsPaymasterAllowance) {
           preparedCalls.unshift({
             to: CONTRACTS.jeju,
             data: encodeFunctionData({
@@ -371,54 +489,9 @@ export function useGaslessSmartAccount() {
           })
         }
 
-        const smartAccountClient = createSmartAccountClient({
-          account,
-          chain: publicClient.chain,
-          client: publicClient,
-          bundlerTransport: http(BUNDLER_URL),
-          paymaster: {
-            getPaymasterStubData: async () => {
-              const paymasterData = getMultiTokenPaymasterData({
-                paymaster: CONTRACTS.multiTokenPaymaster,
-                serviceName,
-                paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: useCreditPath ? 0n : requiredPaymentAmount,
-              })
-
-              return toPaymasterV07Data(paymasterData)
-            },
-            getPaymasterData: async () => {
-              const paymasterData = getMultiTokenPaymasterData({
-                paymaster: CONTRACTS.multiTokenPaymaster,
-                serviceName,
-                paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: useCreditPath ? 0n : requiredPaymentAmount,
-              })
-
-              return toPaymasterV07Data(paymasterData)
-            },
-          },
-        })
-
-        const txHash = await smartAccountClient.sendTransaction(
-          isDeployed
-            ? {
-                calls: preparedCalls,
-                maxFeePerGas: gasPrice,
-                maxPriorityFeePerGas: gasPrice,
-              }
-            : {
-                calls: preparedCalls,
-                callGasLimit: FIRST_DEPLOY_CALL_GAS_LIMIT,
-                verificationGasLimit: FIRST_DEPLOY_VERIFICATION_GAS_LIMIT,
-                preVerificationGas: FIRST_DEPLOY_PRE_VERIFICATION_GAS,
-                paymasterVerificationGasLimit:
-                  FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT,
-                paymasterPostOpGasLimit:
-                  FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT,
-                maxFeePerGas: gasPrice,
-                maxPriorityFeePerGas: gasPrice,
-              },
+        const txHash = await sendWithOverpayment(
+          preparedCalls,
+          requiredPaymentAmount,
         )
 
         setLastTx(txHash)
