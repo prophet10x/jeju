@@ -404,7 +404,7 @@ export default function AppDetailModal({
         }
 
         const readiness = gasless.getReadiness()
-        if (!readiness.isReady) {
+        if (!readiness.readyViaAllowance) {
           await gaslessBootstrap.bootstrap({
             purpose: 'registry',
             requiredStakeAmount: 0n,

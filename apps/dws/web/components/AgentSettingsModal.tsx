@@ -476,7 +476,7 @@ export default function AgentSettingsModal({
       }
 
       const readiness = gasless.getReadiness()
-      if (!readiness.isReady) {
+      if (!readiness.readyViaAllowance) {
         await gaslessBootstrap.prepareSmartAccount({
           ownerAddress: connectedAddress,
           purpose: 'registry',
