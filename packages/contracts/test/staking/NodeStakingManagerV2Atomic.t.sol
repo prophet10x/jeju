@@ -116,6 +116,31 @@ contract MockAtomicIdentityRegistryForAtomic {
     }
 }
 
+contract MockLegacyIdentityRegistryForAtomic {
+    error InvalidOwner();
+    error InvalidAgent();
+
+    mapping(uint256 => address) private _owners;
+    mapping(uint256 => bool) private _exists;
+    uint256 private _nextAgentId = 1;
+
+    function createAgent(address owner_) external returns (uint256 agentId) {
+        if (owner_ == address(0)) revert InvalidOwner();
+        agentId = _nextAgentId++;
+        _owners[agentId] = owner_;
+        _exists[agentId] = true;
+    }
+
+    function agentExists(uint256 agentId) external view returns (bool) {
+        return _exists[agentId];
+    }
+
+    function ownerOf(uint256 agentId) external view returns (address) {
+        if (!_exists[agentId]) revert InvalidAgent();
+        return _owners[agentId];
+    }
+}
+
 contract NodeStakingManagerV2AtomicTest is Test {
     MockStakeTokenAtomic internal token;
     MockTokenRegistryAtomic internal tokenRegistry;
@@ -242,5 +267,38 @@ contract NodeStakingManagerV2AtomicTest is Test {
         assertFalse(node.isActive);
         assertEq(node.stakedAmount, 0);
         assertGt(balanceAfter, balanceBefore);
+    }
+
+    function test_RegisterNodeWithAgentAndIdentity_FallsBackToOperatorIdentityWhenRegisterForUnavailable() public {
+        NodeStakingManagerV2Atomic managerFallback = new NodeStakingManagerV2Atomic(
+            address(tokenRegistry), address(paymasterFactory), address(priceOracle), PERFORMANCE_ORACLE, address(this)
+        );
+        IERC20(address(token)).transfer(address(managerFallback), 1_000_000 ether);
+
+        MockLegacyIdentityRegistryForAtomic legacyIdentity = new MockLegacyIdentityRegistryForAtomic();
+        managerFallback.setIdentityRegistry(address(legacyIdentity));
+        managerFallback.setRequireAgentRegistration(true);
+
+        uint256 legacyOperatorAgentId = legacyIdentity.createAgent(alice);
+
+        vm.startPrank(alice);
+        IERC20(address(token)).approve(address(managerFallback), type(uint256).max);
+
+        IIdentityRegistry.MetadataEntry[] memory metadata = new IIdentityRegistry.MetadataEntry[](0);
+        (bytes32 nodeId, uint256 nodeIdentityAgentId) = managerFallback.registerNodeWithAgentAndIdentity(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://legacy-id-registry.jeju.test",
+            INodeStakingManager.Region.NorthAmerica,
+            legacyOperatorAgentId,
+            "ipfs://legacy-fallback",
+            metadata
+        );
+        vm.stopPrank();
+
+        assertEq(nodeIdentityAgentId, legacyOperatorAgentId);
+        assertEq(managerFallback.getNodeIdentityAgentId(nodeId), legacyOperatorAgentId);
+        assertEq(managerFallback.getNodeIdByIdentityAgent(legacyOperatorAgentId), nodeId);
     }
 }

@@ -24,6 +24,7 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
 
     error InvalidRpcUrl();
     error IdentityAgentAlreadyLinked(uint256 nodeIdentityAgentId);
+    event NodeIdentityFallbackUsed(bytes32 indexed nodeId, uint256 indexed operatorAgentId, address owner);
 
     constructor(
         address _tokenRegistry,
@@ -47,7 +48,10 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         if (!identityRegistry.agentExists(operatorAgentId)) revert InvalidAgentId();
         if (identityRegistry.ownerOf(operatorAgentId) != msg.sender) revert NotAgentOwner();
 
-        nodeIdentityAgentId = identityRegistry.registerFor(msg.sender, nodeIdentityTokenURI, nodeIdentityMetadata);
+        bool usedOperatorAgentFallback;
+        (nodeIdentityAgentId, usedOperatorAgentFallback) =
+            _registerNodeIdentityWithFallback(operatorAgentId, nodeIdentityTokenURI, nodeIdentityMetadata);
+
         if (_nodeIdsByIdentityAgent[nodeIdentityAgentId] != bytes32(0)) {
             revert IdentityAgentAlreadyLinked(nodeIdentityAgentId);
         }
@@ -59,6 +63,9 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         _nodeIdsByIdentityAgent[nodeIdentityAgentId] = nodeId;
 
         emit NodeIdentityLinked(nodeId, nodeIdentityAgentId, operatorAgentId, msg.sender);
+        if (usedOperatorAgentFallback) {
+            emit NodeIdentityFallbackUsed(nodeId, operatorAgentId, msg.sender);
+        }
     }
 
     function increaseStake(bytes32 nodeId, uint256 amount) external whenNotPaused nonReentrant {
@@ -232,6 +239,26 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         (uint256 tokenPrice,) = priceOracle.getPrice(stakingToken);
         if (tokenPrice == 0) revert("Invalid token price");
         return (stakeAmount * tokenPrice) / 1e18;
+    }
+
+    function _registerNodeIdentityWithFallback(
+        uint256 operatorAgentId,
+        string calldata nodeIdentityTokenURI,
+        IIdentityRegistry.MetadataEntry[] calldata nodeIdentityMetadata
+    ) internal returns (uint256 nodeIdentityAgentId, bool usedOperatorAgentFallback) {
+        // Compatibility path for legacy IdentityRegistry deployments that do not support registerFor(...).
+        (bool success, bytes memory returnData) = address(identityRegistry).call(
+            abi.encodeWithSelector(
+                IIdentityRegistry.registerFor.selector, msg.sender, nodeIdentityTokenURI, nodeIdentityMetadata
+            )
+        );
+
+        if (success && returnData.length >= 32) {
+            nodeIdentityAgentId = abi.decode(returnData, (uint256));
+            return (nodeIdentityAgentId, false);
+        }
+
+        return (operatorAgentId, true);
     }
 
     function supportsAtomicNodeIdentityRegistration() external pure returns (bool) {
