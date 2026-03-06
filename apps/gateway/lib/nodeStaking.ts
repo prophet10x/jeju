@@ -333,6 +333,7 @@ export interface NodeStake {
   registrationTime: bigint
   lastClaimTime: bigint
   totalRewardsClaimed: bigint
+  operatorAgentId: bigint
   isActive: boolean
   isSlashed: boolean
 }

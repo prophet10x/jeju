@@ -258,7 +258,7 @@ function NodeCard({ nodeId }: NodeCardProps) {
         >
           <div>
             <h3 style={{ fontSize: '1rem', margin: 0 }}>
-              Node {nodeId.slice(0, 10)}...
+              Node metadata pending
             </h3>
             <p
               style={{
@@ -493,15 +493,29 @@ function NodeCard({ nodeId }: NodeCardProps) {
       >
         <div>
           <h3 style={{ fontSize: '1.125rem', margin: 0 }}>{node.rpcUrl}</h3>
-          <p
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--text-muted)',
-              margin: '0.25rem 0',
-            }}
-          >
-            Node ID: {nodeId.slice(0, 10)}...
-          </p>
+          <div style={{ display: 'grid', gap: '0.25rem', marginTop: '0.35rem' }}>
+            <p
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--text-muted)',
+                margin: 0,
+              }}
+            >
+              Operator Agent:{' '}
+              {node.operatorAgentId > 0n
+                ? `#${node.operatorAgentId.toString()}`
+                : 'Not linked'}
+            </p>
+            <code
+              style={{
+                fontSize: '0.72rem',
+                color: 'var(--text-secondary)',
+                wordBreak: 'break-all',
+              }}
+            >
+              {nodeId}
+            </code>
+          </div>
         </div>
         {node.isActive ? (
           <span className="badge badge-success">Active</span>

@@ -140,6 +140,13 @@ function formatNodeVersionLabel(node: NodeInfo): string {
   return node.isLegacy ? "Legacy" : "Unknown";
 }
 
+function formatOperatorAgentId(operatorAgentId?: number): string {
+  if (!operatorAgentId || operatorAgentId <= 0) {
+    return "Not linked";
+  }
+  return `#${operatorAgentId}`;
+}
+
 export default function NodeOperatorDashboard() {
   const { isConnected, address } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -854,8 +861,24 @@ function NodeRow({
       aria-selected={isSelected}
     >
       <td>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem" }}>
-          {node.nodeId.slice(0, 10)}...
+        <div
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.8rem",
+            wordBreak: "break-all",
+          }}
+          title={node.nodeId}
+        >
+          {node.nodeId}
+        </div>
+        <div
+          style={{
+            marginTop: "0.2rem",
+            fontSize: "0.72rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          Agent: {formatOperatorAgentId(node.operatorAgentId)}
         </div>
         <div style={{ marginTop: "0.25rem" }}>
           <span
@@ -1488,6 +1511,11 @@ function NodeDetailsPanel({
             General
           </h4>
           <DetailRow label="Node ID" value={node.nodeId} mono />
+          <DetailRow
+            label="Operator Agent"
+            value={formatOperatorAgentId(node.operatorAgentId)}
+          />
+          <DetailRow label="Operator Wallet" value={node.operator} mono small />
           <DetailRow
             label="Protocol Version"
             value={formatNodeVersionLabel(node)}
