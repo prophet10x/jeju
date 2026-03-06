@@ -709,9 +709,8 @@ export default function AgentSettingsModal({
               color: 'var(--warning)',
             }}
           >
-            Owner actions are locked for this session. Connected:{' '}
-            <code>{address ?? 'Not connected'}</code> • Owner:{' '}
-            <code>{owner}</code>
+            View-only mode. Connected: <code>{address ?? 'Not connected'}</code>{' '}
+            • Owner: <code>{owner}</code>
           </div>
         )}
         {useGaslessOwnerPath && (
@@ -729,145 +728,171 @@ export default function AgentSettingsModal({
           </div>
         )}
 
-        <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
-            <label htmlFor="wallet-input" style={{ fontWeight: 600 }}>
-              Set delegated wallet
-            </label>
-            <input
-              id="wallet-input"
-              className="form-input"
-              value={walletInput}
-              onChange={(event) => setWalletInput(event.target.value)}
-              placeholder="0x..."
-              disabled={isBusy || !canEdit}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={isBusy || !canEdit}
-              onClick={() =>
-                void runAction('Delegated wallet updated.', setDelegatedWallet)
-              }
-            >
-              Save Wallet
-            </button>
-          </div>
+        {canEdit ? (
+          <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              <label htmlFor="wallet-input" style={{ fontWeight: 600 }}>
+                Set delegated wallet
+              </label>
+              <input
+                id="wallet-input"
+                className="form-input"
+                value={walletInput}
+                onChange={(event) => setWalletInput(event.target.value)}
+                placeholder="0x..."
+                disabled={isBusy || !canEdit}
+              />
+              <small style={{ color: 'var(--text-muted)' }}>
+                Use your KMS key wallet from <code>/security/keys</code>.
+              </small>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={isBusy || !canEdit}
+                onClick={() =>
+                  void runAction(
+                    'Delegated wallet updated.',
+                    setDelegatedWallet,
+                  )
+                }
+              >
+                Save Wallet
+              </button>
+            </div>
 
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
-            <label htmlFor="category-input" style={{ fontWeight: 600 }}>
-              Categories
-            </label>
-            <input
-              id="category-input"
-              className="form-input"
-              value={categoryInput}
-              onChange={(event) => setCategoryInput(event.target.value)}
-              placeholder="Primary category"
-              disabled={isBusy || !canEdit}
-            />
-            <input
-              className="form-input"
-              value={tagsInput}
-              onChange={(event) => setTagsInput(event.target.value)}
-              placeholder="Tags (comma-separated)"
-              disabled={isBusy || !canEdit}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={isBusy || !canEdit}
-              onClick={() =>
-                void runAction('Category/tags updated.', saveCategoryAndTags)
-              }
-            >
-              Save Categories
-            </button>
-          </div>
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              <label htmlFor="category-input" style={{ fontWeight: 600 }}>
+                Categories
+              </label>
+              <input
+                id="category-input"
+                className="form-input"
+                value={categoryInput}
+                onChange={(event) => setCategoryInput(event.target.value)}
+                placeholder="Primary category"
+                disabled={isBusy || !canEdit}
+              />
+              <input
+                className="form-input"
+                value={tagsInput}
+                onChange={(event) => setTagsInput(event.target.value)}
+                placeholder="Tags (comma-separated)"
+                disabled={isBusy || !canEdit}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={isBusy || !canEdit}
+                onClick={() =>
+                  void runAction('Category/tags updated.', saveCategoryAndTags)
+                }
+              >
+                Save Categories
+              </button>
+            </div>
 
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
-            <label htmlFor="description-input" style={{ fontWeight: 600 }}>
-              Description
-            </label>
-            <textarea
-              id="description-input"
-              className="form-input"
-              rows={3}
-              value={descriptionInput}
-              onChange={(event) => setDescriptionInput(event.target.value)}
-              disabled={isBusy || !canEdit}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={isBusy || !canEdit}
-              onClick={() =>
-                void runAction('Description updated.', saveDescription)
-              }
-            >
-              Save Description
-            </button>
-          </div>
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              <label htmlFor="description-input" style={{ fontWeight: 600 }}>
+                Description
+              </label>
+              <textarea
+                id="description-input"
+                className="form-input"
+                rows={3}
+                value={descriptionInput}
+                onChange={(event) => setDescriptionInput(event.target.value)}
+                disabled={isBusy || !canEdit}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={isBusy || !canEdit}
+                onClick={() =>
+                  void runAction('Description updated.', saveDescription)
+                }
+              >
+                Save Description
+              </button>
+            </div>
 
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
-            <label htmlFor="tier-input" style={{ fontWeight: 600 }}>
-              Increase stake
-            </label>
-            <select
-              id="tier-input"
-              className="form-select"
-              value={targetTier}
-              onChange={(event) => setTargetTier(Number(event.target.value))}
-              disabled={isBusy || !canUpgrade || !canEdit}
-            >
-              <option value={1}>Small</option>
-              <option value={2}>Medium</option>
-              <option value={3}>High</option>
-            </select>
-            <small style={{ color: 'var(--text-muted)' }}>
-              Additional required: {formatTokenAmount(additionalStake)}
-            </small>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={isBusy || !canUpgrade || !canEdit}
-              onClick={() => void runAction('Stake increased.', increaseStake)}
-            >
-              Increase Stake
-            </button>
-          </div>
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              <label htmlFor="tier-input" style={{ fontWeight: 600 }}>
+                Increase stake
+              </label>
+              <select
+                id="tier-input"
+                className="form-select"
+                value={targetTier}
+                onChange={(event) => setTargetTier(Number(event.target.value))}
+                disabled={isBusy || !canUpgrade || !canEdit}
+              >
+                <option value={1}>Small</option>
+                <option value={2}>Medium</option>
+                <option value={3}>High</option>
+              </select>
+              <small style={{ color: 'var(--text-muted)' }}>
+                Additional required: {formatTokenAmount(additionalStake)}
+              </small>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={isBusy || !canUpgrade || !canEdit}
+                onClick={() =>
+                  void runAction('Stake increased.', increaseStake)
+                }
+              >
+                Increase Stake
+              </button>
+            </div>
 
+            <div
+              style={{
+                borderTop: '1px solid var(--border)',
+                paddingTop: '0.75rem',
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                disabled={isBusy || !canEdit}
+                onClick={() => {
+                  void runAction('Agent unstaked and removed.', unstake).then(
+                    (ok) => {
+                      if (ok) onClose()
+                    },
+                  )
+                }}
+              >
+                Unstake & Burn Agent
+              </button>
+              <p
+                style={{
+                  marginTop: '0.5rem',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.8rem',
+                }}
+              >
+                This withdraws stake and de-registers the ERC-8004 identity.
+              </p>
+            </div>
+          </div>
+        ) : (
           <div
             style={{
-              borderTop: '1px solid var(--border)',
-              paddingTop: '0.75rem',
+              marginTop: '1rem',
+              padding: '0.85rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-secondary)',
+              fontSize: '0.85rem',
+              color: 'var(--text-secondary)',
             }}
           >
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              disabled={isBusy || !canEdit}
-              onClick={() => {
-                void runAction('Agent unstaked and removed.', unstake).then(
-                  (ok) => {
-                    if (ok) onClose()
-                  },
-                )
-              }}
-            >
-              Unstake & Burn Agent
-            </button>
-            <p
-              style={{
-                marginTop: '0.5rem',
-                color: 'var(--text-muted)',
-                fontSize: '0.8rem',
-              }}
-            >
-              This withdraws stake and de-registers the ERC-8004 identity.
-            </p>
+            Owner-only actions available with the owner wallet: set delegated
+            wallet, edit categories, edit description, increase stake, and
+            unstake.
           </div>
-        </div>
+        )}
 
         {error && (
           <div
