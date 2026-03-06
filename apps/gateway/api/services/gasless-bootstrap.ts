@@ -153,9 +153,6 @@ export async function bootstrapGaslessSmartAccount(
 
   const cooldownKey = ownerAddress.toLowerCase()
   const cooldownUntil = cooldownByOwner.get(cooldownKey) ?? 0
-  if (cooldownUntil > Date.now()) {
-    throw new Error('Gasless bootstrap cooldown is still active')
-  }
 
   const [jejuBalance, jejuCredit, paymasterAllowance] = await Promise.all([
     publicClient.readContract({
@@ -188,16 +185,6 @@ export async function bootstrapGaslessSmartAccount(
     requiredPaymentAmount: DEFAULT_GASLESS_PAYMENT_AMOUNT,
   })
 
-  if (readiness.isReady) {
-    return {
-      success: true,
-      smartAccountAddress,
-      jejuFundedAmount: '0',
-      creditAddedAmount: '0',
-      alreadyReady: true,
-    }
-  }
-
   const targetJejuBalance = requiredStakeAmount + getBootstrapExtraJeju()
   const minimumCreditForFirstGaslessTx =
     paymasterAllowance >= readiness.requiredPaymentAmount
@@ -211,6 +198,26 @@ export async function bootstrapGaslessSmartAccount(
       ? configuredCredit
       : minimumCreditForFirstGaslessTx
   })()
+
+  const hasTargetJejuBalance = jejuBalance >= targetJejuBalance
+  const hasTargetCredit = jejuCredit >= targetCredit
+
+  if (hasTargetJejuBalance && hasTargetCredit) {
+    return {
+      success: true,
+      smartAccountAddress,
+      jejuFundedAmount: '0',
+      creditAddedAmount: '0',
+      alreadyReady: true,
+    }
+  }
+
+  // Cooldown only rate-limits top-ups. Ready accounts should still pass through
+  // this endpoint so UI flows can proceed without a cooldown error.
+  if (cooldownUntil > Date.now()) {
+    throw new Error('Gasless bootstrap cooldown is still active')
+  }
+
   const jejuFundedAmount =
     jejuBalance >= targetJejuBalance ? 0n : targetJejuBalance - jejuBalance
   const creditAddedAmount =
@@ -276,14 +283,14 @@ export async function bootstrapGaslessSmartAccount(
         : Promise.resolve(0n),
     ])
 
-  const finalReadiness = getGaslessReadiness({
-    jejuBalance: finalJejuBalance,
-    jejuCredit: finalJejuCredit,
-    paymasterAllowance: finalPaymasterAllowance,
-    requiredJejuBalance: requiredStakeAmount,
-    requiredPaymentAmount: DEFAULT_GASLESS_PAYMENT_AMOUNT,
-  })
-  if (!finalReadiness.isReady) {
+  const finalHasTargetJejuBalance = finalJejuBalance >= targetJejuBalance
+  const finalHasTargetCredit = finalJejuCredit >= targetCredit
+  const finalHasAllowance =
+    finalPaymasterAllowance >= readiness.requiredPaymentAmount
+
+  if (
+    !(finalHasTargetJejuBalance && (finalHasAllowance || finalHasTargetCredit))
+  ) {
     throw new Error(
       'Bootstrap finished but smart account is still not gasless-ready on-chain.',
     )
