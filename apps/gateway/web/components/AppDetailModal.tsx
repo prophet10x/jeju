@@ -879,6 +879,28 @@ export default function AppDetailModal({
                   <code>{app.owner}</code>
                 </div>
               )}
+              {!canEdit && gasless.smartAccountDerivationError && (
+                <div
+                  className="banner banner-warning"
+                  style={{ marginBottom: '1rem' }}
+                >
+                  Smart account detection warning:{' '}
+                  <code>{gasless.smartAccountDerivationError}</code>
+                </div>
+              )}
+              {!canEdit &&
+                address &&
+                app.agentWallet &&
+                app.agentWallet.toLowerCase() === address.toLowerCase() && (
+                  <div
+                    className="banner banner-info"
+                    style={{ marginBottom: '1rem' }}
+                  >
+                    You are connected with the delegated KMS wallet. Delegated
+                    wallet can sign runtime operations, but only the agent owner
+                    account can execute owner actions.
+                  </div>
+                )}
               {isSmartAccountOwner && !isOwner && (
                 <div
                   className="banner banner-info"

@@ -713,6 +713,38 @@ export default function AgentSettingsModal({
             • Owner: <code>{owner}</code>
           </div>
         )}
+        {!canEdit && gasless.smartAccountDerivationError && (
+          <div
+            style={{
+              marginTop: '1rem',
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--warning-soft)',
+              color: 'var(--warning)',
+            }}
+          >
+            Smart account detection warning:{' '}
+            <code>{gasless.smartAccountDerivationError}</code>
+          </div>
+        )}
+        {!canEdit &&
+          address &&
+          agentWallet &&
+          (agentWallet as string).toLowerCase() === address.toLowerCase() && (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--info-soft)',
+                color: 'var(--info)',
+              }}
+            >
+              You are connected with the delegated KMS wallet. Delegated wallet
+              can sign runtime operations, but only the agent owner account can
+              execute owner actions.
+            </div>
+          )}
         {useGaslessOwnerPath && (
           <div
             style={{

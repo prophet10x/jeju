@@ -4,16 +4,16 @@ import {
 } from '@jejunetwork/contracts/aa'
 import {
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  type GaslessReadiness,
   getConfiguredAddress,
   getGaslessEntryPointVersion,
   getGaslessReadiness,
   isConfiguredAddress,
   predictSimpleAccountAddress,
-  type GaslessReadiness,
 } from '@jejunetwork/shared/gasless'
 import { toJejuSimpleSmartAccount } from '@jejunetwork/shared/gasless-smart-account'
-import { useCallback, useEffect, useState } from 'react'
 import { createSmartAccountClient } from 'permissionless/clients'
+import { useCallback, useEffect, useState } from 'react'
 import type {
   Account,
   Address,
@@ -114,16 +114,14 @@ export function useGaslessSmartAccount() {
   const [isExecuting, setIsExecuting] = useState(false)
   const [executionError, setExecutionError] = useState<string | null>(null)
 
-  const {
-    data: smartAccountJejuBalance,
-    refetch: refetchJejuBalance,
-  } = useReadContract({
-    address: TOKENS.jeju,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: smartAccountAddress ? [smartAccountAddress] : undefined,
-    query: { enabled: Boolean(smartAccountAddress) },
-  })
+  const { data: smartAccountJejuBalance, refetch: refetchJejuBalance } =
+    useReadContract({
+      address: TOKENS.jeju,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: smartAccountAddress ? [smartAccountAddress] : undefined,
+      query: { enabled: Boolean(smartAccountAddress) },
+    })
 
   const {
     data: smartAccountPaymasterAllowance,
@@ -144,23 +142,21 @@ export function useGaslessSmartAccount() {
     },
   })
 
-  const {
-    data: smartAccountJejuCredit,
-    refetch: refetchJejuCredit,
-  } = useReadContract({
-    address: CONTRACTS.creditManager,
-    abi: CREDIT_MANAGER_ABI,
-    functionName: 'balances',
-    args:
-      smartAccountAddress && isConfiguredAddress(CONTRACTS.creditManager)
-        ? [smartAccountAddress, TOKENS.jeju]
-        : undefined,
-    query: {
-      enabled: Boolean(
-        smartAccountAddress && isConfiguredAddress(CONTRACTS.creditManager),
-      ),
-    },
-  })
+  const { data: smartAccountJejuCredit, refetch: refetchJejuCredit } =
+    useReadContract({
+      address: CONTRACTS.creditManager,
+      abi: CREDIT_MANAGER_ABI,
+      functionName: 'balances',
+      args:
+        smartAccountAddress && isConfiguredAddress(CONTRACTS.creditManager)
+          ? [smartAccountAddress, TOKENS.jeju]
+          : undefined,
+      query: {
+        enabled: Boolean(
+          smartAccountAddress && isConfiguredAddress(CONTRACTS.creditManager),
+        ),
+      },
+    })
 
   const { data: lastTxReceipt } = useWaitForTransactionReceipt({
     hash: lastTx,
@@ -170,7 +166,7 @@ export function useGaslessSmartAccount() {
     let cancelled = false
 
     async function loadSmartAccountAddress() {
-      if (!walletClient || !publicClient || !ownerAddress) {
+      if (!publicClient || !ownerAddress) {
         setSmartAccountAddress(undefined)
         setSmartAccountDerivationError(null)
         return
@@ -196,24 +192,39 @@ export function useGaslessSmartAccount() {
           throw new Error('Predicted smart account address is invalid')
         }
 
-        const account = await buildSmartAccount({
-          publicClient,
-          walletClient,
-          address: predictedAddress,
-        })
-
-        const resolvedAddress = await account.getAddress()
-        if (
-          isConfiguredAddress(resolvedAddress) &&
-          resolvedAddress.toLowerCase() !== predictedAddress.toLowerCase()
-        ) {
-          throw new Error(
-            'Predicted SimpleAccount address does not match local account derivation',
-          )
-        }
-
         if (!cancelled) {
           setSmartAccountAddress(predictedAddress)
+        }
+
+        // Best-effort execution validation. Ownership gating should rely on the
+        // deterministic factory-derived address, even if wallet client probing
+        // fails for hardware wallet sessions.
+        if (walletClient) {
+          try {
+            const account = await buildSmartAccount({
+              publicClient,
+              walletClient,
+              address: predictedAddress,
+            })
+
+            const resolvedAddress = await account.getAddress()
+            if (
+              isConfiguredAddress(resolvedAddress) &&
+              resolvedAddress.toLowerCase() !== predictedAddress.toLowerCase()
+            ) {
+              throw new Error(
+                'Predicted SimpleAccount address does not match local account derivation',
+              )
+            }
+          } catch (error) {
+            if (!cancelled) {
+              setSmartAccountDerivationError(
+                error instanceof Error
+                  ? `Smart account execution unavailable: ${error.message}`
+                  : 'Smart account execution unavailable',
+              )
+            }
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -254,7 +265,9 @@ export function useGaslessSmartAccount() {
       return getGaslessReadiness({
         jejuBalance: smartAccountJejuBalance as bigint | undefined,
         jejuCredit: smartAccountJejuCredit as bigint | undefined,
-        paymasterAllowance: smartAccountPaymasterAllowance as bigint | undefined,
+        paymasterAllowance: smartAccountPaymasterAllowance as
+          | bigint
+          | undefined,
         requiredJejuBalance,
         requiredPaymentAmount,
         targetPaymasterAllowance: DEFAULT_PAYMASTER_ALLOWANCE,
@@ -288,7 +301,9 @@ export function useGaslessSmartAccount() {
       const readiness = getGaslessReadiness({
         jejuBalance: smartAccountJejuBalance as bigint | undefined,
         jejuCredit: smartAccountJejuCredit as bigint | undefined,
-        paymasterAllowance: smartAccountPaymasterAllowance as bigint | undefined,
+        paymasterAllowance: smartAccountPaymasterAllowance as
+          | bigint
+          | undefined,
         requiredJejuBalance,
         requiredPaymentAmount,
         targetPaymasterAllowance: bootstrapPaymasterAllowance,
@@ -322,7 +337,10 @@ export function useGaslessSmartAccount() {
             data: encodeFunctionData({
               abi: erc20Abi,
               functionName: 'approve',
-              args: [CONTRACTS.multiTokenPaymaster, bootstrapPaymasterAllowance],
+              args: [
+                CONTRACTS.multiTokenPaymaster,
+                bootstrapPaymasterAllowance,
+              ],
             }),
           })
         }
@@ -407,8 +425,9 @@ export function useGaslessSmartAccount() {
     isLoadingSmartAccount,
     smartAccountJejuBalance: smartAccountJejuBalance as bigint | undefined,
     smartAccountJejuCredit: smartAccountJejuCredit as bigint | undefined,
-    smartAccountPaymasterAllowance:
-      smartAccountPaymasterAllowance as bigint | undefined,
+    smartAccountPaymasterAllowance: smartAccountPaymasterAllowance as
+      | bigint
+      | undefined,
     defaultGaslessOverpayment: DEFAULT_GASLESS_OVERPAYMENT,
     defaultPaymasterAllowance: DEFAULT_PAYMASTER_ALLOWANCE,
     isExecuting,
