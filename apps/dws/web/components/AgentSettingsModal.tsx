@@ -484,6 +484,7 @@ export default function AgentSettingsModal({
       throw new Error('Enter a valid wallet address')
     }
     const resolvedWallet = getAddress(normalizedWalletInput)
+    let txHash: `0x${string}` | void
     if (useGaslessOwnerPath) {
       if (!connectedAddress) {
         throw new Error('Connect the owner wallet first')
@@ -498,7 +499,7 @@ export default function AgentSettingsModal({
         })
       }
 
-      return await submitGaslessTx({
+      txHash = await submitGaslessTx({
         serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
         calls: [
           {
@@ -511,16 +512,40 @@ export default function AgentSettingsModal({
           },
         ],
       })
+    } else {
+      txHash = await submitTx(() =>
+        writeContractAsync({
+          address: registryAddress,
+          abi: REGISTRY_ABI,
+          functionName: 'setAgentWallet',
+          args: [id, resolvedWallet],
+        }),
+      )
     }
 
-    return await submitTx(() =>
-      writeContractAsync({
-        address: registryAddress,
-        abi: REGISTRY_ABI,
-        functionName: 'setAgentWallet',
-        args: [id, resolvedWallet],
-      }),
-    )
+    if (!txHash) {
+      throw new Error(
+        'Delegated wallet transaction hash unavailable. Please retry.',
+      )
+    }
+
+    const refreshedWallet = await publicClient.readContract({
+      address: registryAddress,
+      abi: REGISTRY_ABI,
+      functionName: 'getAgentWallet',
+      args: [id],
+    })
+
+    if (
+      typeof refreshedWallet !== 'string' ||
+      refreshedWallet.toLowerCase() !== resolvedWallet.toLowerCase()
+    ) {
+      throw new Error(
+        'Delegated wallet did not update on-chain. Confirm signer/network and retry.',
+      )
+    }
+
+    return txHash
   }
 
   const saveCategoryAndTags = async () => {
