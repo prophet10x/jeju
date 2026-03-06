@@ -52,6 +52,13 @@ const CREDIT_MANAGER_ABI = [
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    name: 'authorizedServices',
+    inputs: [{ name: 'service', type: 'address' }],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
 ] as const
 
 export interface GaslessCall {
@@ -293,6 +300,11 @@ export function useGaslessSmartAccount() {
           'Wallet signer unavailable. Connect your EOA in Rabby/MetaMask to sign this transaction.',
         )
       }
+      if (!ownerAddress) {
+        throw new Error(
+          'Wallet signer unavailable. Connect your EOA in Rabby/MetaMask to sign this transaction.',
+        )
+      }
       if (!smartAccountAddress) {
         throw new Error('Smart account is not available yet')
       }
@@ -300,50 +312,104 @@ export function useGaslessSmartAccount() {
         throw new Error('MultiTokenPaymaster is not configured')
       }
 
-      const [latestJejuBalance, latestJejuCredit, latestPaymasterAllowance] =
-        await Promise.all([
-          publicClient.readContract({
-            address: TOKENS.jeju,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [smartAccountAddress],
-          }),
-          isConfiguredAddress(CONTRACTS.creditManager)
-            ? publicClient.readContract({
-                address: CONTRACTS.creditManager,
-                abi: CREDIT_MANAGER_ABI,
-                functionName: 'balances',
-                args: [smartAccountAddress, TOKENS.jeju],
-              })
-            : Promise.resolve(0n),
-          publicClient.readContract({
-            address: TOKENS.jeju,
-            abi: erc20Abi,
-            functionName: 'allowance',
-            args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
-          }),
-        ])
+      const loadReadiness = async (): Promise<GaslessReadiness> => {
+        const [latestJejuBalance, latestJejuCredit, latestPaymasterAllowance] =
+          await Promise.all([
+            publicClient.readContract({
+              address: TOKENS.jeju,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [smartAccountAddress],
+            }),
+            isConfiguredAddress(CONTRACTS.creditManager)
+              ? publicClient.readContract({
+                  address: CONTRACTS.creditManager,
+                  abi: CREDIT_MANAGER_ABI,
+                  functionName: 'balances',
+                  args: [smartAccountAddress, TOKENS.jeju],
+                })
+              : Promise.resolve(0n),
+            publicClient.readContract({
+              address: TOKENS.jeju,
+              abi: erc20Abi,
+              functionName: 'allowance',
+              args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
+            }),
+          ])
 
-      let readiness = getGaslessReadiness({
-        jejuBalance: latestJejuBalance as bigint,
-        jejuCredit: latestJejuCredit as bigint,
-        paymasterAllowance: latestPaymasterAllowance as bigint,
-        requiredJejuBalance,
-        requiredPaymentAmount,
-        targetPaymasterAllowance: bootstrapPaymasterAllowance,
-      })
-      if (!readiness.isReady) {
-        throw new Error(
-          'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
+        return getGaslessReadiness({
+          jejuBalance: latestJejuBalance as bigint,
+          jejuCredit: latestJejuCredit as bigint,
+          paymasterAllowance: latestPaymasterAllowance as bigint,
+          requiredJejuBalance,
+          requiredPaymentAmount,
+          targetPaymasterAllowance: bootstrapPaymasterAllowance,
+        })
+      }
+
+      const bootstrapSmartAccount = async () => {
+        const response = await fetch('/gasless/bootstrap', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ownerAddress,
+            smartAccountAddress,
+            purpose: 'registry',
+            requiredStakeAmount: requiredJejuBalance.toString(),
+          }),
+        })
+
+        const rawBody = await response.text()
+        const payload = (
+          rawBody
+            ? JSON.parse(rawBody)
+            : {
+                success: false,
+                error: 'Empty response from bootstrap endpoint',
+              }
+        ) as { success?: boolean; error?: string }
+
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error ?? 'Failed to prepare smart account')
+        }
+
+        await refreshState()
+      }
+
+      const normalizeExecutionError = (message: string): string => {
+        const normalized = message.toLowerCase()
+        if (
+          normalized.includes('0xdc0b34cd') ||
+          normalized.includes('unauthorizedservice')
+        ) {
+          return `Paymaster is not authorized in CreditManager. Operator must call CreditManager.setServiceAuthorization(${CONTRACTS.multiTokenPaymaster}, true).`
+        }
+        return message
+      }
+
+      const shouldRetryAfterBootstrap = (message: string): boolean => {
+        const normalized = message.toLowerCase()
+        return (
+          normalized.includes('aa33') ||
+          normalized.includes('0xb0a6a455') ||
+          normalized.includes('insufficientcreditandnopayment') ||
+          normalized.includes('not gasless-ready') ||
+          normalized.includes(
+            'failed to prime paymaster allowance via credit',
+          ) ||
+          normalized.includes('paymaster allowance priming did not complete')
         )
       }
-      const needsAllowancePriming =
-        readiness.readyViaCredit && !readiness.readyViaAllowance
 
-      setIsExecuting(true)
-      setExecutionError(null)
+      const sendGaslessTransaction = async (
+        initialReadiness: GaslessReadiness,
+      ): Promise<Hex> => {
+        let readiness = initialReadiness
+        const needsAllowancePriming =
+          readiness.readyViaCredit && !readiness.readyViaAllowance
 
-      try {
         const account = await buildSmartAccount({
           publicClient,
           walletClient,
@@ -406,6 +472,25 @@ export function useGaslessSmartAccount() {
         }
 
         if (needsAllowancePriming) {
+          const paymasterIsAuthorized = isConfiguredAddress(
+            CONTRACTS.creditManager,
+          )
+            ? await publicClient.readContract({
+                address: CONTRACTS.creditManager,
+                abi: CREDIT_MANAGER_ABI,
+                functionName: 'authorizedServices',
+                args: [CONTRACTS.multiTokenPaymaster],
+              })
+            : false
+
+          if (!paymasterIsAuthorized) {
+            throw new Error(
+              normalizeExecutionError(
+                'UnauthorizedService: paymaster is not authorized in CreditManager',
+              ),
+            )
+          }
+
           const primeHash = await sendWithOverpayment(
             [
               {
@@ -431,41 +516,8 @@ export function useGaslessSmartAccount() {
 
           await refreshState()
 
-          const [
-            postPrimeJejuBalance,
-            postPrimeJejuCredit,
-            postPrimeAllowance,
-          ] = await Promise.all([
-            publicClient.readContract({
-              address: TOKENS.jeju,
-              abi: erc20Abi,
-              functionName: 'balanceOf',
-              args: [smartAccountAddress],
-            }),
-            isConfiguredAddress(CONTRACTS.creditManager)
-              ? publicClient.readContract({
-                  address: CONTRACTS.creditManager,
-                  abi: CREDIT_MANAGER_ABI,
-                  functionName: 'balances',
-                  args: [smartAccountAddress, TOKENS.jeju],
-                })
-              : Promise.resolve(0n),
-            publicClient.readContract({
-              address: TOKENS.jeju,
-              abi: erc20Abi,
-              functionName: 'allowance',
-              args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
-            }),
-          ])
-
-          readiness = getGaslessReadiness({
-            jejuBalance: postPrimeJejuBalance as bigint,
-            jejuCredit: postPrimeJejuCredit as bigint,
-            paymasterAllowance: postPrimeAllowance as bigint,
-            requiredJejuBalance,
-            requiredPaymentAmount,
-            targetPaymasterAllowance: bootstrapPaymasterAllowance,
-          })
+          const postPrimeReadiness = await loadReadiness()
+          readiness = postPrimeReadiness
 
           if (!readiness.readyViaAllowance) {
             throw new Error(
@@ -493,10 +545,49 @@ export function useGaslessSmartAccount() {
           preparedCalls,
           requiredPaymentAmount,
         )
-
         setLastTx(txHash)
         await refreshState()
         return txHash
+      }
+
+      setIsExecuting(true)
+      setExecutionError(null)
+
+      try {
+        let readiness = await loadReadiness()
+
+        if (!readiness.isReady) {
+          await bootstrapSmartAccount()
+          readiness = await loadReadiness()
+          if (!readiness.isReady) {
+            throw new Error(
+              'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
+            )
+          }
+        }
+
+        try {
+          return await sendGaslessTransaction(readiness)
+        } catch (error) {
+          const rawMessage =
+            error instanceof Error
+              ? error.message
+              : 'Gasless transaction failed'
+          const message = normalizeExecutionError(rawMessage)
+
+          if (!shouldRetryAfterBootstrap(rawMessage)) {
+            throw new Error(message)
+          }
+
+          await bootstrapSmartAccount()
+          const retryReadiness = await loadReadiness()
+          if (!retryReadiness.isReady) {
+            throw new Error(
+              'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
+            )
+          }
+          return await sendGaslessTransaction(retryReadiness)
+        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Gasless transaction failed'
@@ -506,7 +597,13 @@ export function useGaslessSmartAccount() {
         setIsExecuting(false)
       }
     },
-    [publicClient, refreshState, smartAccountAddress, walletClient],
+    [
+      ownerAddress,
+      publicClient,
+      refreshState,
+      smartAccountAddress,
+      walletClient,
+    ],
   )
 
   return {
