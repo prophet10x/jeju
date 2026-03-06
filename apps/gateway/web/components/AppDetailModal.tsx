@@ -1,4 +1,4 @@
-import { useJejuAuth } from '@jejunetwork/auth/react'
+import { AuthProvider, useJejuAuth, useOAuth3 } from '@jejunetwork/auth/react'
 import {
   Edit,
   ExternalLink,
@@ -127,7 +127,8 @@ export default function AppDetailModal({
   onClose,
 }: AppDetailModalProps) {
   const { address } = useAccount()
-  const { authenticated, getAccessToken } = useJejuAuth()
+  const { authenticated, getAccessToken, linkedAccounts } = useJejuAuth()
+  const { linkProvider } = useOAuth3()
   const { app, isLoading, refetch } = useRegistryAppDetails(agentId)
   const {
     withdrawStake,
@@ -153,6 +154,11 @@ export default function AppDetailModal({
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
   const [githubToken, setGithubToken] = useState<string>()
+  const [isLinkingGithub, setIsLinkingGithub] = useState(false)
+  const [githubLinkError, setGithubLinkError] = useState<string | null>(null)
+  const [githubLinkSuccess, setGithubLinkSuccess] = useState<string | null>(
+    null,
+  )
   const lastHydratedSnapshotRef = useRef<string | null>(null)
 
   const targetTierStake = useStakeAmount(targetTier)
@@ -187,6 +193,10 @@ export default function AppDetailModal({
     if (targetTierStake <= app.stakeAmountRaw) return 0n
     return targetTierStake - app.stakeAmountRaw
   }, [app, targetTierStake])
+  const linkedGitHubAccount = useMemo(
+    () => linkedAccounts.find((account) => account.type === 'github'),
+    [linkedAccounts],
+  )
 
   useEffect(() => {
     if (!app) return
@@ -257,6 +267,28 @@ export default function AppDetailModal({
   const clearMessages = () => {
     setFormError(null)
     setFormSuccess(null)
+  }
+
+  const handleLinkGithubSession = async () => {
+    setGithubLinkError(null)
+    setGithubLinkSuccess(null)
+    setIsLinkingGithub(true)
+    try {
+      await linkProvider(AuthProvider.GITHUB)
+      const token = await getAccessToken()
+      setGithubToken(token ?? undefined)
+      setGithubLinkSuccess(
+        'GitHub sign-in linked to this wallet session. Continue in GitHub Reputation below.',
+      )
+    } catch (error) {
+      setGithubLinkError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to link GitHub to this session.',
+      )
+    } finally {
+      setIsLinkingGithub(false)
+    }
   }
 
   const handleWithdraw = async () => {
@@ -751,6 +783,66 @@ export default function AppDetailModal({
                 <GithubIcon size={18} />
                 Developer Reputation
               </h3>
+              <div
+                style={{
+                  marginBottom: '0.75rem',
+                  padding: '0.75rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-hover)',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <div style={{ marginBottom: '0.5rem' }}>
+                  Auth status:{' '}
+                  {linkedGitHubAccount ? (
+                    <>
+                      GitHub linked as{' '}
+                      <strong>
+                        {linkedGitHubAccount.handle ??
+                          linkedGitHubAccount.identifier}
+                      </strong>
+                      .
+                    </>
+                  ) : (
+                    <>wallet session only (GitHub not linked yet).</>
+                  )}
+                </div>
+                {!linkedGitHubAccount && (
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void handleLinkGithubSession()}
+                    disabled={!authenticated || isLinkingGithub}
+                    style={{ marginBottom: '0.5rem' }}
+                  >
+                    {isLinkingGithub
+                      ? 'Linking GitHub...'
+                      : 'Link GitHub Session'}
+                  </button>
+                )}
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  If you signed in with Ledger/Rabby first, link GitHub here,
+                  then use the reputation actions below.
+                </div>
+              </div>
+              {githubLinkError && (
+                <div
+                  className="banner banner-error"
+                  style={{ marginBottom: '0.75rem' }}
+                >
+                  {githubLinkError}
+                </div>
+              )}
+              {githubLinkSuccess && (
+                <div
+                  className="banner banner-success"
+                  style={{ marginBottom: '0.75rem' }}
+                >
+                  {githubLinkSuccess}
+                </div>
+              )}
               <GitHubReputationPanel
                 agentId={agentId}
                 registryAddress={IDENTITY_REGISTRY_ADDRESS}
