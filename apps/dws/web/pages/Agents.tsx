@@ -214,9 +214,8 @@ export default function AgentsPage() {
           ) : (
             <div style={{ display: 'grid', gap: '0.75rem' }}>
               {agents.map((agent) => (
-                <button
+                <div
                   key={agent.id}
-                  type="button"
                   style={{
                     padding: '1rem',
                     background:
@@ -225,15 +224,9 @@ export default function AgentsPage() {
                         : 'var(--bg-tertiary)',
                     borderRadius: 'var(--radius-md)',
                     border: `1px solid ${selectedAgent === agent.id ? 'var(--accent)' : 'var(--border)'}`,
-                    cursor: 'pointer',
                     width: '100%',
                     textAlign: 'left',
                   }}
-                  onClick={() =>
-                    setSelectedAgent(
-                      agent.id === selectedAgent ? null : agent.id,
-                    )
-                  }
                 >
                   <div
                     style={{
@@ -281,21 +274,6 @@ export default function AgentsPage() {
                           >
                             #{agent.id} · {shortAddress(agent.owner)}
                           </code>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-icon"
-                            style={{ padding: '0.15rem' }}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCopy(agent.id, agent.id)
-                            }}
-                          >
-                            {copied === agent.id ? (
-                              <Check size={12} />
-                            ) : (
-                              <Copy size={12} />
-                            )}
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -322,15 +300,24 @@ export default function AgentsPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn btn-ghost btn-sm"
-                        onClick={(e) => e.stopPropagation()}
                       >
                         <ExternalLink size={14} />
                       </a>
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
+                        onClick={() => handleCopy(agent.id, agent.id)}
+                      >
+                        {copied === agent.id ? (
+                          <Check size={14} />
+                        ) : (
+                          <Copy size={14} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
                           setSettingsAgent({
                             id: agent.id,
                             name: agent.name || `Agent #${agent.id}`,
@@ -339,6 +326,17 @@ export default function AgentsPage() {
                         }}
                       >
                         <Settings size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() =>
+                          setSelectedAgent(
+                            agent.id === selectedAgent ? null : agent.id,
+                          )
+                        }
+                      >
+                        {selectedAgent === agent.id ? 'Selected' : 'Select'}
                       </button>
                     </div>
                   </div>
@@ -362,7 +360,7 @@ export default function AgentsPage() {
                       ))}
                     </div>
                   )}
-                </button>
+                </div>
               ))}
             </div>
           ))}

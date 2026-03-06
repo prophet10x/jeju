@@ -19,6 +19,7 @@ import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
 import { type Address, getAddress, isAddress } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
 import { CONTRACTS } from '../../lib/config'
+import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import {
   IDENTITY_REGISTRY_ADDRESS,
   StakeTier,
@@ -81,6 +82,10 @@ function formatCategoryLabel(value?: string): string {
 function toShortAddress(value: string | null | undefined): string {
   if (!value) return 'Not set'
   return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+function normalizeWalletAddressInput(value: string): string {
+  return value.trim().replace(/[.,;:]+$/g, '')
 }
 
 function formatTokenAmount(raw: bigint): string {
@@ -146,6 +151,7 @@ export default function AppDetailModal({
     updateAgentUri,
     gasless,
   } = useRegistry()
+  const gaslessBootstrap = useGaslessBootstrap({ gasless })
 
   const [isWithdrawing, setIsWithdrawing] = useState(false)
   const [isSavingWallet, setIsSavingWallet] = useState(false)
@@ -378,16 +384,36 @@ export default function AppDetailModal({
     if (!app || !canEdit) return
     clearMessages()
 
-    if (!isAddress(walletInput.trim())) {
+    const normalizedWalletInput = normalizeWalletAddressInput(walletInput)
+    if (normalizedWalletInput !== walletInput) {
+      setWalletInput(normalizedWalletInput)
+    }
+    if (!isAddress(normalizedWalletInput)) {
       setFormError('Enter a valid wallet address.')
       return
     }
 
     setIsSavingWallet(true)
     try {
+      if (useGaslessOwnerPath) {
+        if (!connectedAddress || !effectiveSmartAccountAddress) {
+          throw new Error('Smart account owner mode is not ready yet.')
+        }
+
+        const readiness = gasless.getReadiness()
+        if (!readiness.isReady) {
+          await gaslessBootstrap.bootstrap({
+            purpose: 'registry',
+            requiredStakeAmount: 0n,
+            ownerAddress: connectedAddress,
+            smartAccountAddress: effectiveSmartAccountAddress,
+          })
+        }
+      }
+
       const result = await setAgentWallet(
         agentId,
-        getAddress(walletInput.trim()) as Address,
+        getAddress(normalizedWalletInput) as Address,
         {
           gasless: useGaslessOwnerPath,
         },
@@ -1026,9 +1052,18 @@ export default function AppDetailModal({
                         type="button"
                         className="button button-secondary"
                         onClick={() => void handleSetWallet()}
-                        disabled={isSavingWallet || !canEdit}
+                        disabled={
+                          isSavingWallet ||
+                          gaslessBootstrap.isBootstrapping ||
+                          !canEdit
+                        }
                       >
-                        {isSavingWallet ? (
+                        {gaslessBootstrap.isBootstrapping ? (
+                          <>
+                            <Loader2Icon size={14} className="animate-spin" />
+                            Preparing...
+                          </>
+                        ) : isSavingWallet ? (
                           <>
                             <Loader2Icon size={14} className="animate-spin" />
                             Saving...

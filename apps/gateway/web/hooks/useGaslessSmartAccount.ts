@@ -1,3 +1,4 @@
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import {
   getMultiTokenPaymasterData,
   toPaymasterV07Data,
@@ -13,7 +14,7 @@ import {
 } from '@jejunetwork/shared/gasless'
 import { toJejuSimpleSmartAccount } from '@jejunetwork/shared/gasless-smart-account'
 import { createSmartAccountClient } from 'permissionless/clients'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   Account,
   Address,
@@ -22,7 +23,14 @@ import type {
   Transport,
   WalletClient,
 } from 'viem'
-import { encodeFunctionData, erc20Abi, http, parseEther } from 'viem'
+import {
+  encodeFunctionData,
+  erc20Abi,
+  getAddress,
+  http,
+  isAddress,
+  parseEther,
+} from 'viem'
 import {
   useAccount,
   usePublicClient,
@@ -103,9 +111,19 @@ async function buildSmartAccount(params: {
 }
 
 export function useGaslessSmartAccount() {
-  const { address: ownerAddress } = useAccount()
+  const { address: connectedOwnerAddress } = useAccount()
+  const { walletAddress } = useJejuAuth()
   const publicClient = usePublicClient()
   const { data: walletClient } = useWalletClient()
+  const ownerAddress = useMemo<Address | undefined>(() => {
+    if (connectedOwnerAddress && isAddress(connectedOwnerAddress)) {
+      return getAddress(connectedOwnerAddress)
+    }
+    if (walletAddress && isAddress(walletAddress)) {
+      return getAddress(walletAddress)
+    }
+    return undefined
+  }, [connectedOwnerAddress, walletAddress])
   const [smartAccountAddress, setSmartAccountAddress] = useState<Address>()
   const [isLoadingSmartAccount, setIsLoadingSmartAccount] = useState(false)
   const [smartAccountDerivationError, setSmartAccountDerivationError] =
@@ -408,10 +426,11 @@ export function useGaslessSmartAccount() {
       }
     },
     [
-      getReadiness,
       publicClient,
       refreshState,
       smartAccountAddress,
+      smartAccountJejuBalance,
+      smartAccountJejuCredit,
       smartAccountPaymasterAllowance,
       walletClient,
     ],

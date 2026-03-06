@@ -22,6 +22,7 @@ import {
   useWriteContract,
 } from 'wagmi'
 import { CONTRACTS, TOKENS } from '../config'
+import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import type { GaslessCall } from '../hooks/useGaslessSmartAccount'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 
@@ -210,6 +211,10 @@ function formatTokenAmount(raw: bigint): string {
   return asFloat.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
+function normalizeWalletAddressInput(value: string): string {
+  return value.trim().replace(/[.,;:]+$/g, '')
+}
+
 export default function AgentSettingsModal({
   agentId,
   fallbackName,
@@ -222,6 +227,7 @@ export default function AgentSettingsModal({
   const publicClient = usePublicClient()
   const { writeContractAsync } = useWriteContract()
   const gasless = useGaslessSmartAccount()
+  const gaslessBootstrap = useGaslessBootstrap({ gasless })
   const [sessionSmartAccountAddress, setSessionSmartAccountAddress] =
     useState<Address | null>(null)
 
@@ -452,11 +458,29 @@ export default function AgentSettingsModal({
   }
 
   const setDelegatedWallet = async () => {
-    if (!isAddress(walletInput.trim())) {
+    const normalizedWalletInput = normalizeWalletAddressInput(walletInput)
+    if (normalizedWalletInput !== walletInput) {
+      setWalletInput(normalizedWalletInput)
+    }
+
+    if (!isAddress(normalizedWalletInput)) {
       throw new Error('Enter a valid wallet address')
     }
-    const resolvedWallet = getAddress(walletInput.trim())
+    const resolvedWallet = getAddress(normalizedWalletInput)
     if (useGaslessOwnerPath) {
+      if (!connectedAddress) {
+        throw new Error('Connect the owner wallet first')
+      }
+
+      const readiness = gasless.getReadiness()
+      if (!readiness.isReady) {
+        await gaslessBootstrap.prepareSmartAccount({
+          ownerAddress: connectedAddress,
+          purpose: 'registry',
+          requiredStakeAmount: 0n,
+        })
+      }
+
       await submitGaslessTx({
         serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
         calls: [
@@ -842,7 +866,7 @@ export default function AgentSettingsModal({
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                disabled={isBusy || !canEdit}
+                disabled={isBusy || gaslessBootstrap.isPreparing || !canEdit}
                 onClick={() =>
                   void runAction(
                     'Delegated wallet updated.',
@@ -850,8 +874,15 @@ export default function AgentSettingsModal({
                   )
                 }
               >
-                Save Wallet
+                {gaslessBootstrap.isPreparing
+                  ? 'Preparing Smart Account...'
+                  : 'Save Wallet'}
               </button>
+              {gaslessBootstrap.error && (
+                <small style={{ color: 'var(--warning)' }}>
+                  {gaslessBootstrap.error}
+                </small>
+              )}
             </div>
 
             <div style={{ display: 'grid', gap: '0.5rem' }}>
