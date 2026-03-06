@@ -521,12 +521,14 @@ export default function AgentSettingsModal({
               color: 'var(--warning)',
             }}
           >
-            Connect with the owner wallet to edit this agent.
+            Owner actions are locked for this session.
+            {' '}
+            Connected: <code>{address ?? 'Not connected'}</code>
+            {' '}• Owner: <code>{owner}</code>
           </div>
         )}
 
-        {isOwner && (
-          <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
+        <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
             <div style={{ display: 'grid', gap: '0.5rem' }}>
               <label htmlFor="wallet-input" style={{ fontWeight: 600 }}>Set delegated wallet</label>
               <input
@@ -535,12 +537,12 @@ export default function AgentSettingsModal({
                 value={walletInput}
                 onChange={(event) => setWalletInput(event.target.value)}
                 placeholder="0x..."
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
               />
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
                 onClick={() => void runAction('Delegated wallet updated.', setDelegatedWallet)}
               >
                 Save Wallet
@@ -555,19 +557,19 @@ export default function AgentSettingsModal({
                 value={categoryInput}
                 onChange={(event) => setCategoryInput(event.target.value)}
                 placeholder="Primary category"
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
               />
               <input
                 className="form-input"
                 value={tagsInput}
                 onChange={(event) => setTagsInput(event.target.value)}
                 placeholder="Tags (comma-separated)"
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
               />
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
                 onClick={() => void runAction('Category/tags updated.', saveCategoryAndTags)}
               >
                 Save Categories
@@ -582,12 +584,12 @@ export default function AgentSettingsModal({
                 rows={3}
                 value={descriptionInput}
                 onChange={(event) => setDescriptionInput(event.target.value)}
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
               />
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
                 onClick={() => void runAction('Description updated.', saveDescription)}
               >
                 Save Description
@@ -601,7 +603,7 @@ export default function AgentSettingsModal({
                 className="form-select"
                 value={targetTier}
                 onChange={(event) => setTargetTier(Number(event.target.value))}
-                disabled={isBusy || !canUpgrade}
+                disabled={isBusy || !canUpgrade || !isOwner}
               >
                 <option value={1}>Small</option>
                 <option value={2}>Medium</option>
@@ -613,7 +615,7 @@ export default function AgentSettingsModal({
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                disabled={isBusy || !canUpgrade}
+                disabled={isBusy || !canUpgrade || !isOwner}
                 onClick={() => void runAction('Stake increased.', increaseStake)}
               >
                 Increase Stake
@@ -624,7 +626,7 @@ export default function AgentSettingsModal({
               <button
                 type="button"
                 className="btn btn-danger btn-sm"
-                disabled={isBusy}
+                disabled={isBusy || !isOwner}
                 onClick={() => {
                   void runAction('Agent unstaked and removed.', unstake).then(
                     (ok) => {
@@ -639,8 +641,7 @@ export default function AgentSettingsModal({
                 This withdraws stake and de-registers the ERC-8004 identity.
               </p>
             </div>
-          </div>
-        )}
+        </div>
 
         {error && (
           <div

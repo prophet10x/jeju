@@ -682,27 +682,38 @@ export default function AppDetailModal({
               />
             </div>
 
-            {isOwner && (
-              <div
-                className="banner banner-warning"
+            <div
+              className="banner banner-warning"
+              style={{
+                flexDirection: 'column',
+                alignItems: 'stretch',
+                marginBottom: 0,
+              }}
+            >
+              <h3
                 style={{
-                  flexDirection: 'column',
-                  alignItems: 'stretch',
-                  marginBottom: 0,
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  marginBottom: '1rem',
+                  color: 'var(--warning)',
                 }}
               >
-                <h3
-                  style={{
-                    fontSize: '1rem',
-                    fontWeight: 600,
-                    marginBottom: '1rem',
-                    color: 'var(--warning)',
-                  }}
-                >
-                  Owner Actions
-                </h3>
+                Owner Actions
+              </h3>
 
-                <div style={{ display: 'grid', gap: '0.9rem' }}>
+              {!isOwner && (
+                <div
+                  className="banner banner-error"
+                  style={{ marginBottom: '1rem' }}
+                >
+                  Owner actions are locked for this session.
+                  {' '}
+                  Connected: <code>{address ?? 'Not connected'}</code>
+                  {' '}• Owner: <code>{app.owner}</code>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gap: '0.9rem' }}>
                   <div
                     style={{
                       display: 'grid',
@@ -733,13 +744,13 @@ export default function AppDetailModal({
                       placeholder="0x..."
                       value={walletInput}
                       onChange={(event) => setWalletInput(event.target.value)}
-                      disabled={isSavingWallet}
+                      disabled={isSavingWallet || !isOwner}
                     />
                     <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => void handleSetWallet()}
-                      disabled={isSavingWallet}
+                      disabled={isSavingWallet || !isOwner}
                     >
                       {isSavingWallet ? (
                         <>
@@ -782,7 +793,7 @@ export default function AppDetailModal({
                       placeholder="Primary category (e.g. agent)"
                       value={categoryInput}
                       onChange={(event) => setCategoryInput(event.target.value)}
-                      disabled={isSavingCategory}
+                      disabled={isSavingCategory || !isOwner}
                     />
                     <input
                       className="input"
@@ -790,13 +801,13 @@ export default function AppDetailModal({
                       placeholder="Tags (comma-separated)"
                       value={tagsInput}
                       onChange={(event) => setTagsInput(event.target.value)}
-                      disabled={isSavingCategory}
+                      disabled={isSavingCategory || !isOwner}
                     />
                     <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => void handleSaveCategories()}
-                      disabled={isSavingCategory}
+                      disabled={isSavingCategory || !isOwner}
                     >
                       {isSavingCategory ? (
                         <>
@@ -840,13 +851,13 @@ export default function AppDetailModal({
                       onChange={(event) =>
                         setDescriptionInput(event.target.value)
                       }
-                      disabled={isSavingDescription}
+                      disabled={isSavingDescription || !isOwner}
                     />
                     <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => void handleSaveDescription()}
-                      disabled={isSavingDescription}
+                      disabled={isSavingDescription || !isOwner}
                     >
                       {isSavingDescription ? (
                         <>
@@ -897,7 +908,7 @@ export default function AppDetailModal({
                               Number(event.target.value) as StakeTierValue,
                             )
                           }
-                          disabled={isIncreasingStake}
+                          disabled={isIncreasingStake || !isOwner}
                         >
                           {upgradeTiers.map((tier) => (
                             <option key={tier.value} value={tier.value}>
@@ -913,7 +924,7 @@ export default function AppDetailModal({
                           type="button"
                           className="button"
                           onClick={() => void handleIncreaseStake()}
-                          disabled={isIncreasingStake}
+                          disabled={isIncreasingStake || !isOwner}
                         >
                           {isIncreasingStake ? (
                             <>
@@ -935,7 +946,7 @@ export default function AppDetailModal({
                     type="button"
                     className="button"
                     onClick={() => void handleWithdraw()}
-                    disabled={isWithdrawing}
+                    disabled={isWithdrawing || !isOwner}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -964,8 +975,7 @@ export default function AppDetailModal({
                   <div className="banner banner-success">{formSuccess}</div>
                 )}
               </div>
-            )}
-          </div>
+            </div>
         )}
       </div>
     </div>
