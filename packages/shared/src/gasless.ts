@@ -1,11 +1,11 @@
-import { z } from 'zod'
 import {
   type Address,
+  type PublicClient,
   parseAbi,
   parseEther,
   zeroAddress,
-  type PublicClient,
 } from 'viem'
+import { z } from 'zod'
 
 export const SIMPLE_ACCOUNT_FACTORY_ABI = parseAbi([
   'function getAddress(address owner, uint256 salt) view returns (address)',
@@ -130,23 +130,23 @@ export function getGaslessReadiness(
   const canSelfApproveAllowance =
     jejuBalance >= requiredJejuBalance + targetPaymasterAllowance
 
-  const readyViaAllowance = hasSufficientAllowance || canSelfApproveAllowance
+  // Paymaster validation checks allowance before userOp calls execute.
+  // Having enough JEJU to self-approve inside the same userOp is not sufficient.
+  const readyViaAllowance = hasSufficientAllowance
 
   const readyViaCredit =
-    jejuBalance >= requiredJejuBalance &&
-    jejuCredit >= requiredPaymentAmount
+    jejuBalance >= requiredJejuBalance && jejuCredit >= requiredPaymentAmount
 
-  const recommendedJejuBalance =
-    readyViaAllowance
-      ? requiredJejuBalance + targetPaymasterAllowance
-      : requiredJejuBalance + requiredPaymentAmount
+  const recommendedJejuBalance = readyViaAllowance
+    ? requiredJejuBalance + targetPaymasterAllowance
+    : requiredJejuBalance + requiredPaymentAmount
 
   return {
     isReady: readyViaCredit || readyViaAllowance,
     readyViaAllowance,
     readyViaCredit,
     needsPaymasterAllowance:
-      readyViaAllowance && paymasterAllowance < requiredPaymentAmount,
+      canSelfApproveAllowance && paymasterAllowance < targetPaymasterAllowance,
     preferredPath: readyViaAllowance
       ? 'allowance'
       : readyViaCredit

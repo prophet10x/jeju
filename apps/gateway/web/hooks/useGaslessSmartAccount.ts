@@ -300,21 +300,45 @@ export function useGaslessSmartAccount() {
         throw new Error('MultiTokenPaymaster is not configured')
       }
 
+      const [latestJejuBalance, latestJejuCredit, latestPaymasterAllowance] =
+        await Promise.all([
+          publicClient.readContract({
+            address: CONTRACTS.jeju,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [smartAccountAddress],
+          }),
+          isConfiguredAddress(CONTRACTS.creditManager)
+            ? publicClient.readContract({
+                address: CONTRACTS.creditManager,
+                abi: CREDIT_MANAGER_ABI,
+                functionName: 'balances',
+                args: [smartAccountAddress, CONTRACTS.jeju],
+              })
+            : Promise.resolve(0n),
+          publicClient.readContract({
+            address: CONTRACTS.jeju,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [smartAccountAddress, CONTRACTS.multiTokenPaymaster],
+          }),
+        ])
+
       const readiness = getGaslessReadiness({
-        jejuBalance: smartAccountJejuBalance as bigint | undefined,
-        jejuCredit: smartAccountJejuCredit as bigint | undefined,
-        paymasterAllowance: smartAccountPaymasterAllowance as
-          | bigint
-          | undefined,
+        jejuBalance: latestJejuBalance as bigint,
+        jejuCredit: latestJejuCredit as bigint,
+        paymasterAllowance: latestPaymasterAllowance as bigint,
         requiredJejuBalance,
         requiredPaymentAmount,
         targetPaymasterAllowance: bootstrapPaymasterAllowance,
       })
-      if (!readiness.readyViaAllowance) {
+      if (!readiness.isReady) {
         throw new Error(
-          'Smart account must have JEJU balance and paymaster allowance for gasless transactions',
+          'Smart account is not gasless-ready yet (needs JEJU credit or JEJU paymaster allowance).',
         )
       }
+      const useCreditPath =
+        readiness.readyViaCredit && !readiness.readyViaAllowance
 
       setIsExecuting(true)
       setExecutionError(null)
@@ -358,7 +382,7 @@ export function useGaslessSmartAccount() {
                 paymaster: CONTRACTS.multiTokenPaymaster,
                 serviceName,
                 paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: requiredPaymentAmount,
+                overpayment: useCreditPath ? 0n : requiredPaymentAmount,
               })
 
               return toPaymasterV07Data(paymasterData)
@@ -368,7 +392,7 @@ export function useGaslessSmartAccount() {
                 paymaster: CONTRACTS.multiTokenPaymaster,
                 serviceName,
                 paymentToken: PAYMENT_TOKEN_JEJU,
-                overpayment: requiredPaymentAmount,
+                overpayment: useCreditPath ? 0n : requiredPaymentAmount,
               })
 
               return toPaymasterV07Data(paymasterData)
@@ -409,15 +433,7 @@ export function useGaslessSmartAccount() {
         setIsExecuting(false)
       }
     },
-    [
-      publicClient,
-      refreshState,
-      smartAccountAddress,
-      smartAccountJejuBalance,
-      smartAccountJejuCredit,
-      smartAccountPaymasterAllowance,
-      walletClient,
-    ],
+    [publicClient, refreshState, smartAccountAddress, walletClient],
   )
 
   return {

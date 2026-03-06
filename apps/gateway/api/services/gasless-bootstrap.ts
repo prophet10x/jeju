@@ -1,19 +1,19 @@
 import {
+  getRpcUrl as getConfigRpcUrl,
   getContractsConfig,
   getCurrentNetwork,
-  getRpcUrl as getConfigRpcUrl,
 } from '@jejunetwork/config'
 import {
   DEFAULT_GASLESS_BOOTSTRAP_CREDIT_JEJU,
   DEFAULT_GASLESS_BOOTSTRAP_EXTRA_JEJU,
   DEFAULT_GASLESS_BOOTSTRAP_MAX_STAKE_JEJU,
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
+  type GaslessBootstrapRequest,
   GaslessBootstrapRequestSchema,
+  type GaslessBootstrapResponse,
   getGaslessReadiness,
   isConfiguredAddress,
   predictSimpleAccountAddress,
-  type GaslessBootstrapRequest,
-  type GaslessBootstrapResponse,
 } from '@jejunetwork/shared'
 import { expectAddress, ZERO_ADDRESS } from '@jejunetwork/types'
 import {
@@ -188,7 +188,7 @@ export async function bootstrapGaslessSmartAccount(
     requiredPaymentAmount: DEFAULT_GASLESS_PAYMENT_AMOUNT,
   })
 
-  if (readiness.readyViaAllowance) {
+  if (readiness.isReady) {
     return {
       success: true,
       smartAccountAddress,
@@ -199,7 +199,16 @@ export async function bootstrapGaslessSmartAccount(
   }
 
   const targetJejuBalance = requiredStakeAmount + getBootstrapExtraJeju()
-  const targetCredit = getBootstrapCreditJeju()
+  const minimumCreditForFirstGaslessTx =
+    paymasterAllowance >= readiness.requiredPaymentAmount
+      ? 0n
+      : readiness.requiredPaymentAmount
+  const targetCredit = (() => {
+    const configuredCredit = getBootstrapCreditJeju()
+    return configuredCredit >= minimumCreditForFirstGaslessTx
+      ? configuredCredit
+      : minimumCreditForFirstGaslessTx
+  })()
   const jejuFundedAmount =
     jejuBalance >= targetJejuBalance ? 0n : targetJejuBalance - jejuBalance
   const creditAddedAmount =
