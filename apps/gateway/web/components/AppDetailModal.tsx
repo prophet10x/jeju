@@ -1,3 +1,4 @@
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import {
   Edit,
   ExternalLink,
@@ -126,6 +127,7 @@ export default function AppDetailModal({
   onClose,
 }: AppDetailModalProps) {
   const { address } = useAccount()
+  const { authenticated, getAccessToken } = useJejuAuth()
   const { app, isLoading, refetch } = useRegistryAppDetails(agentId)
   const {
     withdrawStake,
@@ -150,6 +152,7 @@ export default function AppDetailModal({
   const [targetTier, setTargetTier] = useState<StakeTierValue>(StakeTier.SMALL)
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
+  const [githubToken, setGithubToken] = useState<string>()
 
   const targetTierStake = useStakeAmount(targetTier)
 
@@ -157,8 +160,8 @@ export default function AppDetailModal({
     if (!app) return []
     return [
       ...new Set(
-        [app.category, ...(app.tags ?? [])].filter(
-          (value): value is string => Boolean(value),
+        [app.category, ...(app.tags ?? [])].filter((value): value is string =>
+          Boolean(value),
         ),
       ),
     ]
@@ -174,7 +177,9 @@ export default function AppDetailModal({
   const useGaslessOwnerPath = Boolean(!isOwner && isSmartAccountOwner)
 
   const currentTier = (app?.stakeTier ?? StakeTier.NONE) as StakeTierValue
-  const upgradeTiers = STAKE_TIER_OPTIONS.filter((tier) => tier.value > currentTier)
+  const upgradeTiers = STAKE_TIER_OPTIONS.filter(
+    (tier) => tier.value > currentTier,
+  )
 
   const additionalStake = useMemo(() => {
     if (!app || targetTierStake === undefined) return 0n
@@ -187,8 +192,8 @@ export default function AppDetailModal({
 
     const tags = [
       ...new Set(
-        [app.category, ...(app.tags ?? [])].filter(
-          (value): value is string => Boolean(value),
+        [app.category, ...(app.tags ?? [])].filter((value): value is string =>
+          Boolean(value),
         ),
       ),
     ]
@@ -202,6 +207,28 @@ export default function AppDetailModal({
     setDescriptionInput(app.description ?? '')
     setTargetTier(preferredUpgrade?.value ?? StakeTier.HIGH)
   }, [app])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadAuthToken = async () => {
+      if (!authenticated) {
+        setGithubToken(undefined)
+        return
+      }
+
+      const token = await getAccessToken()
+      if (!cancelled) {
+        setGithubToken(token ?? undefined)
+      }
+    }
+
+    void loadAuthToken()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authenticated, getAccessToken])
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -294,9 +321,13 @@ export default function AppDetailModal({
 
     setIsSavingCategory(true)
     try {
-      const categoryResult = await updateAgentCategory(agentId, resolvedCategory, {
-        gasless: useGaslessOwnerPath,
-      })
+      const categoryResult = await updateAgentCategory(
+        agentId,
+        resolvedCategory,
+        {
+          gasless: useGaslessOwnerPath,
+        },
+      )
       if (!categoryResult.success) {
         setFormError(categoryResult.error ?? 'Failed to update category.')
         return
@@ -348,7 +379,9 @@ export default function AppDetailModal({
       await refetch()
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : 'Failed to update description.',
+        error instanceof Error
+          ? error.message
+          : 'Failed to update description.',
       )
     } finally {
       setIsSavingDescription(false)
@@ -604,7 +637,8 @@ export default function AppDetailModal({
                     Amount:
                   </span>
                   <span style={{ fontWeight: 600 }}>
-                    {app.stakeAmount} {app.stakeToken !== 'None' ? app.stakeToken : ''}
+                    {app.stakeAmount}{' '}
+                    {app.stakeToken !== 'None' ? app.stakeToken : ''}
                   </span>
                 </div>
                 <div
@@ -630,11 +664,17 @@ export default function AppDetailModal({
                     Deposited:
                   </span>
                   <span>
-                    {new Date(Number(app.depositedAt) * 1000).toLocaleDateString()}
+                    {new Date(
+                      Number(app.depositedAt) * 1000,
+                    ).toLocaleDateString()}
                   </span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                <div
+                  style={{ display: 'flex', justifyContent: 'space-between' }}
+                >
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    Status:
+                  </span>
                   <span className="badge badge-success">Active</span>
                 </div>
               </div>
@@ -698,6 +738,7 @@ export default function AppDetailModal({
               <GitHubReputationPanel
                 agentId={agentId}
                 registryAddress={IDENTITY_REGISTRY_ADDRESS}
+                githubToken={githubToken}
               />
             </div>
 
@@ -725,283 +766,302 @@ export default function AppDetailModal({
                   className="banner banner-error"
                   style={{ marginBottom: '1rem' }}
                 >
-                  Owner actions are locked for this session.
-                  {' '}
-                  Connected: <code>{address ?? 'Not connected'}</code>
-                  {' '}• Owner: <code>{app.owner}</code>
+                  Owner actions are locked for this session. Connected:{' '}
+                  <code>{address ?? 'Not connected'}</code> • Owner:{' '}
+                  <code>{app.owner}</code>
                 </div>
               )}
               {isSmartAccountOwner && !isOwner && (
-                <div className="banner banner-info" style={{ marginBottom: '1rem' }}>
-                  Smart account owner mode enabled.
-                  {' '}
-                  Smart account: <code>{gasless.smartAccountAddress}</code>
+                <div
+                  className="banner banner-info"
+                  style={{ marginBottom: '1rem' }}
+                >
+                  Smart account owner mode enabled. Smart account:{' '}
+                  <code>{gasless.smartAccountAddress}</code>
                 </div>
               )}
 
               <div style={{ display: 'grid', gap: '0.9rem' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '0.5rem',
+                    padding: '0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                  }}
+                >
                   <div
-                    style={{
-                      display: 'grid',
-                      gap: '0.5rem',
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <WalletIcon size={15} />
-                      Delegated Wallet
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      Current: <code>{toShortAddress(app.agentWallet)}</code>
-                    </div>
-                    <input
-                      className="input"
-                      type="text"
-                      placeholder="0x..."
-                      value={walletInput}
-                      onChange={(event) => setWalletInput(event.target.value)}
-                      disabled={isSavingWallet || !canEdit}
-                    />
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      onClick={() => void handleSetWallet()}
-                      disabled={isSavingWallet || !canEdit}
-                    >
-                      {isSavingWallet ? (
-                        <>
-                          <Loader2Icon size={14} className="animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <WalletIcon size={14} />
-                          Set Agent Wallet
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gap: '0.5rem',
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <EditIcon size={15} />
-                      Categories
-                    </div>
-                    <input
-                      className="input"
-                      type="text"
-                      placeholder="Primary category (e.g. agent)"
-                      value={categoryInput}
-                      onChange={(event) => setCategoryInput(event.target.value)}
-                      disabled={isSavingCategory || !canEdit}
-                    />
-                    <input
-                      className="input"
-                      type="text"
-                      placeholder="Tags (comma-separated)"
-                      value={tagsInput}
-                      onChange={(event) => setTagsInput(event.target.value)}
-                      disabled={isSavingCategory || !canEdit}
-                    />
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      onClick={() => void handleSaveCategories()}
-                      disabled={isSavingCategory || !canEdit}
-                    >
-                      {isSavingCategory ? (
-                        <>
-                          <Loader2Icon size={14} className="animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <SaveIcon size={14} />
-                          Save Categories
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gap: '0.5rem',
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <EditIcon size={15} />
-                      Description
-                    </div>
-                    <textarea
-                      className="input"
-                      rows={3}
-                      value={descriptionInput}
-                      onChange={(event) =>
-                        setDescriptionInput(event.target.value)
-                      }
-                      disabled={isSavingDescription || !canEdit}
-                    />
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      onClick={() => void handleSaveDescription()}
-                      disabled={isSavingDescription || !canEdit}
-                    >
-                      {isSavingDescription ? (
-                        <>
-                          <Loader2Icon size={14} className="animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <SaveIcon size={14} />
-                          Save Description
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gap: '0.5rem',
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <PlusIcon size={15} />
-                      Increase Stake
-                    </div>
-                    {upgradeTiers.length === 0 ? (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        Already at highest tier.
-                      </span>
-                    ) : (
-                      <>
-                        <select
-                          className="input"
-                          value={targetTier}
-                          onChange={(event) =>
-                            setTargetTier(
-                              Number(event.target.value) as StakeTierValue,
-                            )
-                          }
-                          disabled={isIncreasingStake || !canEdit}
-                        >
-                          {upgradeTiers.map((tier) => (
-                            <option key={tier.value} value={tier.value}>
-                              {tier.label}
-                            </option>
-                          ))}
-                        </select>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                          Additional required: {formatTokenAmount(additionalStake)}{' '}
-                          {app.stakeToken !== 'None' ? app.stakeToken : 'ETH'}
-                        </div>
-                        <button
-                          type="button"
-                          className="button"
-                          onClick={() => void handleIncreaseStake()}
-                          disabled={isIncreasingStake || !canEdit}
-                        >
-                          {isIncreasingStake ? (
-                            <>
-                              <Loader2Icon size={14} className="animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <PlusIcon size={14} />
-                              Increase Stake
-                            </>
-                          )}
-                        </button>
-                      </>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() => void handleWithdraw()}
-                    disabled={isWithdrawing || !canEdit}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
                       gap: '0.5rem',
-                      background: 'var(--error)',
+                      fontWeight: 600,
                     }}
                   >
-                    <Trash2Icon size={16} />
-                    {isWithdrawing ? 'Unstaking...' : 'Unstake & Burn Agent'}
-                  </button>
-
-                  <p
+                    <WalletIcon size={15} />
+                    Delegated Wallet
+                  </div>
+                  <div
                     style={{
-                      fontSize: '0.75rem',
-                      color: 'var(--warning)',
-                      marginTop: 0,
+                      fontSize: '0.8rem',
+                      color: 'var(--text-secondary)',
                     }}
                   >
-                    Unstaking withdraws stake and de-registers this agent NFT.
-                  </p>
+                    Current: <code>{toShortAddress(app.agentWallet)}</code>
+                  </div>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="0x..."
+                    value={walletInput}
+                    onChange={(event) => setWalletInput(event.target.value)}
+                    disabled={isSavingWallet || !canEdit}
+                  />
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void handleSetWallet()}
+                    disabled={isSavingWallet || !canEdit}
+                  >
+                    {isSavingWallet ? (
+                      <>
+                        <Loader2Icon size={14} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <WalletIcon size={14} />
+                        Set Agent Wallet
+                      </>
+                    )}
+                  </button>
                 </div>
 
-                {formError && <div className="banner banner-error">{formError}</div>}
-                {formSuccess && (
-                  <div className="banner banner-success">{formSuccess}</div>
-                )}
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '0.5rem',
+                    padding: '0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <EditIcon size={15} />
+                    Categories
+                  </div>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Primary category (e.g. agent)"
+                    value={categoryInput}
+                    onChange={(event) => setCategoryInput(event.target.value)}
+                    disabled={isSavingCategory || !canEdit}
+                  />
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Tags (comma-separated)"
+                    value={tagsInput}
+                    onChange={(event) => setTagsInput(event.target.value)}
+                    disabled={isSavingCategory || !canEdit}
+                  />
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void handleSaveCategories()}
+                    disabled={isSavingCategory || !canEdit}
+                  >
+                    {isSavingCategory ? (
+                      <>
+                        <Loader2Icon size={14} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <SaveIcon size={14} />
+                        Save Categories
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '0.5rem',
+                    padding: '0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <EditIcon size={15} />
+                    Description
+                  </div>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={descriptionInput}
+                    onChange={(event) =>
+                      setDescriptionInput(event.target.value)
+                    }
+                    disabled={isSavingDescription || !canEdit}
+                  />
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => void handleSaveDescription()}
+                    disabled={isSavingDescription || !canEdit}
+                  >
+                    {isSavingDescription ? (
+                      <>
+                        <Loader2Icon size={14} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <SaveIcon size={14} />
+                        Save Description
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '0.5rem',
+                    padding: '0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <PlusIcon size={15} />
+                    Increase Stake
+                  </div>
+                  {upgradeTiers.length === 0 ? (
+                    <span
+                      style={{
+                        color: 'var(--text-muted)',
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      Already at highest tier.
+                    </span>
+                  ) : (
+                    <>
+                      <select
+                        className="input"
+                        value={targetTier}
+                        onChange={(event) =>
+                          setTargetTier(
+                            Number(event.target.value) as StakeTierValue,
+                          )
+                        }
+                        disabled={isIncreasingStake || !canEdit}
+                      >
+                        {upgradeTiers.map((tier) => (
+                          <option key={tier.value} value={tier.value}>
+                            {tier.label}
+                          </option>
+                        ))}
+                      </select>
+                      <div
+                        style={{
+                          fontSize: '0.8rem',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        Additional required:{' '}
+                        {formatTokenAmount(additionalStake)}{' '}
+                        {app.stakeToken !== 'None' ? app.stakeToken : 'ETH'}
+                      </div>
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => void handleIncreaseStake()}
+                        disabled={isIncreasingStake || !canEdit}
+                      >
+                        {isIncreasingStake ? (
+                          <>
+                            <Loader2Icon size={14} className="animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <PlusIcon size={14} />
+                            Increase Stake
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void handleWithdraw()}
+                  disabled={isWithdrawing || !canEdit}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    background: 'var(--error)',
+                  }}
+                >
+                  <Trash2Icon size={16} />
+                  {isWithdrawing ? 'Unstaking...' : 'Unstake & Burn Agent'}
+                </button>
+
+                <p
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--warning)',
+                    marginTop: 0,
+                  }}
+                >
+                  Unstaking withdraws stake and de-registers this agent NFT.
+                </p>
               </div>
+
+              {formError && (
+                <div className="banner banner-error">{formError}</div>
+              )}
+              {formSuccess && (
+                <div className="banner banner-success">{formSuccess}</div>
+              )}
             </div>
+          </div>
         )}
       </div>
     </div>

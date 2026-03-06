@@ -1,7 +1,24 @@
+import {
+  JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+  JEJU_AGENT_REGISTRATION_SERVICE,
+} from '@jejunetwork/shared'
 import { useEffect, useMemo, useState } from 'react'
-import { erc20Abi, type Address, getAddress, isAddress } from 'viem'
-import { useAccount, usePublicClient, useReadContract, useWriteContract } from 'wagmi'
-import { CONTRACTS } from '../config'
+import {
+  type Address,
+  encodeFunctionData,
+  erc20Abi,
+  getAddress,
+  isAddress,
+} from 'viem'
+import {
+  useAccount,
+  usePublicClient,
+  useReadContract,
+  useWriteContract,
+} from 'wagmi'
+import { CONTRACTS, TOKENS } from '../config'
+import type { GaslessCall } from '../hooks/useGaslessSmartAccount'
+import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
 
 const REGISTRY_ABI = [
   {
@@ -132,13 +149,20 @@ interface AgentSettingsModalProps {
   onUpdated?: () => void
 }
 
-function parseTokenUri(tokenURI: string | undefined): { name: string; description: string } {
+function parseTokenUri(tokenURI: string | undefined): {
+  name: string
+  description: string
+} {
   if (!tokenURI) return { name: '', description: '' }
   try {
-    const parsed = JSON.parse(tokenURI) as { name?: unknown; description?: unknown }
+    const parsed = JSON.parse(tokenURI) as {
+      name?: unknown
+      description?: unknown
+    }
     return {
       name: typeof parsed.name === 'string' ? parsed.name : '',
-      description: typeof parsed.description === 'string' ? parsed.description : '',
+      description:
+        typeof parsed.description === 'string' ? parsed.description : '',
     }
   } catch {
     return { name: '', description: '' }
@@ -191,6 +215,7 @@ export default function AgentSettingsModal({
   const { address } = useAccount()
   const publicClient = usePublicClient()
   const { writeContractAsync } = useWriteContract()
+  const gasless = useGaslessSmartAccount()
 
   const id = BigInt(agentId)
   const registryAddress = CONTRACTS.identityRegistry
@@ -276,7 +301,16 @@ export default function AgentSettingsModal({
   }, [targetTierStake, stakedAmount])
 
   const canUpgrade = tier < 3
-  const isOwner = Boolean(address && owner && address.toLowerCase() === owner.toLowerCase())
+  const isOwner = Boolean(
+    address && owner && address.toLowerCase() === owner.toLowerCase(),
+  )
+  const isSmartAccountOwner = Boolean(
+    gasless.smartAccountAddress &&
+      owner &&
+      gasless.smartAccountAddress.toLowerCase() === owner.toLowerCase(),
+  )
+  const canEdit = Boolean(isOwner || isSmartAccountOwner)
+  const useGaslessOwnerPath = Boolean(!isOwner && isSmartAccountOwner)
   const registryConfigured = registryAddress !== ZERO_ADDRESS
 
   useEffect(() => {
@@ -321,6 +355,21 @@ export default function AgentSettingsModal({
     return hash
   }
 
+  const submitGaslessTx = async (params: {
+    serviceName: string
+    calls: GaslessCall[]
+    requiredJejuBalance?: bigint
+  }) => {
+    if (!publicClient) throw new Error('Public client unavailable')
+    if (!registryConfigured) throw new Error('IdentityRegistry not configured')
+    const hash = await gasless.executeGaslessCalls(params)
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+    if (receipt.status !== 'success') {
+      throw new Error('Transaction reverted on-chain')
+    }
+    return hash
+  }
+
   const runAction = async (label: string, action: () => Promise<void>) => {
     setError(null)
     setSuccess(null)
@@ -331,7 +380,11 @@ export default function AgentSettingsModal({
       setSuccess(label)
       return true
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Transaction failed')
+      setError(
+        actionError instanceof Error
+          ? actionError.message
+          : 'Transaction failed',
+      )
       return false
     } finally {
       setIsBusy(false)
@@ -342,12 +395,30 @@ export default function AgentSettingsModal({
     if (!isAddress(walletInput.trim())) {
       throw new Error('Enter a valid wallet address')
     }
+    const resolvedWallet = getAddress(walletInput.trim())
+    if (useGaslessOwnerPath) {
+      await submitGaslessTx({
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: registryAddress,
+            data: encodeFunctionData({
+              abi: REGISTRY_ABI,
+              functionName: 'setAgentWallet',
+              args: [id, resolvedWallet],
+            }),
+          },
+        ],
+      })
+      return
+    }
+
     await submitTx(() =>
       writeContractAsync({
         address: registryAddress,
         abi: REGISTRY_ABI,
         functionName: 'setAgentWallet',
-        args: [id, getAddress(walletInput.trim())],
+        args: [id, resolvedWallet],
       }),
     )
   }
@@ -365,6 +436,31 @@ export default function AgentSettingsModal({
     const resolvedCategory = categoryInput.trim() || normalizedTags[0] || ''
     if (!resolvedCategory) {
       throw new Error('Category is required')
+    }
+
+    if (useGaslessOwnerPath) {
+      await submitGaslessTx({
+        serviceName: JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+        calls: [
+          {
+            to: registryAddress,
+            data: encodeFunctionData({
+              abi: REGISTRY_ABI,
+              functionName: 'setCategory',
+              args: [id, resolvedCategory],
+            }),
+          },
+          {
+            to: registryAddress,
+            data: encodeFunctionData({
+              abi: REGISTRY_ABI,
+              functionName: 'updateTags',
+              args: [id, normalizedTags],
+            }),
+          },
+        ],
+      })
+      return
     }
 
     await submitTx(() =>
@@ -394,6 +490,23 @@ export default function AgentSettingsModal({
       description: descriptionInput.trim(),
     })
 
+    if (useGaslessOwnerPath) {
+      await submitGaslessTx({
+        serviceName: JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
+        calls: [
+          {
+            to: registryAddress,
+            data: encodeFunctionData({
+              abi: REGISTRY_ABI,
+              functionName: 'setAgentUri',
+              args: [id, nextTokenUri],
+            }),
+          },
+        ],
+      })
+      return
+    }
+
     await submitTx(() =>
       writeContractAsync({
         address: registryAddress,
@@ -413,6 +526,39 @@ export default function AgentSettingsModal({
     }
     if (additionalStake <= 0n) {
       throw new Error('No additional stake required for selected tier')
+    }
+
+    if (useGaslessOwnerPath) {
+      const calls: GaslessCall[] = []
+      if (stakedToken !== ZERO_ADDRESS) {
+        calls.push({
+          to: stakedToken,
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [registryAddress, additionalStake],
+          }),
+        })
+      }
+      calls.push({
+        to: registryAddress,
+        data: encodeFunctionData({
+          abi: REGISTRY_ABI,
+          functionName: 'increaseStake',
+          args: [id, targetTier],
+        }),
+        value: stakedToken === ZERO_ADDRESS ? additionalStake : 0n,
+      })
+
+      await submitGaslessTx({
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+        calls,
+        requiredJejuBalance:
+          stakedToken.toLowerCase() === TOKENS.jeju.toLowerCase()
+            ? additionalStake
+            : 0n,
+      })
+      return
     }
 
     if (stakedToken !== ZERO_ADDRESS) {
@@ -438,6 +584,23 @@ export default function AgentSettingsModal({
   }
 
   const unstake = async () => {
+    if (useGaslessOwnerPath) {
+      await submitGaslessTx({
+        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+        calls: [
+          {
+            to: registryAddress,
+            data: encodeFunctionData({
+              abi: REGISTRY_ABI,
+              functionName: 'withdrawStake',
+              args: [id],
+            }),
+          },
+        ],
+      })
+      return
+    }
+
     await submitTx(() =>
       writeContractAsync({
         address: registryAddress,
@@ -475,16 +638,38 @@ export default function AgentSettingsModal({
         className="card"
         role="dialog"
         aria-modal="true"
-        style={{ width: 'min(720px, 100%)', maxHeight: '90vh', overflow: 'auto', zIndex: 1 }}
+        style={{
+          width: 'min(720px, 100%)',
+          maxHeight: '90vh',
+          overflow: 'auto',
+          zIndex: 1,
+        }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: '1rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'start',
+            gap: '1rem',
+          }}
+        >
           <div>
             <h3 style={{ margin: 0 }}>{displayName}</h3>
-            <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            <p
+              style={{
+                margin: '0.35rem 0 0',
+                color: 'var(--text-muted)',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
               Agent ID: {agentId}
             </p>
           </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onClose}
+          >
             Close
           </button>
         </div>
@@ -499,7 +684,9 @@ export default function AgentSettingsModal({
             fontSize: '0.9rem',
           }}
         >
-          <div>Owner: <code>{owner}</code></div>
+          <div>
+            Owner: <code>{owner}</code>
+          </div>
           <div style={{ marginTop: '0.35rem' }}>
             Current tier: <strong>{STAKE_LABELS[tier] ?? 'Unknown'}</strong>
           </div>
@@ -507,11 +694,12 @@ export default function AgentSettingsModal({
             Current stake: <strong>{formatTokenAmount(stakedAmount)}</strong>
           </div>
           <div style={{ marginTop: '0.35rem' }}>
-            Delegated wallet: <code>{(agentWallet as string) || 'Not set'}</code>
+            Delegated wallet:{' '}
+            <code>{(agentWallet as string) || 'Not set'}</code>
           </div>
         </div>
 
-        {!isOwner && (
+        {!canEdit && (
           <div
             style={{
               marginTop: '1rem',
@@ -521,126 +709,164 @@ export default function AgentSettingsModal({
               color: 'var(--warning)',
             }}
           >
-            Owner actions are locked for this session.
-            {' '}
-            Connected: <code>{address ?? 'Not connected'}</code>
-            {' '}• Owner: <code>{owner}</code>
+            Owner actions are locked for this session. Connected:{' '}
+            <code>{address ?? 'Not connected'}</code> • Owner:{' '}
+            <code>{owner}</code>
+          </div>
+        )}
+        {useGaslessOwnerPath && (
+          <div
+            style={{
+              marginTop: '1rem',
+              padding: '0.75rem',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--info-soft)',
+              color: 'var(--info)',
+            }}
+          >
+            Smart account owner mode enabled. Smart account:{' '}
+            <code>{gasless.smartAccountAddress}</code>
           </div>
         )}
 
         <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
-            <div style={{ display: 'grid', gap: '0.5rem' }}>
-              <label htmlFor="wallet-input" style={{ fontWeight: 600 }}>Set delegated wallet</label>
-              <input
-                id="wallet-input"
-                className="form-input"
-                value={walletInput}
-                onChange={(event) => setWalletInput(event.target.value)}
-                placeholder="0x..."
-                disabled={isBusy || !isOwner}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={isBusy || !isOwner}
-                onClick={() => void runAction('Delegated wallet updated.', setDelegatedWallet)}
-              >
-                Save Wallet
-              </button>
-            </div>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <label htmlFor="wallet-input" style={{ fontWeight: 600 }}>
+              Set delegated wallet
+            </label>
+            <input
+              id="wallet-input"
+              className="form-input"
+              value={walletInput}
+              onChange={(event) => setWalletInput(event.target.value)}
+              placeholder="0x..."
+              disabled={isBusy || !canEdit}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isBusy || !canEdit}
+              onClick={() =>
+                void runAction('Delegated wallet updated.', setDelegatedWallet)
+              }
+            >
+              Save Wallet
+            </button>
+          </div>
 
-            <div style={{ display: 'grid', gap: '0.5rem' }}>
-              <label htmlFor="category-input" style={{ fontWeight: 600 }}>Categories</label>
-              <input
-                id="category-input"
-                className="form-input"
-                value={categoryInput}
-                onChange={(event) => setCategoryInput(event.target.value)}
-                placeholder="Primary category"
-                disabled={isBusy || !isOwner}
-              />
-              <input
-                className="form-input"
-                value={tagsInput}
-                onChange={(event) => setTagsInput(event.target.value)}
-                placeholder="Tags (comma-separated)"
-                disabled={isBusy || !isOwner}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={isBusy || !isOwner}
-                onClick={() => void runAction('Category/tags updated.', saveCategoryAndTags)}
-              >
-                Save Categories
-              </button>
-            </div>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <label htmlFor="category-input" style={{ fontWeight: 600 }}>
+              Categories
+            </label>
+            <input
+              id="category-input"
+              className="form-input"
+              value={categoryInput}
+              onChange={(event) => setCategoryInput(event.target.value)}
+              placeholder="Primary category"
+              disabled={isBusy || !canEdit}
+            />
+            <input
+              className="form-input"
+              value={tagsInput}
+              onChange={(event) => setTagsInput(event.target.value)}
+              placeholder="Tags (comma-separated)"
+              disabled={isBusy || !canEdit}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isBusy || !canEdit}
+              onClick={() =>
+                void runAction('Category/tags updated.', saveCategoryAndTags)
+              }
+            >
+              Save Categories
+            </button>
+          </div>
 
-            <div style={{ display: 'grid', gap: '0.5rem' }}>
-              <label htmlFor="description-input" style={{ fontWeight: 600 }}>Description</label>
-              <textarea
-                id="description-input"
-                className="form-input"
-                rows={3}
-                value={descriptionInput}
-                onChange={(event) => setDescriptionInput(event.target.value)}
-                disabled={isBusy || !isOwner}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={isBusy || !isOwner}
-                onClick={() => void runAction('Description updated.', saveDescription)}
-              >
-                Save Description
-              </button>
-            </div>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <label htmlFor="description-input" style={{ fontWeight: 600 }}>
+              Description
+            </label>
+            <textarea
+              id="description-input"
+              className="form-input"
+              rows={3}
+              value={descriptionInput}
+              onChange={(event) => setDescriptionInput(event.target.value)}
+              disabled={isBusy || !canEdit}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isBusy || !canEdit}
+              onClick={() =>
+                void runAction('Description updated.', saveDescription)
+              }
+            >
+              Save Description
+            </button>
+          </div>
 
-            <div style={{ display: 'grid', gap: '0.5rem' }}>
-              <label htmlFor="tier-input" style={{ fontWeight: 600 }}>Increase stake</label>
-              <select
-                id="tier-input"
-                className="form-select"
-                value={targetTier}
-                onChange={(event) => setTargetTier(Number(event.target.value))}
-                disabled={isBusy || !canUpgrade || !isOwner}
-              >
-                <option value={1}>Small</option>
-                <option value={2}>Medium</option>
-                <option value={3}>High</option>
-              </select>
-              <small style={{ color: 'var(--text-muted)' }}>
-                Additional required: {formatTokenAmount(additionalStake)}
-              </small>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={isBusy || !canUpgrade || !isOwner}
-                onClick={() => void runAction('Stake increased.', increaseStake)}
-              >
-                Increase Stake
-              </button>
-            </div>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <label htmlFor="tier-input" style={{ fontWeight: 600 }}>
+              Increase stake
+            </label>
+            <select
+              id="tier-input"
+              className="form-select"
+              value={targetTier}
+              onChange={(event) => setTargetTier(Number(event.target.value))}
+              disabled={isBusy || !canUpgrade || !canEdit}
+            >
+              <option value={1}>Small</option>
+              <option value={2}>Medium</option>
+              <option value={3}>High</option>
+            </select>
+            <small style={{ color: 'var(--text-muted)' }}>
+              Additional required: {formatTokenAmount(additionalStake)}
+            </small>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={isBusy || !canUpgrade || !canEdit}
+              onClick={() => void runAction('Stake increased.', increaseStake)}
+            >
+              Increase Stake
+            </button>
+          </div>
 
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={isBusy || !isOwner}
-                onClick={() => {
-                  void runAction('Agent unstaked and removed.', unstake).then(
-                    (ok) => {
-                      if (ok) onClose()
-                    },
-                  )
-                }}
-              >
-                Unstake & Burn Agent
-              </button>
-              <p style={{ marginTop: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                This withdraws stake and de-registers the ERC-8004 identity.
-              </p>
-            </div>
+          <div
+            style={{
+              borderTop: '1px solid var(--border)',
+              paddingTop: '0.75rem',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              disabled={isBusy || !canEdit}
+              onClick={() => {
+                void runAction('Agent unstaked and removed.', unstake).then(
+                  (ok) => {
+                    if (ok) onClose()
+                  },
+                )
+              }}
+            >
+              Unstake & Burn Agent
+            </button>
+            <p
+              style={{
+                marginTop: '0.5rem',
+                color: 'var(--text-muted)',
+                fontSize: '0.8rem',
+              }}
+            >
+              This withdraws stake and de-registers the ERC-8004 identity.
+            </p>
+          </div>
         </div>
 
         {error && (
