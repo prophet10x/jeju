@@ -11,7 +11,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
-import { type ComponentType, useEffect, useMemo, useState } from 'react'
+import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
 import { type Address, getAddress, isAddress } from 'viem'
 import { useAccount } from 'wagmi'
 import {
@@ -153,6 +153,7 @@ export default function AppDetailModal({
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
   const [githubToken, setGithubToken] = useState<string>()
+  const lastHydratedSnapshotRef = useRef<string | null>(null)
 
   const targetTierStake = useStakeAmount(targetTier)
 
@@ -200,12 +201,27 @@ export default function AppDetailModal({
     const preferredUpgrade = STAKE_TIER_OPTIONS.find(
       (tier) => tier.value > (app.stakeTier ?? StakeTier.NONE),
     )
+    const nextWallet = app.agentWallet ?? ''
+    const nextCategory = app.category ?? tags[0] ?? ''
+    const nextTags = tags.join(', ')
+    const nextDescription = app.description ?? ''
+    const nextTargetTier = preferredUpgrade?.value ?? StakeTier.HIGH
+    const snapshot = JSON.stringify({
+      wallet: nextWallet,
+      category: nextCategory,
+      tags: nextTags,
+      description: nextDescription,
+      targetTier: nextTargetTier,
+    })
 
-    setWalletInput(app.agentWallet ?? '')
-    setCategoryInput(app.category ?? tags[0] ?? '')
-    setTagsInput(tags.join(', '))
-    setDescriptionInput(app.description ?? '')
-    setTargetTier(preferredUpgrade?.value ?? StakeTier.HIGH)
+    if (lastHydratedSnapshotRef.current === snapshot) return
+    lastHydratedSnapshotRef.current = snapshot
+
+    setWalletInput(nextWallet)
+    setCategoryInput(nextCategory)
+    setTagsInput(nextTags)
+    setDescriptionInput(nextDescription)
+    setTargetTier(nextTargetTier)
   }, [app])
 
   useEffect(() => {
