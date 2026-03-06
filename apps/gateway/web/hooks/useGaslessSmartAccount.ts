@@ -44,8 +44,6 @@ const DEFAULT_PAYMASTER_ALLOWANCE = parseEther('1')
 const FIRST_DEPLOY_CALL_GAS_LIMIT = 2_500_000n
 const FIRST_DEPLOY_VERIFICATION_GAS_LIMIT = 2_000_000n
 const FIRST_DEPLOY_PRE_VERIFICATION_GAS = 300_000n
-const FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT = 500_000n
-const FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT = 120_000n
 const USER_OPERATION_EVENT_TOPIC =
   '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f'
 const USER_OPERATION_REVERT_REASON_TOPIC =
@@ -537,6 +535,25 @@ export function useGaslessSmartAccount() {
           callsToSend: GaslessCall[],
           overpayment: bigint,
         ): Promise<Hex> => {
+          const buildPaymasterV07 = (): {
+            paymaster: Address
+            paymasterData: Hex
+          } => {
+            const paymasterData = getMultiTokenPaymasterData({
+              paymaster: CONTRACTS.multiTokenPaymaster,
+              serviceName,
+              paymentToken: PAYMENT_TOKEN_JEJU,
+              overpayment,
+            })
+            const v07Paymaster = toPaymasterV07Data(paymasterData)
+            // Leave gas limits undefined so the bundler can estimate
+            // paymasterVerificationGasLimit/paymasterPostOpGasLimit per tx.
+            return {
+              paymaster: v07Paymaster.paymaster,
+              paymasterData: v07Paymaster.paymasterData,
+            }
+          }
+
           const smartAccountClient = createSmartAccountClient({
             account,
             chain: publicClient.chain,
@@ -544,22 +561,10 @@ export function useGaslessSmartAccount() {
             bundlerTransport: http(BUNDLER_URL),
             paymaster: {
               getPaymasterStubData: async () => {
-                const paymasterData = getMultiTokenPaymasterData({
-                  paymaster: CONTRACTS.multiTokenPaymaster,
-                  serviceName,
-                  paymentToken: PAYMENT_TOKEN_JEJU,
-                  overpayment,
-                })
-                return toPaymasterV07Data(paymasterData)
+                return buildPaymasterV07()
               },
               getPaymasterData: async () => {
-                const paymasterData = getMultiTokenPaymasterData({
-                  paymaster: CONTRACTS.multiTokenPaymaster,
-                  serviceName,
-                  paymentToken: PAYMENT_TOKEN_JEJU,
-                  overpayment,
-                })
-                return toPaymasterV07Data(paymasterData)
+                return buildPaymasterV07()
               },
             },
           })
@@ -576,10 +581,6 @@ export function useGaslessSmartAccount() {
                   callGasLimit: FIRST_DEPLOY_CALL_GAS_LIMIT,
                   verificationGasLimit: FIRST_DEPLOY_VERIFICATION_GAS_LIMIT,
                   preVerificationGas: FIRST_DEPLOY_PRE_VERIFICATION_GAS,
-                  paymasterVerificationGasLimit:
-                    FIRST_DEPLOY_PAYMASTER_VERIFICATION_GAS_LIMIT,
-                  paymasterPostOpGasLimit:
-                    FIRST_DEPLOY_PAYMASTER_POST_OP_GAS_LIMIT,
                   maxFeePerGas: gasPrice,
                   maxPriorityFeePerGas: gasPrice,
                 },
