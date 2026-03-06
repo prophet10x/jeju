@@ -450,7 +450,10 @@ class CompleteBootstrapper {
     // Step 6: Authorize Services
     console.log('🔐 STEP 6: Authorizing Services')
     console.log('-'.repeat(70))
-    await this.authorizeServices(result.contracts.creditManager)
+    await this.authorizeServices(
+      result.contracts.creditManager,
+      result.contracts.multiTokenPaymaster,
+    )
     console.log('')
 
     // Step 7: Fund Test Wallets
@@ -2531,9 +2534,21 @@ class CompleteBootstrapper {
     console.log('  ✅ Oracle prices initialized')
   }
 
-  private async authorizeServices(creditManager: string): Promise<void> {
+  private async authorizeServices(
+    creditManager: string,
+    multiTokenPaymaster?: string,
+  ): Promise<void> {
     // Authorize common service addresses
-    const services = [
+    const services: Array<{ addr: string; name: string }> = []
+
+    if (multiTokenPaymaster) {
+      services.push({
+        addr: multiTokenPaymaster,
+        name: 'MultiTokenPaymaster',
+      })
+    }
+
+    services.push(
       { addr: this.deployerAddress, name: 'Deployer (for testing)' },
       {
         addr: '0x1111111111111111111111111111111111111111',
@@ -2547,7 +2562,7 @@ class CompleteBootstrapper {
         addr: '0x3333333333333333333333333333333333333333',
         name: 'Caliguland',
       },
-    ]
+    )
 
     for (const service of services) {
       this.sendTx(

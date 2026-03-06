@@ -205,6 +205,10 @@ contract Deploy is Script {
         );
         console2.log("MultiTokenPaymaster:", multiTokenPaymaster);
 
+        // Required for credit-path sponsorship and allowance priming userOps.
+        CreditManager(payable(creditManager)).setServiceAuthorization(multiTokenPaymaster, true);
+        console2.log("CreditManager authorized MultiTokenPaymaster");
+
         // Set oracle prices
         PriceOracle(priceOracle).setPrice(address(0), 3000e18, 18); // ETH = $3000
         PriceOracle(priceOracle).setPrice(usdc, 1e18, 18); // USDC = $1
