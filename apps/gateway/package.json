@@ -52,6 +52,7 @@
     "start:qos-validator:storage:once": "QOS_VALIDATOR_RUN_ONCE=true bun api/oracle/storage-reporter.ts",
     "run:qos-validator:once": "bash scripts/run-qos-validator-once.sh",
     "run:qosv:testnet": "bash scripts/run-qosv-testnet.sh",
+    "start:node-metadata-replication": "bun scripts/run-node-metadata-replication.ts",
     "start:qos-validator:service": "bun api/oracle/service-reporter.ts",
     "start:qos-validator:service:once": "QOS_VALIDATOR_RUN_ONCE=true bun api/oracle/service-reporter.ts",
     "start:qos-validator:compute": "bun api/oracle/compute-reporter.ts",

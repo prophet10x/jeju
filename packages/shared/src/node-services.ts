@@ -1,3 +1,5 @@
+import { keccak256, stringToHex, type Hex } from 'viem'
+
 export type NodeServiceId =
   | 'vpn'
   | 'cdn'
@@ -37,6 +39,8 @@ export interface NodeIdentityMetadata {
   nodeName?: string
   operatorAgentId: string
   nodeId?: string
+  servicesHash?: Hex
+  metadataURI?: string
   rpcUrl: string
   region: string
   services: NodeServiceId[]
@@ -53,6 +57,9 @@ export interface NodeIdentityMetadata {
 
 export interface NodeRegistrationDraft {
   operatorAgentId: string
+  nodeId?: string
+  servicesHash?: Hex
+  metadataURI?: string
   services: NodeServiceId[]
   stakeAmount: string
   stakingToken: string
@@ -70,8 +77,30 @@ export interface NodeRegistrationResult {
   operatorAgentId: string
   nodeId?: string
   nodeIdentityId?: string
-  nodeIdentityFallback?: boolean
+  servicesHash?: Hex
+  metadataURI?: string
   txHash?: `0x${string}`
+}
+
+export interface NodeProfileDocument {
+  version: 'jeju.node-profile.v1'
+  nodeId: string
+  operatorAgentId: string
+  rpcUrl: string
+  region: string
+  services: NodeServiceId[]
+  servicesHash: Hex
+  stakingToken: string
+  stakeAmount: string
+  rewardToken: string
+  status: 'draft' | 'active' | 'inactive'
+  createdAt: string
+  updatedAt: string
+  nodeName?: string
+  zone?: string
+  cpuCores?: number
+  memoryGb?: number
+  diskGb?: number
 }
 
 export type NodeServiceScoreMap = Partial<Record<NodeServiceId, number>>
@@ -98,6 +127,70 @@ export const NODE_SERVICE_DEFINITIONS: NodeServiceDefinition[] = [
   { id: 'security', name: 'Security Node', icon: 'lock', description: 'WAF and access control' },
   { id: 'observability', name: 'Observability', icon: 'eye', description: 'Logs, metrics, and traces' },
 ]
+
+export const CANONICAL_NODE_SERVICE_ORDER = NODE_SERVICE_DEFINITIONS.map(
+  (service) => service.id,
+)
+
+export function canonicalizeNodeServices(
+  services: readonly NodeServiceId[],
+): NodeServiceId[] {
+  const selected = new Set(services)
+  return CANONICAL_NODE_SERVICE_ORDER.filter((serviceId) =>
+    selected.has(serviceId),
+  )
+}
+
+export function encodeCanonicalNodeServices(
+  services: readonly NodeServiceId[],
+): string {
+  return canonicalizeNodeServices(services).join(',')
+}
+
+export function computeNodeServicesHash(
+  services: readonly NodeServiceId[],
+): Hex {
+  return keccak256(stringToHex(encodeCanonicalNodeServices(services)))
+}
+
+export function toIpfsMetadataUri(cid: string): string {
+  const normalized = cid.trim().replace(/^ipfs:\/\//i, '')
+  return normalized.length > 0 ? `ipfs://${normalized}` : ''
+}
+
+export function buildNodeProfileDocument(
+  metadata: NodeIdentityMetadata,
+  timestamp = new Date().toISOString(),
+): NodeProfileDocument {
+  const services = canonicalizeNodeServices(metadata.services)
+  const servicesHash =
+    metadata.servicesHash ?? computeNodeServicesHash(metadata.services)
+
+  if (!metadata.nodeId) {
+    throw new Error('Node profile document requires a concrete nodeId.')
+  }
+
+  return {
+    version: 'jeju.node-profile.v1',
+    nodeId: metadata.nodeId,
+    operatorAgentId: metadata.operatorAgentId,
+    rpcUrl: metadata.rpcUrl,
+    region: metadata.region,
+    services,
+    servicesHash,
+    stakingToken: metadata.stakingToken,
+    stakeAmount: metadata.stakeAmount,
+    rewardToken: metadata.rewardToken,
+    status: metadata.status,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    nodeName: metadata.nodeName,
+    zone: metadata.zone,
+    cpuCores: metadata.cpuCores,
+    memoryGb: metadata.memoryGb,
+    diskGb: metadata.diskGb,
+  }
+}
 
 export function getNodeServiceMinimumStakeUsd(serviceCount: number, minStakeUsd = 1000) {
   return minStakeUsd * Math.max(serviceCount, 1)

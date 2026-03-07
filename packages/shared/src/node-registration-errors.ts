@@ -9,6 +9,54 @@ const NODE_STAKING_ERROR_ABI = [
       { name: 'max', type: 'uint256' },
     ],
   },
+  {
+    type: 'error',
+    name: 'StrictProfileRegistrationRequired',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'InvalidMetadataURI',
+    inputs: [{ name: 'metadataURI', type: 'string' }],
+  },
+  {
+    type: 'error',
+    name: 'InvalidServicesHash',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'RegistrationNonceMismatch',
+    inputs: [
+      { name: 'expected', type: 'uint256' },
+      { name: 'provided', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'error',
+    name: 'OperatorAgentNotStaked',
+    inputs: [{ name: 'operatorAgentId', type: 'uint256' }],
+  },
+  {
+    type: 'error',
+    name: 'OperatorAgentIneligible',
+    inputs: [{ name: 'operatorAgentId', type: 'uint256' }],
+  },
+  {
+    type: 'error',
+    name: 'NodeAlreadyExists',
+    inputs: [{ name: 'nodeId', type: 'bytes32' }],
+  },
+  {
+    type: 'error',
+    name: 'InvalidAgentId',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'NotAgentOwner',
+    inputs: [],
+  },
 ] as const
 
 const IDENTITY_REGISTRY_ERROR_ABI = [
@@ -72,6 +120,73 @@ function extractEncodedErrorData(
   const hexCandidate = message.slice(hexStart).match(/^[0-9a-fA-F]+/)?.[0]
 
   return hexCandidate ? (`0x${hexCandidate}` as Hex) : null
+}
+
+function extractHexCandidates(message: string): Hex[] {
+  const matches = message.match(/0x[0-9a-fA-F]{8,}/g) ?? []
+  return Array.from(new Set(matches.map((match) => match as Hex)))
+}
+
+function decodeNodeStakingError(
+  message: string,
+):
+  | { errorName: 'StrictProfileRegistrationRequired' }
+  | { errorName: 'InvalidMetadataURI'; metadataURI: string }
+  | { errorName: 'InvalidServicesHash' }
+  | {
+      errorName: 'RegistrationNonceMismatch'
+      expected: bigint
+      provided: bigint
+    }
+  | { errorName: 'OperatorAgentNotStaked'; operatorAgentId: bigint }
+  | { errorName: 'OperatorAgentIneligible'; operatorAgentId: bigint }
+  | { errorName: 'NodeAlreadyExists'; nodeId: Hex }
+  | { errorName: 'InvalidAgentId' }
+  | { errorName: 'NotAgentOwner' }
+  | null {
+  for (const candidate of extractHexCandidates(message)) {
+    try {
+      const decoded = decodeErrorResult({
+        abi: NODE_STAKING_ERROR_ABI,
+        data: candidate,
+      })
+
+      switch (decoded.errorName) {
+        case 'StrictProfileRegistrationRequired':
+          return { errorName: decoded.errorName }
+        case 'InvalidMetadataURI': {
+          const [metadataURI] = decoded.args as [string]
+          return { errorName: decoded.errorName, metadataURI }
+        }
+        case 'InvalidServicesHash':
+          return { errorName: decoded.errorName }
+        case 'RegistrationNonceMismatch': {
+          const [expected, provided] = decoded.args as [bigint, bigint]
+          return { errorName: decoded.errorName, expected, provided }
+        }
+        case 'OperatorAgentNotStaked': {
+          const [operatorAgentId] = decoded.args as [bigint]
+          return { errorName: decoded.errorName, operatorAgentId }
+        }
+        case 'OperatorAgentIneligible': {
+          const [operatorAgentId] = decoded.args as [bigint]
+          return { errorName: decoded.errorName, operatorAgentId }
+        }
+        case 'NodeAlreadyExists': {
+          const [nodeId] = decoded.args as [Hex]
+          return { errorName: decoded.errorName, nodeId }
+        }
+        case 'InvalidAgentId':
+          return { errorName: decoded.errorName }
+        case 'NotAgentOwner':
+          return { errorName: decoded.errorName }
+      }
+    } catch {
+      // Ignore non-matching hex blobs.
+    }
+  }
+
+  return null
 }
 
 function decodeNetworkOwnershipExceeded(
@@ -160,6 +275,30 @@ export function describeNodeRegistrationError(
 
   if (isTooManyTagsError(message)) {
     return 'Node identity metadata update exceeded the on-chain tag limit. Retry after reducing tag count (max 10), or use the latest app build which auto-limits on-chain tags.'
+  }
+
+  const stakingError = decodeNodeStakingError(message)
+  if (stakingError) {
+    switch (stakingError.errorName) {
+      case 'StrictProfileRegistrationRequired':
+        return 'This staking manager only accepts strict atomic registration with a deterministic node ID, services hash, and IPFS metadata URI.'
+      case 'InvalidMetadataURI':
+        return `Node metadata must be uploaded to IPFS before registration. Rejected metadata URI: ${stakingError.metadataURI}`
+      case 'InvalidServicesHash':
+        return 'The selected services could not be committed on-chain. Recompute the canonical services hash and retry.'
+      case 'RegistrationNonceMismatch':
+        return `Node registration preview is stale. Expected nonce ${stakingError.expected.toString()}, but the submitted transaction used ${stakingError.provided.toString()}. Refresh the preview and retry.`
+      case 'OperatorAgentNotStaked':
+        return `Operator agent #${stakingError.operatorAgentId.toString()} is not staked. Only staked operator identities can register nodes.`
+      case 'OperatorAgentIneligible':
+        return `Operator agent #${stakingError.operatorAgentId.toString()} is not eligible for node registration. Check its staking, ban, and slashing state.`
+      case 'NodeAlreadyExists':
+        return `This node profile was already registered on-chain (${stakingError.nodeId}). Refresh the node preview before retrying.`
+      case 'InvalidAgentId':
+        return 'Selected operator agent does not exist on the active identity registry.'
+      case 'NotAgentOwner':
+        return 'Selected operator agent is not owned by the connected wallet or smart account.'
+    }
   }
 
   if (message.includes('UserOperation reverted during simulation')) {

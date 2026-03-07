@@ -182,6 +182,7 @@ interface IIdentityRegistry is IERC721, IERC721Metadata {
      */
     function agentExists(uint256 agentId) external view returns (bool exists);
 
+
     // ============ Tag Functions ============
 
     /**

@@ -1,7 +1,9 @@
 import {
+  buildNodeProfileDocument,
   buildNodeIdentityMetadataEntries,
   buildNodeIdentityTokenUri,
   calculateUsdValue as calculateUSDValue,
+  computeNodeServicesHash,
   describeNodeRegistrationError,
   fetchAgentWallet,
   formatTokenUsd as formatUSD,
@@ -15,7 +17,8 @@ import {
   type NodeRegistrationResult,
   type NodeServiceId,
   parseTokenAmount,
-  wasNodeIdentityFallbackUsedFromReceipt,
+  toIpfsMetadataUri,
+  uploadJSONToIPFS,
   waitForAgentWallet,
 } from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
@@ -31,7 +34,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
+import { CONTRACTS, EXPLORER_URL, IPFS_API_URL } from '../../lib/config'
 import {
   calculateMonthlyRewardEstimate,
   REGION_NAMES,
@@ -95,7 +98,10 @@ export default function RegisterNodeForm() {
     registrationHash,
     registrationReceipt,
     supportsAtomicNodeIdentityRegistration,
+    supportsStrictAtomicProfileRegistration,
     isAtomicNodeIdentitySupportKnown,
+    previewNextNodeId,
+    getNextOperatorNonce,
     operatorStats,
     gasless,
   } = useNodeStaking()
@@ -255,6 +261,12 @@ export default function RegisterNodeForm() {
       proofVerification.challengeId === proofChallenge?.challengeId,
     [proofChallenge?.challengeId, proofVerification],
   )
+  const registrationSenderAddress = useMemo(() => {
+    if (useGasless) {
+      return gasless.smartAccountAddress
+    }
+    return gasless.ownerAddress
+  }, [gasless.ownerAddress, gasless.smartAccountAddress, useGasless])
 
   const disabledReason = useMemo(() => {
     if (!canAddMore) return `Maximum of ${maxNodes} nodes reached`
@@ -769,27 +781,6 @@ export default function RegisterNodeForm() {
       setNodeRegistrationResult(null)
       setPendingNodeIdentityId(null)
 
-      const preStakeNodeIdentity: NodeIdentityMetadata = {
-        nodeName: nextDraft.nodeName,
-        operatorAgentId: nextDraft.operatorAgentId,
-        rpcUrl: nextDraft.rpcUrl,
-        region: nextDraft.region,
-        services: nextDraft.services,
-        serviceTags: [...nextDraft.services],
-        cpuCores: nextDraft.cpuCores,
-        memoryGb: nextDraft.memoryGb,
-        diskGb: nextDraft.diskGb,
-        zone: nextDraft.zone,
-        stakingToken: nextDraft.stakingToken,
-        stakeAmount: nextDraft.stakeAmount,
-        rewardToken: nextDraft.rewardToken,
-        status: 'draft',
-      }
-      const nodeIdentityTokenURI =
-        buildNodeIdentityTokenUri(preStakeNodeIdentity)
-      const nodeIdentityMetadata =
-        buildNodeIdentityMetadataEntries(preStakeNodeIdentity)
-
       if (!isAtomicNodeIdentitySupportKnown) {
         setSubmitError('Checking staking contract capabilities. Retry shortly.')
         return
@@ -802,6 +793,73 @@ export default function RegisterNodeForm() {
         setSubmitError(message)
         return
       }
+      if (!supportsStrictAtomicProfileRegistration) {
+        const message =
+          'Selected staking manager does not support strict atomic profile registration. Registration blocked.'
+        setNodeIdentityError(message)
+        setSubmitError(message)
+        return
+      }
+      if (!registrationSenderAddress) {
+        setSubmitError(
+          useGasless
+            ? 'Gasless smart account is not ready yet. Wait for address derivation and retry.'
+            : 'Connect the operator wallet before registering.',
+        )
+        return
+      }
+
+      const registrationNonce = await getNextOperatorNonce(
+        registrationSenderAddress,
+      )
+      const previewNodeId = await previewNextNodeId(
+        registrationSenderAddress,
+        parsedOperatorAgentId ?? 0n,
+        rpcUrl,
+      )
+      const servicesHash = computeNodeServicesHash(
+        selectedServices as NodeServiceId[],
+      )
+      const profileSeedNodeIdentity: NodeIdentityMetadata = {
+        nodeName: nextDraft.nodeName,
+        operatorAgentId: nextDraft.operatorAgentId,
+        nodeId: previewNodeId,
+        servicesHash,
+        rpcUrl: nextDraft.rpcUrl,
+        region: nextDraft.region,
+        services: nextDraft.services,
+        serviceTags: [...nextDraft.services],
+        cpuCores: nextDraft.cpuCores,
+        memoryGb: nextDraft.memoryGb,
+        diskGb: nextDraft.diskGb,
+        zone: nextDraft.zone,
+        stakingToken: nextDraft.stakingToken,
+        stakeAmount: nextDraft.stakeAmount,
+        rewardToken: nextDraft.rewardToken,
+        status: 'active',
+      }
+      const nodeProfileDocument =
+        buildNodeProfileDocument(profileSeedNodeIdentity)
+      const metadataCid = await uploadJSONToIPFS(
+        IPFS_API_URL,
+        nodeProfileDocument,
+        `node-profile-${previewNodeId}.json`,
+      )
+      const metadataURI = toIpfsMetadataUri(metadataCid)
+      const nodeIdentityPayload: NodeIdentityMetadata = {
+        ...profileSeedNodeIdentity,
+        metadataURI,
+      }
+      setSubmittedDraft({
+        ...nextDraft,
+        nodeId: previewNodeId,
+        servicesHash,
+        metadataURI,
+      })
+      const nodeIdentityTokenURI =
+        buildNodeIdentityTokenUri(nodeIdentityPayload)
+      const nodeIdentityMetadata =
+        buildNodeIdentityMetadataEntries(nodeIdentityPayload)
 
       await registerNode(
         stakingToken.address as `0x${string}`,
@@ -812,6 +870,9 @@ export default function RegisterNodeForm() {
         parsedOperatorAgentId ?? undefined,
         {
           gasless: useGasless,
+          registrationNonce,
+          servicesHash,
+          metadataURI,
           nodeIdentityTokenURI,
           nodeIdentityMetadata,
         },
@@ -833,10 +894,6 @@ export default function RegisterNodeForm() {
     const linkedNodeIdentityId = linkedNodeIdentityAgentId?.toString()
     const resolvedNodeIdentityId =
       linkedNodeIdentityId ?? pendingNodeIdentityId ?? undefined
-    const nodeIdentityFallback =
-      wasNodeIdentityFallbackUsedFromReceipt(registrationReceipt) ||
-      (resolvedNodeIdentityId !== undefined &&
-        resolvedNodeIdentityId === submittedDraft.operatorAgentId)
     setProcessedRegistrationHash(registrationHash)
 
     if (
@@ -855,7 +912,8 @@ export default function RegisterNodeForm() {
       setNodeRegistrationResult({
         operatorAgentId: submittedDraft.operatorAgentId,
         nodeIdentityId: resolvedNodeIdentityId,
-        nodeIdentityFallback,
+        servicesHash: submittedDraft.servicesHash,
+        metadataURI: submittedDraft.metadataURI,
         txHash: registrationHash,
       })
       return
@@ -865,7 +923,8 @@ export default function RegisterNodeForm() {
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
       nodeIdentityId: resolvedNodeIdentityId,
-      nodeIdentityFallback,
+      servicesHash: submittedDraft.servicesHash,
+      metadataURI: submittedDraft.metadataURI,
       txHash: registrationHash,
     })
   }, [
@@ -1808,16 +1867,58 @@ export default function RegisterNodeForm() {
             : '✅ Node registered successfully!'}
           {nodeRegistrationResult?.nodeIdentityId &&
           nodeRegistrationResult?.nodeId
-            ? nodeRegistrationResult.nodeIdentityFallback
-              ? ` Operator Agent #${nodeRegistrationResult.nodeIdentityId} was reused as the node identity for ${nodeRegistrationResult.nodeId}.`
-              : ` Node Identity #${nodeRegistrationResult.nodeIdentityId} is linked to ${nodeRegistrationResult.nodeId}.`
+            ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} is linked to ${nodeRegistrationResult.nodeId}.`
             : nodeRegistrationResult?.nodeIdentityId
-              ? nodeRegistrationResult.nodeIdentityFallback
-                ? ` Operator Agent #${nodeRegistrationResult.nodeIdentityId} was reused as the node identity.`
-                : ` Node Identity #${nodeRegistrationResult.nodeIdentityId} was created.`
+              ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} was created.`
               : ''}
         </p>
       </div>
+
+      {nodeRegistrationResult?.metadataURI && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--surface-hover)',
+            borderRadius: '8px',
+          }}
+        >
+          <p style={{ margin: '0 0 0.35rem 0', fontWeight: 600 }}>
+            Metadata URI
+          </p>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: 'var(--font-mono)',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {nodeRegistrationResult.metadataURI}
+          </p>
+        </div>
+      )}
+
+      {nodeRegistrationResult?.servicesHash && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--surface-hover)',
+            borderRadius: '8px',
+          }}
+        >
+          <p style={{ margin: '0 0 0.35rem 0', fontWeight: 600 }}>
+            Services Hash
+          </p>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: 'var(--font-mono)',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {nodeRegistrationResult.servicesHash}
+          </p>
+        </div>
+      )}
 
       {nodeIdentityError && (
         <div

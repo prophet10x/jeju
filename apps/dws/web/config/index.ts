@@ -33,6 +33,9 @@ export const OAUTH3_AGENT_URL = APP_ORIGIN ? `${APP_ORIGIN}/oauth3` : '/oauth3'
 export const DWS_IPFS_GATEWAY_URL = APP_ORIGIN
   ? `${APP_ORIGIN}/storage/ipfs`
   : '/storage/ipfs'
+export const DWS_STORAGE_API_URL = APP_ORIGIN
+  ? `${APP_ORIGIN}/storage`
+  : '/storage'
 export const DWS_IPFS_API_URL = APP_ORIGIN
   ? `${APP_ORIGIN}/storage/api/v0`
   : '/storage/api/v0'

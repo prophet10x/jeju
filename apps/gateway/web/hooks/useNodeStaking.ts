@@ -26,42 +26,16 @@ import {
 import { useGaslessSmartAccount } from './useGaslessSmartAccount'
 import { useTypedWriteContract } from './useTypedWriteContract'
 
-const NODE_STAKING_WITH_AGENT_ABI = [
-  ...NODE_STAKING_MANAGER_ABI,
-  {
-    type: 'function',
-    name: 'registerNodeWithAgentAndIdentity',
-    inputs: [
-      { name: 'stakingToken', type: 'address' },
-      { name: 'stakeAmount', type: 'uint256' },
-      { name: 'rewardToken', type: 'address' },
-      { name: 'rpcUrl', type: 'string' },
-      { name: 'region', type: 'uint8' },
-      { name: 'operatorAgentId', type: 'uint256' },
-      { name: 'nodeIdentityTokenURI', type: 'string' },
-      {
-        name: 'nodeIdentityMetadata',
-        type: 'tuple[]',
-        components: [
-          { name: 'key', type: 'string' },
-          { name: 'value', type: 'bytes' },
-        ],
-      },
-    ],
-    outputs: [
-      { name: 'nodeId', type: 'bytes32' },
-      { name: 'nodeIdentityAgentId', type: 'uint256' },
-    ],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'supportsAtomicNodeIdentityRegistration',
-    inputs: [],
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'pure',
-  },
-] as const
+const NODE_STAKING_WITH_AGENT_ABI = NODE_STAKING_MANAGER_ABI
+
+interface RegisterNodeOptions {
+  gasless?: boolean
+  registrationNonce?: bigint
+  servicesHash?: Hex
+  metadataURI?: string
+  nodeIdentityTokenURI?: string
+  nodeIdentityMetadata?: IdentityRegistryMetadataEntry[]
+}
 
 function toOperatorStats(value: unknown): OperatorStats | null {
   if (!value) return null
@@ -133,6 +107,10 @@ export function useNodeStaking() {
     supportsAtomicNodeIdentityRegistration,
     setSupportsAtomicNodeIdentityRegistration,
   ] = useState<boolean | null>(null)
+  const [
+    supportsStrictAtomicProfileRegistration,
+    setSupportsStrictAtomicProfileRegistration,
+  ] = useState<boolean | null>(null)
   const resolvedSmartAccountAddress =
     gasless.smartAccountAddress ?? predictedSmartAccountAddress
   const stakingManager = useMemo(
@@ -166,6 +144,7 @@ export function useNodeStaking() {
   useEffect(() => {
     if (stakingManager) {
       setSupportsAtomicNodeIdentityRegistration(null)
+      setSupportsStrictAtomicProfileRegistration(null)
     }
   }, [stakingManager])
 
@@ -210,11 +189,17 @@ export function useNodeStaking() {
   }, [publicClient, userAddress])
 
   const probeAtomicNodeIdentityRegistrationSupport = useCallback(async () => {
-    if (supportsAtomicNodeIdentityRegistration !== null) {
-      return supportsAtomicNodeIdentityRegistration
+    if (
+      supportsAtomicNodeIdentityRegistration !== null &&
+      supportsStrictAtomicProfileRegistration !== null
+    ) {
+      return {
+        atomic: supportsAtomicNodeIdentityRegistration,
+        strict: supportsStrictAtomicProfileRegistration,
+      }
     }
     if (!publicClient) {
-      return false
+      return { atomic: false, strict: false }
     }
 
     try {
@@ -224,14 +209,33 @@ export function useNodeStaking() {
         functionName: 'supportsAtomicNodeIdentityRegistration',
       })) as boolean
 
-      const normalized = Boolean(supported)
-      setSupportsAtomicNodeIdentityRegistration(normalized)
-      return normalized
+      let strictSupported = false
+      try {
+        strictSupported = (await publicClient.readContract({
+          address: stakingManager,
+          abi: NODE_STAKING_WITH_AGENT_ABI,
+          functionName: 'supportsStrictAtomicProfileRegistration',
+        })) as boolean
+      } catch {
+        strictSupported = false
+      }
+
+      const atomic = Boolean(supported)
+      const strict = Boolean(strictSupported)
+      setSupportsAtomicNodeIdentityRegistration(atomic)
+      setSupportsStrictAtomicProfileRegistration(strict)
+      return { atomic, strict }
     } catch {
       setSupportsAtomicNodeIdentityRegistration(false)
-      return false
+      setSupportsStrictAtomicProfileRegistration(false)
+      return { atomic: false, strict: false }
     }
-  }, [publicClient, stakingManager, supportsAtomicNodeIdentityRegistration])
+  }, [
+    publicClient,
+    stakingManager,
+    supportsAtomicNodeIdentityRegistration,
+    supportsStrictAtomicProfileRegistration,
+  ])
 
   useEffect(() => {
     void probeAtomicNodeIdentityRegistrationSupport()
@@ -325,11 +329,7 @@ export function useNodeStaking() {
     rpcUrl: string,
     region: Region,
     operatorAgentId?: bigint,
-    options?: {
-      gasless?: boolean
-      nodeIdentityTokenURI?: string
-      nodeIdentityMetadata?: IdentityRegistryMetadataEntry[]
-    },
+    options?: RegisterNodeOptions,
   ) => {
     if (operatorAgentId === undefined) {
       throw new Error(
@@ -345,10 +345,20 @@ export function useNodeStaking() {
       )
     }
 
-    const supportsAtomic = await probeAtomicNodeIdentityRegistrationSupport()
-    if (!supportsAtomic) {
+    if (
+      options?.registrationNonce === undefined ||
+      options.servicesHash === undefined ||
+      options.metadataURI === undefined
+    ) {
       throw new Error(
-        'Selected staking manager does not support atomic node identity registration.',
+        'Strict node registration requires a preview nonce, services hash, and IPFS metadata URI.',
+      )
+    }
+
+    const supports = await probeAtomicNodeIdentityRegistrationSupport()
+    if (!supports.atomic || !supports.strict) {
+      throw new Error(
+        'Selected staking manager does not support strict atomic node registration.',
       )
     }
 
@@ -372,7 +382,7 @@ export function useNodeStaking() {
           to: stakingManager,
           data: encodeFunctionData({
             abi: NODE_STAKING_WITH_AGENT_ABI,
-            functionName: 'registerNodeWithAgentAndIdentity',
+            functionName: 'registerNodeWithAgentIdentityAndProfile',
             args: [
               stakingToken,
               stakeAmount,
@@ -380,6 +390,9 @@ export function useNodeStaking() {
               rpcUrl,
               region,
               operatorAgentId,
+              options.registrationNonce,
+              options.servicesHash,
+              options.metadataURI,
               options.nodeIdentityTokenURI,
               options.nodeIdentityMetadata,
             ],
@@ -407,7 +420,7 @@ export function useNodeStaking() {
     const hash = await registerAsync({
       address: stakingManager,
       abi: NODE_STAKING_WITH_AGENT_ABI,
-      functionName: 'registerNodeWithAgentAndIdentity',
+      functionName: 'registerNodeWithAgentIdentityAndProfile',
       args: [
         stakingToken,
         stakeAmount,
@@ -415,12 +428,51 @@ export function useNodeStaking() {
         rpcUrl,
         region,
         operatorAgentId,
+        options.registrationNonce,
+        options.servicesHash,
+        options.metadataURI,
         options.nodeIdentityTokenURI,
         options.nodeIdentityMetadata,
       ],
     })
     setLastRegistrationHash(hash)
   }
+
+  const previewNextNodeId = useCallback(
+    async (
+      operatorAddress: Address,
+      operatorAgentId: bigint,
+      rpcUrl: string,
+    ): Promise<Hex> => {
+      if (!publicClient) {
+        throw new Error('Public client is not available')
+      }
+
+      return (await publicClient.readContract({
+        address: stakingManager,
+        abi: NODE_STAKING_WITH_AGENT_ABI,
+        functionName: 'previewNextNodeId',
+        args: [operatorAddress, operatorAgentId, rpcUrl],
+      })) as Hex
+    },
+    [publicClient, stakingManager],
+  )
+
+  const getNextOperatorNonce = useCallback(
+    async (operatorAddress: Address): Promise<bigint> => {
+      if (!publicClient) {
+        throw new Error('Public client is not available')
+      }
+
+      return (await publicClient.readContract({
+        address: stakingManager,
+        abi: NODE_STAKING_WITH_AGENT_ABI,
+        functionName: 'getNextOperatorNonce',
+        args: [operatorAddress],
+      })) as bigint
+    },
+    [publicClient, stakingManager],
+  )
 
   const {
     write: deregister,
@@ -751,14 +803,19 @@ export function useNodeStaking() {
     operatorAddresses,
     supportsAtomicNodeIdentityRegistration:
       supportsAtomicNodeIdentityRegistration === true,
+    supportsStrictAtomicProfileRegistration:
+      supportsStrictAtomicProfileRegistration === true,
     isAtomicNodeIdentitySupportKnown:
-      supportsAtomicNodeIdentityRegistration !== null,
+      supportsAtomicNodeIdentityRegistration !== null &&
+      supportsStrictAtomicProfileRegistration !== null,
     operatorNodeIds,
     operatorStats,
     operatorStakeDisplayUSD,
     operatorNodeCountDisplay,
     networkStats,
     registerNode,
+    previewNextNodeId,
+    getNextOperatorNonce,
     deregisterNode,
     increaseNodeStake,
     updateNodeConfig,

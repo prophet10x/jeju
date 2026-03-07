@@ -63,6 +63,25 @@ contract MockIdentityRegistry is IIdentityRegistry {
         return _exists[agentId];
     }
 
+    function agents(uint256 agentId)
+        external
+        view
+        returns (
+            uint256 storedAgentId,
+            address owner,
+            uint8 tier,
+            address stakedToken,
+            uint256 stakedAmount,
+            uint256 registeredAt,
+            uint256 lastActivityAt,
+            bool isBanned,
+            bool isSlashed
+        )
+    {
+        require(_exists[agentId], "Agent does not exist");
+        return (agentId, _owners[agentId], 0, address(0), 0, 0, 0, _banned[agentId], false);
+    }
+
     function ownerOf(uint256 agentId) external view returns (address) {
         require(_exists[agentId], "Agent does not exist");
         return _owners[agentId];

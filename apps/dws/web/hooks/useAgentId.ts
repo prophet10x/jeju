@@ -57,7 +57,10 @@ export function useAgentId() {
 
   const myAgents = useMemo<OwnedAgentIdentity[]>(() => data?.agents ?? [], [data?.agents])
   const operatorAgents = useMemo<OwnedAgentIdentity[]>(
-    () => myAgents.filter((agent) => !isNodeIdentityAgent(agent)),
+    () =>
+      myAgents.filter(
+        (agent) => !isNodeIdentityAgent(agent) && agent.tier !== '0',
+      ),
     [myAgents],
   )
 

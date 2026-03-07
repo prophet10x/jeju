@@ -348,13 +348,12 @@ contract NodeStakingManagerV2BootstrapTest is Test {
         assertEq(identityRegistry.ownerOf(nodeIdentityAgentId), alice);
     }
 
-    function test_RegisterNodeWithAgentAndIdentity_RevertsWhenRegistrarNotAuthorized() public {
+    function test_RegisterNodeWithAgentAndIdentity_FallsBackWhenRegistrarNotAuthorized() public {
         identityRegistry.setRegistrarAuthorization(address(manager), false);
         IIdentityRegistry.MetadataEntry[] memory metadata = new IIdentityRegistry.MetadataEntry[](0);
 
         vm.startPrank(alice);
-        vm.expectRevert(MockAtomicIdentityRegistry.UnauthorizedRegistrar.selector);
-        manager.registerNodeWithAgentAndIdentity(
+        (bytes32 nodeId, uint256 nodeIdentityAgentId) = manager.registerNodeWithAgentAndIdentity(
             address(token),
             STAKE_AMOUNT,
             address(token),
@@ -365,6 +364,10 @@ contract NodeStakingManagerV2BootstrapTest is Test {
             metadata
         );
         vm.stopPrank();
+
+        assertEq(nodeIdentityAgentId, aliceOperatorAgentId);
+        assertEq(manager.getNodeIdentityAgentId(nodeId), aliceOperatorAgentId);
+        assertEq(manager.getNodeIdByIdentityAgent(aliceOperatorAgentId), nodeId);
     }
 
     function test_SupportsAtomicNodeIdentityRegistration_ReturnsTrue() public {

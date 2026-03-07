@@ -564,15 +564,22 @@ export {
 } from './node-proof'
 export * from './node-registration-errors'
 export {
+  buildNodeProfileDocument,
+  CANONICAL_NODE_SERVICE_ORDER,
+  canonicalizeNodeServices,
+  computeNodeServicesHash,
+  encodeCanonicalNodeServices,
   getNodeServiceMinimumStakeUsd,
   NODE_SERVICE_DEFINITIONS,
   type NodeIdentityMetadata,
+  type NodeProfileDocument,
   type NodeRegistrationDraft,
   type NodeRegistrationResult,
   type NodeServiceDefinition,
   type NodeServiceId,
   type NodeServiceScoreMap,
   type OperatorIdentityOption,
+  toIpfsMetadataUri,
 } from './node-services'
 // Moderation Notifications
 export {

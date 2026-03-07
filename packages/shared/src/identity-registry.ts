@@ -469,9 +469,11 @@ export function buildNodeIdentityTokenUri(
         .split('-')
         .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
         .join(' ')} Node`,
-    description: `Node identity for ${nodeReference} linked to operator agent #${metadata.operatorAgentId}`,
+    description: `Node identity for ${nodeReference}. Operator agent #${metadata.operatorAgentId}.`,
     nodeId: metadata.nodeId ?? null,
     operatorAgentId: metadata.operatorAgentId,
+    servicesHash: metadata.servicesHash ?? null,
+    metadataURI: metadata.metadataURI ?? null,
     services: metadata.services,
     rpcUrl: metadata.rpcUrl,
     region: metadata.region,
@@ -486,6 +488,8 @@ export function buildNodeIdentityMetadataEntries(
   const entries: Array<[string, string]> = [
     ['nodeId', metadata.nodeId ?? ''],
     ['operatorAgentId', definedString(metadata.operatorAgentId)],
+    ['servicesHash', metadata.servicesHash ?? ''],
+    ['metadataURI', metadata.metadataURI ?? ''],
     ['rpcUrl', metadata.rpcUrl],
     ['region', metadata.region],
     ['services', JSON.stringify(metadata.services)],

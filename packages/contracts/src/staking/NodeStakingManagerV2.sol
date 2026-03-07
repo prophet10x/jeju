@@ -16,9 +16,9 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
     using SafeERC20 for IERC20;
 
     mapping(bytes32 => bytes32) public nodeServicesHash;
-    mapping(bytes32 => string) private _nodeMetadataURI;
-    mapping(bytes32 => uint256) private _nodeIdentityAgentIds;
-    mapping(uint256 => bytes32) private _nodeIdsByIdentityAgent;
+    mapping(bytes32 => string) internal _nodeMetadataURI;
+    mapping(bytes32 => uint256) internal _nodeIdentityAgentIds;
+    mapping(uint256 => bytes32) internal _nodeIdsByIdentityAgent;
     bool public bootstrapOwnershipCapExemptionEnabled = true;
     uint256 public bootstrapOwnershipCapExemptionNodeThreshold = 20;
 
@@ -43,7 +43,7 @@ contract NodeStakingManagerV2 is NodeStakingManager, INodeStakingManagerV2 {
         uint256 operatorAgentId,
         string calldata nodeIdentityTokenURI,
         IIdentityRegistry.MetadataEntry[] calldata nodeIdentityMetadata
-    ) external whenNotPaused returns (bytes32 nodeId, uint256 nodeIdentityAgentId) {
+    ) external virtual whenNotPaused returns (bytes32 nodeId, uint256 nodeIdentityAgentId) {
         if (address(identityRegistry) == address(0)) revert InvalidAddress();
         if (!identityRegistry.agentExists(operatorAgentId)) revert InvalidAgentId();
         if (identityRegistry.ownerOf(operatorAgentId) != msg.sender) revert NotAgentOwner();

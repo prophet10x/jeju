@@ -71,11 +71,65 @@ const NODE_STAKING_MANAGER_ABI = [
     stateMutability: 'nonpayable',
   },
   {
+    name: 'registerNodeWithAgentIdentityAndProfile',
+    type: 'function',
+    inputs: [
+      { name: 'stakingToken', type: 'address' },
+      { name: 'stakeAmount', type: 'uint256' },
+      { name: 'rewardToken', type: 'address' },
+      { name: 'rpcUrl', type: 'string' },
+      { name: 'region', type: 'uint8' },
+      { name: 'operatorAgentId', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'servicesHash', type: 'bytes32' },
+      { name: 'metadataURI', type: 'string' },
+      { name: 'nodeIdentityTokenURI', type: 'string' },
+      {
+        name: 'nodeIdentityMetadata',
+        type: 'tuple[]',
+        components: [
+          { name: 'key', type: 'string' },
+          { name: 'value', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'nodeId', type: 'bytes32' },
+      { name: 'nodeIdentityAgentId', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+  },
+  {
     name: 'supportsAtomicNodeIdentityRegistration',
     type: 'function',
     inputs: [],
     outputs: [{ name: '', type: 'bool' }],
     stateMutability: 'pure',
+  },
+  {
+    name: 'supportsStrictAtomicProfileRegistration',
+    type: 'function',
+    inputs: [],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'pure',
+  },
+  {
+    name: 'previewNextNodeId',
+    type: 'function',
+    inputs: [
+      { name: 'operator', type: 'address' },
+      { name: 'operatorAgentId', type: 'uint256' },
+      { name: 'rpcUrl', type: 'string' },
+    ],
+    outputs: [{ name: 'nodeId', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    name: 'getNextOperatorNonce',
+    type: 'function',
+    inputs: [{ name: 'operator', type: 'address' }],
+    outputs: [{ name: 'nonce', type: 'uint256' }],
+    stateMutability: 'view',
   },
   {
     name: 'deactivateNode',
@@ -152,6 +206,9 @@ export interface RegisterNodeParams {
   rpcUrl: string
   region: RegionValue
   operatorAgentId?: bigint
+  registrationNonce?: bigint
+  servicesHash?: Hex
+  metadataURI?: string
   nodeIdentityTokenURI?: string
   nodeIdentityMetadata?: IdentityRegistryMetadataEntry[]
 }
@@ -171,7 +228,14 @@ export interface UseNodeStakingResult {
   // Registration
   registerNode: (params: RegisterNodeParams) => void
   supportsAtomicNodeIdentityRegistration: boolean
+  supportsStrictAtomicProfileRegistration: boolean
   isAtomicNodeIdentitySupportKnown: boolean
+  previewNextNodeId: (
+    operatorAddress: Address,
+    operatorAgentId: bigint,
+    rpcUrl: string,
+  ) => Promise<Hex>
+  getNextOperatorNonce: (operatorAddress: Address) => Promise<bigint>
   isRegistering: boolean
   isRegistrationSuccess: boolean
   registrationHash: Hex | undefined
@@ -206,6 +270,10 @@ export function useNodeStaking(
     supportsAtomicNodeIdentityRegistration,
     setSupportsAtomicNodeIdentityRegistration,
   ] = useState<boolean | null>(null)
+  const [
+    supportsStrictAtomicProfileRegistration,
+    setSupportsStrictAtomicProfileRegistration,
+  ] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -222,12 +290,24 @@ export function useNodeStaking(
           abi: NODE_STAKING_MANAGER_ABI,
           functionName: 'supportsAtomicNodeIdentityRegistration',
         })) as boolean
+        let strictSupported = false
+        try {
+          strictSupported = (await publicClient.readContract({
+            address: stakingManagerAddress,
+            abi: NODE_STAKING_MANAGER_ABI,
+            functionName: 'supportsStrictAtomicProfileRegistration',
+          })) as boolean
+        } catch {
+          strictSupported = false
+        }
         if (!cancelled) {
           setSupportsAtomicNodeIdentityRegistration(Boolean(supported))
+          setSupportsStrictAtomicProfileRegistration(Boolean(strictSupported))
         }
       } catch {
         if (!cancelled) {
           setSupportsAtomicNodeIdentityRegistration(false)
+          setSupportsStrictAtomicProfileRegistration(false)
         }
       }
     }
@@ -329,23 +409,26 @@ export function useNodeStaking(
         )
       }
       if (
+        params.registrationNonce === undefined ||
+        params.servicesHash === undefined ||
+        params.metadataURI === undefined ||
         params.nodeIdentityTokenURI === undefined ||
         params.nodeIdentityMetadata === undefined
       ) {
         throw new Error(
-          'Node identity metadata is required. Registration must use atomic identity linking.',
+          'Strict node registration requires preview nonce, services hash, metadata URI, and node identity metadata.',
         )
       }
-      if (supportsAtomicNodeIdentityRegistration !== true) {
+      if (supportsStrictAtomicProfileRegistration !== true) {
         throw new Error(
-          'Selected staking manager does not support atomic node identity registration.',
+          'Selected staking manager does not support strict atomic node registration.',
         )
       }
 
       writeRegister({
         address: stakingManagerAddress,
         abi: NODE_STAKING_MANAGER_ABI,
-        functionName: 'registerNodeWithAgentAndIdentity',
+        functionName: 'registerNodeWithAgentIdentityAndProfile',
         args: [
           params.stakingToken,
           params.stakeAmount,
@@ -353,6 +436,9 @@ export function useNodeStaking(
           params.rpcUrl,
           params.region,
           params.operatorAgentId,
+          params.registrationNonce,
+          params.servicesHash,
+          params.metadataURI,
           params.nodeIdentityTokenURI,
           params.nodeIdentityMetadata,
         ],
@@ -360,9 +446,45 @@ export function useNodeStaking(
     },
     [
       stakingManagerAddress,
-      supportsAtomicNodeIdentityRegistration,
+      supportsStrictAtomicProfileRegistration,
       writeRegister,
     ],
+  )
+
+  const previewNextNodeId = useCallback(
+    async (
+      operatorAddr: Address,
+      operatorAgentId: bigint,
+      rpcUrl: string,
+    ): Promise<Hex> => {
+      if (!stakingManagerAddress || !publicClient) {
+        throw new Error('Staking manager address not configured')
+      }
+
+      return (await publicClient.readContract({
+        address: stakingManagerAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        functionName: 'previewNextNodeId',
+        args: [operatorAddr, operatorAgentId, rpcUrl],
+      })) as Hex
+    },
+    [publicClient, stakingManagerAddress],
+  )
+
+  const getNextOperatorNonce = useCallback(
+    async (operatorAddr: Address): Promise<bigint> => {
+      if (!stakingManagerAddress || !publicClient) {
+        throw new Error('Staking manager address not configured')
+      }
+
+      return (await publicClient.readContract({
+        address: stakingManagerAddress,
+        abi: NODE_STAKING_MANAGER_ABI,
+        functionName: 'getNextOperatorNonce',
+        args: [operatorAddr],
+      })) as bigint
+    },
+    [publicClient, stakingManagerAddress],
   )
 
   const claimRewards = useCallback(
@@ -417,8 +539,13 @@ export function useNodeStaking(
     approveStaking,
     supportsAtomicNodeIdentityRegistration:
       supportsAtomicNodeIdentityRegistration === true,
+    supportsStrictAtomicProfileRegistration:
+      supportsStrictAtomicProfileRegistration === true,
     isAtomicNodeIdentitySupportKnown:
-      supportsAtomicNodeIdentityRegistration !== null,
+      supportsAtomicNodeIdentityRegistration !== null &&
+      supportsStrictAtomicProfileRegistration !== null,
+    previewNextNodeId,
+    getNextOperatorNonce,
     isApproving: isApprovalPending || isApprovalConfirming,
     isApprovalSuccess,
     approvalHash,

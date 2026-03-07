@@ -72,6 +72,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     error TooManyNodes(uint256 current, uint256 max);
     error NetworkOwnershipExceeded(uint256 wouldBe, uint256 max);
     error NodeNotFound(bytes32 nodeId);
+    error NodeAlreadyExists(bytes32 nodeId);
     error Unauthorized();
     error NodeNotActive();
     error NodeAlreadySlashed();
@@ -198,6 +199,26 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         Region region,
         uint256 operatorAgentId
     ) internal virtual returns (bytes32 nodeId) {
+        nodeId = keccak256(abi.encodePacked(msg.sender, rpcUrl, block.timestamp));
+        if (nodes[nodeId].operator != address(0)) {
+            nodeId = keccak256(abi.encodePacked(msg.sender, rpcUrl, block.timestamp, gasleft()));
+        }
+
+        _registerNodeInternalWithResolvedNodeId(
+            nodeId, msg.sender, stakingToken, stakeAmount, rewardToken, rpcUrl, region, operatorAgentId
+        );
+    }
+
+    function _registerNodeInternalWithResolvedNodeId(
+        bytes32 nodeId,
+        address operator,
+        address stakingToken,
+        uint256 stakeAmount,
+        address rewardToken,
+        string calldata rpcUrl,
+        Region region,
+        uint256 operatorAgentId
+    ) internal virtual {
         if (stakeAmount == 0) revert ZeroStake();
         if (stakingToken == address(0) || rewardToken == address(0)) revert InvalidAddress();
 
@@ -213,6 +234,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         if (!paymasterFactory.isDeployed(rewardToken)) {
             revert NoPaymasterForToken(rewardToken);
         }
+        if (nodes[nodeId].operator != address(0)) revert NodeAlreadyExists(nodeId);
 
         (uint256 tokenPrice,) = priceOracle.getPrice(stakingToken);
         if (tokenPrice == 0) revert("Invalid token price");
@@ -222,22 +244,17 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             revert InsufficientStakeValue(stakeValueUSD, minStakeUSD);
         }
 
-        if (operatorStats[msg.sender].totalNodesActive >= maxNodesPerOperator) {
-            revert TooManyNodes(operatorStats[msg.sender].totalNodesActive, maxNodesPerOperator);
+        if (operatorStats[operator].totalNodesActive >= maxNodesPerOperator) {
+            revert TooManyNodes(operatorStats[operator].totalNodesActive, maxNodesPerOperator);
         }
 
-        _enforceOwnershipCap(msg.sender, stakeValueUSD);
+        _enforceOwnershipCap(operator, stakeValueUSD);
 
-        IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), stakeAmount);
-
-        nodeId = keccak256(abi.encodePacked(msg.sender, rpcUrl, block.timestamp));
-        if (nodes[nodeId].operator != address(0)) {
-            nodeId = keccak256(abi.encodePacked(msg.sender, rpcUrl, block.timestamp, gasleft()));
-        }
+        IERC20(stakingToken).safeTransferFrom(operator, address(this), stakeAmount);
 
         nodes[nodeId] = NodeStake({
             nodeId: nodeId,
-            operator: msg.sender,
+            operator: operator,
             stakedToken: stakingToken,
             stakedAmount: stakeAmount,
             stakedValueUSD: stakeValueUSD,
@@ -256,11 +273,11 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             uptimeScore: 10000, requestsServed: 0, avgResponseTime: 0, lastUpdateTime: block.timestamp
         });
 
-        operatorNodes[msg.sender].push(nodeId);
+        operatorNodes[operator].push(nodeId);
         allNodeIds.push(nodeId);
 
-        operatorStats[msg.sender].totalNodesActive++;
-        operatorStats[msg.sender].totalStakedUSD += stakeValueUSD;
+        operatorStats[operator].totalNodesActive++;
+        operatorStats[operator].totalStakedUSD += stakeValueUSD;
 
         tokenDistribution[stakingToken].totalStaked += stakeAmount;
         tokenDistribution[stakingToken].totalStakedUSD += stakeValueUSD;
@@ -269,7 +286,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         nodesByRegion[region]++;
         totalStakedUSD += stakeValueUSD;
 
-        emit NodeRegistered(nodeId, msg.sender, stakingToken, rewardToken, stakeAmount, stakeValueUSD);
+        emit NodeRegistered(nodeId, operator, stakingToken, rewardToken, stakeAmount, stakeValueUSD);
     }
 
     function _enforceOwnershipCap(address operator, uint256 additionalStakeUSD) internal view virtual {

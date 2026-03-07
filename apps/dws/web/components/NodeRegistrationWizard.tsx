@@ -6,8 +6,10 @@
  */
 
 import {
+  buildNodeProfileDocument,
   buildNodeIdentityMetadataEntries,
   buildNodeIdentityTokenUri,
+  computeNodeServicesHash,
   DEFAULT_GASLESS_PAYMENT_AMOUNT,
   describeNodeRegistrationError,
   fetchAgentWallet,
@@ -20,7 +22,8 @@ import {
   type NodeRegistrationResult,
   type NodeServiceDefinition,
   type NodeServiceId,
-  wasNodeIdentityFallbackUsedFromReceipt,
+  toIpfsMetadataUri,
+  uploadJSONToIPFS,
   waitForAgentWallet,
 } from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
@@ -73,6 +76,7 @@ import {
 } from 'wagmi'
 import {
   CONTRACTS,
+  DWS_STORAGE_API_URL,
   EXPLORER_URL,
   resolveNodeStakingWriteAddress,
 } from '../config'
@@ -157,20 +161,7 @@ const IDENTITY_REGISTRY_ABI = [
 
 const NODE_STAKING_REGISTRATION_ABI = [
   {
-    name: 'registerNode',
-    type: 'function',
-    inputs: [
-      { name: 'stakingToken', type: 'address' },
-      { name: 'stakeAmount', type: 'uint256' },
-      { name: 'rewardToken', type: 'address' },
-      { name: 'rpcUrl', type: 'string' },
-      { name: 'region', type: 'uint8' },
-    ],
-    outputs: [{ name: 'nodeId', type: 'bytes32' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    name: 'registerNodeWithAgent',
+    name: 'registerNodeWithAgentIdentityAndProfile',
     type: 'function',
     inputs: [
       { name: 'stakingToken', type: 'address' },
@@ -179,20 +170,9 @@ const NODE_STAKING_REGISTRATION_ABI = [
       { name: 'rpcUrl', type: 'string' },
       { name: 'region', type: 'uint8' },
       { name: 'operatorAgentId', type: 'uint256' },
-    ],
-    outputs: [{ name: 'nodeId', type: 'bytes32' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    name: 'registerNodeWithAgentAndIdentity',
-    type: 'function',
-    inputs: [
-      { name: 'stakingToken', type: 'address' },
-      { name: 'stakeAmount', type: 'uint256' },
-      { name: 'rewardToken', type: 'address' },
-      { name: 'rpcUrl', type: 'string' },
-      { name: 'region', type: 'uint8' },
-      { name: 'operatorAgentId', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'servicesHash', type: 'bytes32' },
+      { name: 'metadataURI', type: 'string' },
       { name: 'nodeIdentityTokenURI', type: 'string' },
       {
         name: 'nodeIdentityMetadata',
@@ -261,7 +241,10 @@ export default function NodeRegistrationWizard() {
     approvalHash,
     registerNode,
     supportsAtomicNodeIdentityRegistration,
+    supportsStrictAtomicProfileRegistration,
     isAtomicNodeIdentitySupportKnown,
+    previewNextNodeId,
+    getNextOperatorNonce,
     isRegistering,
     registrationHash,
   } = useNodeStaking(
@@ -364,6 +347,12 @@ export default function NodeRegistrationWizard() {
     proofVerification !== null &&
     proofVerification.challengeId === proofChallenge?.challengeId
   const normalizedNodeRpcUrl = nodeRpcUrl.trim()
+  const registrationSenderAddress = useMemo(() => {
+    if (useGasless) {
+      return gasless.smartAccountAddress
+    }
+    return address
+  }, [address, gasless.smartAccountAddress, useGasless])
 
   // Calculate minimum required stake from contract's minStakeUSD
   const minimumStake = useMemo(() => {
@@ -556,9 +545,45 @@ export default function NodeRegistrationWizard() {
     }
 
     setSubmittedDraft(nextDraft)
-    const preStakeNodeIdentity: NodeIdentityMetadata = {
+
+    if (!registrationSenderAddress) {
+      setError(
+        useGasless
+          ? 'Gasless smart account is not ready yet. Wait for address derivation and retry.'
+          : 'Connect the operator wallet before registering.',
+      )
+      return
+    }
+
+    if (!supportsAtomicNodeIdentityRegistration) {
+      const message =
+        'Selected staking manager does not support atomic node identity registration. Registration blocked.'
+      setNodeIdentityError(message)
+      setError(message)
+      return
+    }
+    if (!supportsStrictAtomicProfileRegistration) {
+      const message =
+        'Selected staking manager does not support strict atomic profile registration. Registration blocked.'
+      setNodeIdentityError(message)
+      setError(message)
+      return
+    }
+
+    const registrationNonce = await getNextOperatorNonce(
+      registrationSenderAddress,
+    )
+    const previewNodeId = await previewNextNodeId(
+      registrationSenderAddress,
+      selectedAgentId,
+      normalizedNodeRpcUrl,
+    )
+    const servicesHash = computeNodeServicesHash(selectedServiceIds)
+    const profileSeedNodeIdentity: NodeIdentityMetadata = {
       nodeName: nextDraft.nodeName,
       operatorAgentId: nextDraft.operatorAgentId,
+      nodeId: previewNodeId,
+      servicesHash,
       rpcUrl: nextDraft.rpcUrl,
       region: nextDraft.region,
       services: nextDraft.services,
@@ -570,19 +595,29 @@ export default function NodeRegistrationWizard() {
       stakingToken: nextDraft.stakingToken,
       stakeAmount: nextDraft.stakeAmount,
       rewardToken: nextDraft.rewardToken,
-      status: 'draft',
+      status: 'active',
     }
-    const nodeIdentityTokenURI = buildNodeIdentityTokenUri(preStakeNodeIdentity)
+    const nodeProfileDocument =
+      buildNodeProfileDocument(profileSeedNodeIdentity)
+    const metadataCid = await uploadJSONToIPFS(
+      DWS_STORAGE_API_URL,
+      nodeProfileDocument,
+      `node-profile-${previewNodeId}.json`,
+    )
+    const metadataURI = toIpfsMetadataUri(metadataCid)
+    const nodeIdentityPayload: NodeIdentityMetadata = {
+      ...profileSeedNodeIdentity,
+      metadataURI,
+    }
+    setSubmittedDraft({
+      ...nextDraft,
+      nodeId: previewNodeId,
+      servicesHash,
+      metadataURI,
+    })
+    const nodeIdentityTokenURI = buildNodeIdentityTokenUri(nodeIdentityPayload)
     const nodeIdentityMetadata =
-      buildNodeIdentityMetadataEntries(preStakeNodeIdentity)
-
-    if (!supportsAtomicNodeIdentityRegistration) {
-      const message =
-        'Selected staking manager does not support atomic node identity registration. Registration blocked.'
-      setNodeIdentityError(message)
-      setError(message)
-      return
-    }
+      buildNodeIdentityMetadataEntries(nodeIdentityPayload)
 
     if (useGasless) {
       if (!gaslessReadiness.isReady) {
@@ -608,7 +643,7 @@ export default function NodeRegistrationWizard() {
               to: stakingManagerAddress,
               data: encodeFunctionData({
                 abi: NODE_STAKING_REGISTRATION_ABI,
-                functionName: 'registerNodeWithAgentAndIdentity',
+                functionName: 'registerNodeWithAgentIdentityAndProfile',
                 args: [
                   DEFAULT_STAKING_TOKEN,
                   requiredStake,
@@ -616,6 +651,9 @@ export default function NodeRegistrationWizard() {
                   normalizedNodeRpcUrl,
                   selectedRegion,
                   selectedAgentId,
+                  registrationNonce,
+                  servicesHash,
+                  metadataURI,
                   nodeIdentityTokenURI,
                   nodeIdentityMetadata,
                 ],
@@ -640,6 +678,9 @@ export default function NodeRegistrationWizard() {
         rpcUrl: normalizedNodeRpcUrl,
         region: selectedRegion,
         operatorAgentId: selectedAgentId,
+        registrationNonce,
+        servicesHash,
+        metadataURI,
         nodeIdentityTokenURI,
         nodeIdentityMetadata,
       })
@@ -654,11 +695,15 @@ export default function NodeRegistrationWizard() {
     requiredStake,
     selectedRegion,
     registerNode,
+    getNextOperatorNonce,
     selectedServiceIds,
     gasless,
     gaslessReadiness.isReady,
     isAtomicNodeIdentitySupportKnown,
+    previewNextNodeId,
     supportsAtomicNodeIdentityRegistration,
+    supportsStrictAtomicProfileRegistration,
+    registrationSenderAddress,
     useGasless,
     cpuCores,
     diskGb,
@@ -1132,10 +1177,6 @@ export default function NodeRegistrationWizard() {
     const linkedNodeIdentityId = linkedNodeIdentityAgentId?.toString()
     const resolvedNodeIdentityId =
       linkedNodeIdentityId ?? pendingNodeIdentityId ?? undefined
-    const nodeIdentityFallback =
-      wasNodeIdentityFallbackUsedFromReceipt(effectiveRegistrationReceipt) ||
-      (resolvedNodeIdentityId !== undefined &&
-        resolvedNodeIdentityId === submittedDraft.operatorAgentId)
     setProcessedRegistrationHash(effectiveRegistrationHash)
 
     if (
@@ -1154,7 +1195,8 @@ export default function NodeRegistrationWizard() {
       setNodeRegistrationResult({
         operatorAgentId: submittedDraft.operatorAgentId,
         nodeIdentityId: resolvedNodeIdentityId,
-        nodeIdentityFallback,
+        servicesHash: submittedDraft.servicesHash,
+        metadataURI: submittedDraft.metadataURI,
         txHash: effectiveRegistrationHash,
       })
       return
@@ -1164,7 +1206,8 @@ export default function NodeRegistrationWizard() {
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
       nodeIdentityId: resolvedNodeIdentityId,
-      nodeIdentityFallback,
+      servicesHash: submittedDraft.servicesHash,
+      metadataURI: submittedDraft.metadataURI,
       txHash: effectiveRegistrationHash,
     })
   }, [
@@ -2959,9 +3002,7 @@ export default function NodeRegistrationWizard() {
         <div
           style={{
             padding: '1rem',
-            background: nodeRegistrationResult.nodeIdentityFallback
-              ? 'var(--warning-soft)'
-              : 'var(--success-soft)',
+            background: 'var(--success-soft)',
             borderRadius: 'var(--radius-md)',
             marginBottom: '1rem',
           }}
@@ -2973,27 +3014,59 @@ export default function NodeRegistrationWizard() {
               marginBottom: '0.25rem',
             }}
           >
-            {nodeRegistrationResult.nodeIdentityFallback
-              ? 'Linked Identity'
-              : 'Node Identity'}
+            Node Identity
           </div>
           <div style={{ fontSize: '1rem', fontWeight: 600 }}>
-            {nodeRegistrationResult.nodeIdentityFallback
-              ? `Operator Agent #${nodeRegistrationResult.nodeIdentityId}`
-              : `Agent #${nodeRegistrationResult.nodeIdentityId}`}
+            {`Agent #${nodeRegistrationResult.nodeIdentityId}`}
           </div>
-          {nodeRegistrationResult.nodeIdentityFallback ? (
-            <div
-              style={{
-                marginTop: '0.5rem',
-                fontSize: '0.8rem',
-                color: 'var(--text-secondary)',
-              }}
-            >
-              Distinct node identity minting fell back to the operator agent on
-              this network.
-            </div>
-          ) : null}
+        </div>
+      )}
+
+      {nodeRegistrationResult?.metadataURI && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--bg-tertiary)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '1rem',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '0.25rem',
+            }}
+          >
+            Metadata URI
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+            {nodeRegistrationResult.metadataURI}
+          </div>
+        </div>
+      )}
+
+      {nodeRegistrationResult?.servicesHash && (
+        <div
+          style={{
+            padding: '1rem',
+            background: 'var(--bg-tertiary)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '1rem',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '0.25rem',
+            }}
+          >
+            Services Hash
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+            {nodeRegistrationResult.servicesHash}
+          </div>
         </div>
       )}
 
