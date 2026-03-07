@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { getContractsConfig, getCurrentNetwork, getServicesConfig } from '@jejunetwork/config'
 import {
   fileExistsOnIPFS,
@@ -25,6 +26,9 @@ export interface MetadataReplicationTarget {
   apiUrl: string
 }
 
+export const DEFAULT_NODE_METADATA_MIN_REPLICAS = 8
+export const DEFAULT_NODE_METADATA_MAX_REPLICAS = 15
+
 export interface NodeMetadataRecord {
   nodeId: `0x${string}`
   metadataURI: string
@@ -48,6 +52,12 @@ export interface NodeMetadataReplicationResult {
     cid?: string
     message: string
   }>
+}
+
+export interface NodeMetadataReplicationDependencies {
+  fileExistsOnIPFS: typeof fileExistsOnIPFS
+  retrieveFromIPFS: typeof retrieveFromIPFS
+  uploadToIPFS: typeof uploadToIPFS
 }
 
 function parseCsvOrJsonList(value: string | undefined): string[] {
@@ -77,6 +87,70 @@ function parseCsvOrJsonList(value: string | undefined): string[] {
 
 function normalizeStorageApiUrl(value: string): string {
   return value.replace(/\/+$/, '')
+}
+
+function parseReplicaCount(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+export function normalizeReplicaPolicy(minReplicas: number, maxReplicas: number) {
+  const normalizedMinReplicas = Math.max(1, Math.trunc(minReplicas))
+  const normalizedMaxReplicas = Math.max(
+    normalizedMinReplicas,
+    Math.trunc(maxReplicas),
+  )
+  return {
+    minReplicas: normalizedMinReplicas,
+    maxReplicas: normalizedMaxReplicas,
+  }
+}
+
+export function resolveReplicaPolicy(
+  targetCount: number,
+  minReplicas: number,
+  maxReplicas: number,
+) {
+  const normalized = normalizeReplicaPolicy(minReplicas, maxReplicas)
+  const candidateCount = Math.min(Math.max(0, targetCount), normalized.maxReplicas)
+  const requiredReplicaCount = Math.min(candidateCount, normalized.minReplicas)
+  return {
+    candidateCount,
+    requiredReplicaCount,
+  }
+}
+
+function placementScore(cid: string, target: MetadataReplicationTarget): string {
+  return createHash('sha256')
+    .update(`${cid}:${target.name}:${target.apiUrl}`)
+    .digest('hex')
+}
+
+export function rankReplicationTargets(
+  cid: string,
+  targets: MetadataReplicationTarget[],
+): MetadataReplicationTarget[] {
+  return [...targets].sort((left, right) => {
+    const rightScore = placementScore(cid, right)
+    const leftScore = placementScore(cid, left)
+    if (leftScore !== rightScore) {
+      return leftScore < rightScore ? 1 : -1
+    }
+
+    return left.name.localeCompare(right.name) || left.apiUrl.localeCompare(right.apiUrl)
+  })
+}
+
+export function selectReplicationCandidates(
+  cid: string,
+  targets: MetadataReplicationTarget[],
+  maxReplicas: number,
+): MetadataReplicationTarget[] {
+  const normalizedMaxReplicas = Math.max(1, Math.trunc(maxReplicas))
+  return rankReplicationTargets(cid, targets).slice(
+    0,
+    Math.min(targets.length, normalizedMaxReplicas),
+  )
 }
 
 function parseReplicationTargets(raw: string | undefined): MetadataReplicationTarget[] {
@@ -111,6 +185,17 @@ export function getDefaultMetadataReplicationConfig() {
     ?? services.storage?.ipfsGateway
   )?.replace(/\/+$/, '')
 
+  const replicaPolicy = normalizeReplicaPolicy(
+    parseReplicaCount(
+      process.env.NODE_METADATA_REPLICATION_MIN_REPLICAS,
+      DEFAULT_NODE_METADATA_MIN_REPLICAS,
+    ),
+    parseReplicaCount(
+      process.env.NODE_METADATA_REPLICATION_MAX_REPLICAS,
+      DEFAULT_NODE_METADATA_MAX_REPLICAS,
+    ),
+  )
+
   return {
     rpcUrl: process.env.NODE_METADATA_REPLICATION_RPC_URL ?? getRpcUrl(JEJU_CHAIN_ID),
     managerAddress:
@@ -121,11 +206,13 @@ export function getDefaultMetadataReplicationConfig() {
     targets: parseReplicationTargets(
       process.env.NODE_METADATA_REPLICATION_TARGETS,
     ),
+    ...replicaPolicy,
   }
 }
 
 export class NodeMetadataReplicationService {
   private readonly publicClient
+  private readonly dependencies: NodeMetadataReplicationDependencies
 
   constructor(
     private readonly config: {
@@ -133,12 +220,21 @@ export class NodeMetadataReplicationService {
       managerAddress: Address
       sourceGatewayUrl: string
       targets: MetadataReplicationTarget[]
+      minReplicas: number
+      maxReplicas: number
     },
+    dependencies?: Partial<NodeMetadataReplicationDependencies>,
   ) {
     this.publicClient = createPublicClient({
       chain: getChain(JEJU_CHAIN_ID),
       transport: http(this.config.rpcUrl),
     })
+    this.dependencies = {
+      fileExistsOnIPFS,
+      retrieveFromIPFS,
+      uploadToIPFS,
+      ...dependencies,
+    }
   }
 
   async loadNodeMetadataRecords(): Promise<NodeMetadataRecord[]> {
@@ -180,6 +276,11 @@ export class NodeMetadataReplicationService {
     const uniqueRecords = Array.from(
       new Map(records.map((record) => [record.cid, record])).values(),
     )
+    const replicaPolicy = resolveReplicaPolicy(
+      this.config.targets.length,
+      this.config.minReplicas,
+      this.config.maxReplicas,
+    )
     const result: NodeMetadataReplicationResult = {
       nodesScanned: records.length,
       uniqueCids: uniqueRecords.length,
@@ -189,28 +290,48 @@ export class NodeMetadataReplicationService {
       errors: [],
     }
 
-    if (uniqueRecords.length === 0 || this.config.targets.length === 0) {
+    if (uniqueRecords.length === 0 || replicaPolicy.candidateCount === 0) {
       return result
     }
 
     const blobCache = new Map<string, Blob>()
 
     for (const record of uniqueRecords) {
-      for (const target of this.config.targets) {
+      const candidateTargets = selectReplicationCandidates(
+        record.cid,
+        this.config.targets,
+        replicaPolicy.candidateCount,
+      )
+      let successfulReplicaCount = 0
+
+      for (const target of candidateTargets) {
         try {
-          const alreadyPresent = await fileExistsOnIPFS(target.apiUrl, record.cid)
+          const alreadyPresent = await this.dependencies.fileExistsOnIPFS(
+            target.apiUrl,
+            record.cid,
+          )
           if (alreadyPresent) {
             result.skippedExisting += 1
+            successfulReplicaCount += 1
+            if (successfulReplicaCount >= replicaPolicy.requiredReplicaCount) {
+              break
+            }
             continue
           }
 
           let content = blobCache.get(record.cid)
           if (!content) {
-            content = await retrieveFromIPFS(this.config.sourceGatewayUrl, record.cid)
+            content = await this.dependencies.retrieveFromIPFS(
+              this.config.sourceGatewayUrl,
+              record.cid,
+            )
             blobCache.set(record.cid, content)
           }
 
-          const uploadedCid = await uploadToIPFS(target.apiUrl, content)
+          const uploadedCid = await this.dependencies.uploadToIPFS(
+            target.apiUrl,
+            content,
+          )
           if (uploadedCid !== record.cid) {
             result.mismatchedUploads.push({
               target: target.name,
@@ -222,6 +343,10 @@ export class NodeMetadataReplicationService {
           }
 
           result.replicatedWrites += 1
+          successfulReplicaCount += 1
+          if (successfulReplicaCount >= replicaPolicy.requiredReplicaCount) {
+            break
+          }
         } catch (error) {
           result.errors.push({
             target: target.name,
@@ -230,6 +355,17 @@ export class NodeMetadataReplicationService {
             message: error instanceof Error ? error.message : String(error),
           })
         }
+      }
+
+      if (successfulReplicaCount < replicaPolicy.requiredReplicaCount) {
+        result.errors.push({
+          nodeId: record.nodeId,
+          cid: record.cid,
+          message:
+            `Replica shortfall for ${record.nodeId}: ` +
+            `required ${replicaPolicy.requiredReplicaCount}, reached ${successfulReplicaCount}, ` +
+            `checked ${candidateTargets.length} deterministic candidates`,
+        })
       }
     }
 
@@ -251,6 +387,8 @@ export async function runNodeMetadataReplicationOnce() {
     managerAddress: config.managerAddress,
     sourceGatewayUrl: config.sourceGatewayUrl,
     targets: config.targets,
+    minReplicas: config.minReplicas,
+    maxReplicas: config.maxReplicas,
   })
 
   return service.replicateOnce()
