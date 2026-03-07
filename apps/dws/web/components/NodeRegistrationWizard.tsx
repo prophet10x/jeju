@@ -20,6 +20,7 @@ import {
   type NodeRegistrationResult,
   type NodeServiceDefinition,
   type NodeServiceId,
+  wasNodeIdentityFallbackUsedFromReceipt,
   waitForAgentWallet,
 } from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
@@ -1131,6 +1132,10 @@ export default function NodeRegistrationWizard() {
     const linkedNodeIdentityId = linkedNodeIdentityAgentId?.toString()
     const resolvedNodeIdentityId =
       linkedNodeIdentityId ?? pendingNodeIdentityId ?? undefined
+    const nodeIdentityFallback =
+      wasNodeIdentityFallbackUsedFromReceipt(effectiveRegistrationReceipt) ||
+      (resolvedNodeIdentityId !== undefined &&
+        resolvedNodeIdentityId === submittedDraft.operatorAgentId)
     setProcessedRegistrationHash(effectiveRegistrationHash)
 
     if (
@@ -1149,6 +1154,7 @@ export default function NodeRegistrationWizard() {
       setNodeRegistrationResult({
         operatorAgentId: submittedDraft.operatorAgentId,
         nodeIdentityId: resolvedNodeIdentityId,
+        nodeIdentityFallback,
         txHash: effectiveRegistrationHash,
       })
       return
@@ -1158,6 +1164,7 @@ export default function NodeRegistrationWizard() {
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
       nodeIdentityId: resolvedNodeIdentityId,
+      nodeIdentityFallback,
       txHash: effectiveRegistrationHash,
     })
   }, [
@@ -2484,11 +2491,11 @@ export default function NodeRegistrationWizard() {
 
         {approvalHash && (
           <div style={{ marginTop: '1rem' }}>
-            <a
-              href={`https://explorer.jejunetwork.org/tx/${approvalHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
+          <a
+            href={`${EXPLORER_URL}/tx/${approvalHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.5rem',
@@ -2952,7 +2959,9 @@ export default function NodeRegistrationWizard() {
         <div
           style={{
             padding: '1rem',
-            background: 'var(--success-soft)',
+            background: nodeRegistrationResult.nodeIdentityFallback
+              ? 'var(--warning-soft)'
+              : 'var(--success-soft)',
             borderRadius: 'var(--radius-md)',
             marginBottom: '1rem',
           }}
@@ -2964,11 +2973,27 @@ export default function NodeRegistrationWizard() {
               marginBottom: '0.25rem',
             }}
           >
-            Node Identity
+            {nodeRegistrationResult.nodeIdentityFallback
+              ? 'Linked Identity'
+              : 'Node Identity'}
           </div>
           <div style={{ fontSize: '1rem', fontWeight: 600 }}>
-            Agent #{nodeRegistrationResult.nodeIdentityId}
+            {nodeRegistrationResult.nodeIdentityFallback
+              ? `Operator Agent #${nodeRegistrationResult.nodeIdentityId}`
+              : `Agent #${nodeRegistrationResult.nodeIdentityId}`}
           </div>
+          {nodeRegistrationResult.nodeIdentityFallback ? (
+            <div
+              style={{
+                marginTop: '0.5rem',
+                fontSize: '0.8rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Distinct node identity minting fell back to the operator agent on
+              this network.
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -2991,7 +3016,7 @@ export default function NodeRegistrationWizard() {
             Registration Transaction
           </div>
           <a
-            href={`https://explorer.jejunetwork.org/tx/${nodeRegistrationResult?.txHash ?? effectiveRegistrationHash}`}
+            href={`${EXPLORER_URL}/tx/${nodeRegistrationResult?.txHash ?? effectiveRegistrationHash}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{

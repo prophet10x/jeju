@@ -256,6 +256,34 @@ export const NODE_IDENTITY_LINKED_EVENT_ABI = [
   },
 ] as const
 
+export const NODE_IDENTITY_FALLBACK_USED_EVENT_ABI = [
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: 'bytes32',
+        name: 'nodeId',
+        type: 'bytes32',
+      },
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'operatorAgentId',
+        type: 'uint256',
+      },
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'owner',
+        type: 'address',
+      },
+    ],
+    name: 'NodeIdentityFallbackUsed',
+    type: 'event',
+  },
+] as const
+
 export interface IdentityRegistryMetadataEntry {
   key: string
   value: Hex
@@ -428,6 +456,12 @@ export function buildNodeIdentityTokenUri(
   metadata: NodeIdentityMetadata,
 ): string {
   const presentation = buildNodeIdentityPresentation(metadata.services)
+  const nodeReference = metadata.nodeId
+    ? metadata.nodeName
+      ? `${metadata.nodeName} (${metadata.nodeId})`
+      : metadata.nodeId
+    : metadata.nodeName || 'unlinked node'
+
   return JSON.stringify({
     name:
       metadata.nodeName ||
@@ -435,7 +469,7 @@ export function buildNodeIdentityTokenUri(
         .split('-')
         .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
         .join(' ')} Node`,
-    description: `Node identity for operator agent #${metadata.operatorAgentId}`,
+    description: `Node identity for ${nodeReference} linked to operator agent #${metadata.operatorAgentId}`,
     nodeId: metadata.nodeId ?? null,
     operatorAgentId: metadata.operatorAgentId,
     services: metadata.services,
@@ -754,6 +788,31 @@ export function getNodeIdentityLinkedAgentIdFromReceipt(receipt: {
   }
 
   return undefined
+}
+
+export function wasNodeIdentityFallbackUsedFromReceipt(receipt: {
+  logs: Array<{ data: Hex; topics: readonly Hex[] }>
+}): boolean {
+  for (const log of receipt.logs) {
+    try {
+      const topics = (log.topics.length > 0 ? [...log.topics] : []) as
+        | []
+        | [Hex, ...Hex[]]
+      const decoded = decodeEventLog({
+        abi: NODE_IDENTITY_FALLBACK_USED_EVENT_ABI,
+        data: log.data,
+        topics,
+      })
+
+      if (decoded.eventName === 'NodeIdentityFallbackUsed') {
+        return true
+      }
+    } catch {
+      // Ignore unrelated logs.
+    }
+  }
+
+  return false
 }
 
 export async function fetchAgentWallet(params: {

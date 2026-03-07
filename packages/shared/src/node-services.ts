@@ -70,6 +70,7 @@ export interface NodeRegistrationResult {
   operatorAgentId: string
   nodeId?: string
   nodeIdentityId?: string
+  nodeIdentityFallback?: boolean
   txHash?: `0x${string}`
 }
 

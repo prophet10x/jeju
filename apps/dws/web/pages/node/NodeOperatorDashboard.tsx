@@ -24,7 +24,7 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from "viem";
 import { useAccount, usePublicClient } from "wagmi";
@@ -134,7 +134,7 @@ function formatNodeVersionLabel(node: NodeInfo): string {
   if (typeof node.stateVersion === "number" && node.stateVersion > 0) {
     return `V${node.stateVersion}`;
   }
-  return node.isLegacy ? "Legacy" : "Unknown";
+  return node.isLegacy ? "Legacy" : "Current";
 }
 
 function formatOperatorAgentId(operatorAgentId?: number): string {
@@ -142,6 +142,56 @@ function formatOperatorAgentId(operatorAgentId?: number): string {
     return "Not linked";
   }
   return `#${operatorAgentId}`;
+}
+
+function getAgentExplorerUrl(agentId?: number): string | null {
+  if (
+    !agentId ||
+    agentId <= 0 ||
+    CONTRACTS.identityRegistry === ZERO_ADDRESS ||
+    !EXPLORER_URL
+  ) {
+    return null;
+  }
+
+  return `${EXPLORER_URL}/token/${CONTRACTS.identityRegistry}/instance/${agentId}`;
+}
+
+function AgentReference({
+  agentId,
+  suffix,
+}: {
+  agentId?: number;
+  suffix?: string;
+}) {
+  if (!agentId || agentId <= 0) {
+    return <>Not linked</>;
+  }
+
+  const href = getAgentExplorerUrl(agentId);
+  const label = `Agent #${agentId}${suffix ? ` ${suffix}` : ""}`;
+
+  if (!href) {
+    return <>{label}</>;
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.35rem",
+        color: "var(--accent)",
+        textDecoration: "none",
+      }}
+    >
+      {label}
+      <ArrowUpRight size={14} />
+    </a>
+  );
 }
 
 export default function NodeOperatorDashboard() {
@@ -1216,6 +1266,9 @@ function NodeDetailsPanel({
   const hasPendingRewards = parseFloat(node.pendingRewards) > 0;
   const metadataPending = Boolean(node.metadataPending);
   const nodeName = node.nodeId.slice(0, 10);
+  const nodeIdentityFallback =
+    node.nodeIdentityAgentId > 0 &&
+    node.nodeIdentityAgentId === node.operatorAgentId;
   const normalizedOperator = node.operator?.toLowerCase();
   const normalizedOwner = gasless.ownerAddress?.toLowerCase();
   const normalizedSmartOwner = gasless.smartAccountAddress?.toLowerCase();
@@ -1510,7 +1563,20 @@ function NodeDetailsPanel({
           <DetailRow label="Node ID" value={node.nodeId} mono />
           <DetailRow
             label="Operator Agent"
-            value={formatOperatorAgentId(node.operatorAgentId)}
+            value={<AgentReference agentId={node.operatorAgentId} />}
+          />
+          <DetailRow
+            label="Node Identity Agent"
+            value={
+              nodeIdentityFallback ? (
+                <AgentReference
+                  agentId={node.nodeIdentityAgentId}
+                  suffix="(operator fallback)"
+                />
+              ) : (
+                <AgentReference agentId={node.nodeIdentityAgentId} />
+              )
+            }
           />
           <DetailRow label="Operator Wallet" value={node.operator} mono small />
           <DetailRow
@@ -1849,6 +1915,25 @@ function NodeDetailsPanel({
           >
             Current metadata URI: {currentMetadataUri || "not set"}
           </div>
+          {!currentMetadataUri && node.nodeIdentityAgentId > 0 ? (
+            <div
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--text-muted)",
+                display: "flex",
+                gap: "0.35rem",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <span>
+                {nodeIdentityFallback
+                  ? "This node currently reuses its operator agent for identity metadata:"
+                  : "Linked identity metadata lives on:"}
+              </span>
+              <AgentReference agentId={node.nodeIdentityAgentId} />
+            </div>
+          ) : null}
           <button
             type="button"
             className="btn btn-secondary"
@@ -1879,7 +1964,7 @@ function DetailRow({
   highlight,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   mono?: boolean;
   small?: boolean;
   highlight?: boolean;

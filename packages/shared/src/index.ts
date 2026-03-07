@@ -378,12 +378,14 @@ export {
   IDENTITY_REGISTRY_ABI,
   type IdentityRegistryMetadataEntry,
   isNodeIdentityAgent,
+  NODE_IDENTITY_FALLBACK_USED_EVENT_ABI,
   NODE_IDENTITY_LINKED_EVENT_ABI,
   NODE_REGISTERED_EVENT_ABI,
   type NodeIdentityPresentation,
   type OwnedAgentIdentity,
   type OwnedIdentityLookupResult,
   REGISTERED_EVENT_ABI,
+  wasNodeIdentityFallbackUsedFromReceipt,
   waitForAgentWallet,
 } from './identity-registry'
 // IPFS Client

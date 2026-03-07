@@ -46,6 +46,7 @@ export interface NodeInfo {
   lastClaimTime: number;
   totalRewardsClaimed: string;
   operatorAgentId: number;
+  nodeIdentityAgentId: number;
   isActive: boolean;
   isSlashed: boolean;
   stateVersion?: number | null;
@@ -260,10 +261,11 @@ export function useOperatorStats() {
           lastClaimTime: 0,
           totalRewardsClaimed: "0",
           operatorAgentId: 0,
+          nodeIdentityAgentId: 0,
           isActive: false,
           isSlashed: false,
           stateVersion: null,
-          isLegacy: true,
+          isLegacy: false,
           metadataPending: true,
           performance: {
             uptimeScore: 0,

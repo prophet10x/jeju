@@ -15,6 +15,7 @@ import {
   type NodeRegistrationResult,
   type NodeServiceId,
   parseTokenAmount,
+  wasNodeIdentityFallbackUsedFromReceipt,
   waitForAgentWallet,
 } from '@jejunetwork/shared'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
@@ -832,6 +833,10 @@ export default function RegisterNodeForm() {
     const linkedNodeIdentityId = linkedNodeIdentityAgentId?.toString()
     const resolvedNodeIdentityId =
       linkedNodeIdentityId ?? pendingNodeIdentityId ?? undefined
+    const nodeIdentityFallback =
+      wasNodeIdentityFallbackUsedFromReceipt(registrationReceipt) ||
+      (resolvedNodeIdentityId !== undefined &&
+        resolvedNodeIdentityId === submittedDraft.operatorAgentId)
     setProcessedRegistrationHash(registrationHash)
 
     if (
@@ -850,6 +855,7 @@ export default function RegisterNodeForm() {
       setNodeRegistrationResult({
         operatorAgentId: submittedDraft.operatorAgentId,
         nodeIdentityId: resolvedNodeIdentityId,
+        nodeIdentityFallback,
         txHash: registrationHash,
       })
       return
@@ -859,6 +865,7 @@ export default function RegisterNodeForm() {
       operatorAgentId: submittedDraft.operatorAgentId,
       nodeId,
       nodeIdentityId: resolvedNodeIdentityId,
+      nodeIdentityFallback,
       txHash: registrationHash,
     })
   }, [
@@ -1801,9 +1808,13 @@ export default function RegisterNodeForm() {
             : '✅ Node registered successfully!'}
           {nodeRegistrationResult?.nodeIdentityId &&
           nodeRegistrationResult?.nodeId
-            ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} is linked to ${nodeRegistrationResult.nodeId}.`
+            ? nodeRegistrationResult.nodeIdentityFallback
+              ? ` Operator Agent #${nodeRegistrationResult.nodeIdentityId} was reused as the node identity for ${nodeRegistrationResult.nodeId}.`
+              : ` Node Identity #${nodeRegistrationResult.nodeIdentityId} is linked to ${nodeRegistrationResult.nodeId}.`
             : nodeRegistrationResult?.nodeIdentityId
-              ? ` Node Identity #${nodeRegistrationResult.nodeIdentityId} was created.`
+              ? nodeRegistrationResult.nodeIdentityFallback
+                ? ` Operator Agent #${nodeRegistrationResult.nodeIdentityId} was reused as the node identity.`
+                : ` Node Identity #${nodeRegistrationResult.nodeIdentityId} was created.`
               : ''}
         </p>
       </div>

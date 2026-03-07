@@ -34,7 +34,7 @@ type StakingManagerSource = 'router' | 'managerV2' | 'manager' | 'legacyManagerV
 const STAKING_MANAGER_CANDIDATES: readonly StakingManagerSource[] =
   INCLUDE_LEGACY_STAKING_READS
     ? ['managerV2', 'router', 'manager', 'legacyManagerV1']
-    : ['managerV2', 'manager']
+    : ['managerV2']
 
 // NodeStakingManager ABI (read-only functions)
 const NODE_STAKING_MANAGER_ABI = [
@@ -149,6 +149,13 @@ const NODE_STAKING_MANAGER_ABI = [
     stateMutability: 'view',
   },
   {
+    name: 'getNodeIdentityAgentId',
+    type: 'function',
+    inputs: [{ name: 'nodeId', type: 'bytes32' }],
+    outputs: [{ name: 'nodeIdentityAgentId', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
     name: 'nodes',
     type: 'function',
     inputs: [{ name: 'nodeId', type: 'bytes32' }],
@@ -231,6 +238,7 @@ interface NodeInfo {
   lastClaimTime: number
   totalRewardsClaimed: string
   operatorAgentId: number
+  nodeIdentityAgentId: number
   isActive: boolean
   isSlashed: boolean
   stateVersion: number | null
@@ -324,6 +332,24 @@ async function readNodeVersion(
   }
 }
 
+async function readNodeIdentityAgentId(
+  client: ReturnType<typeof createPublicClient>,
+  stakingManager: Address,
+  nodeId: Hex,
+): Promise<number> {
+  try {
+    const agentId = await client.readContract({
+      address: stakingManager,
+      abi: NODE_STAKING_MANAGER_ABI,
+      functionName: 'getNodeIdentityAgentId',
+      args: [nodeId],
+    })
+    return Number(agentId)
+  } catch {
+    return 0
+  }
+}
+
 function inferLegacyNode(
   source: StakingManagerSource,
   stateVersion: number | null,
@@ -331,7 +357,7 @@ function inferLegacyNode(
   if (stateVersion !== null) {
     return stateVersion < 3
   }
-  return source !== 'router'
+  return source === 'manager' || source === 'legacyManagerV1'
 }
 
 async function readNodeInfoFromManager(
@@ -341,7 +367,10 @@ async function readNodeInfoFromManager(
   nodeId: Hex,
 ): Promise<NodeInfo | null> {
   try {
-    const stateVersion = await readNodeVersion(client, stakingManager, nodeId)
+    const [stateVersion, nodeIdentityAgentId] = await Promise.all([
+      readNodeVersion(client, stakingManager, nodeId),
+      readNodeIdentityAgentId(client, stakingManager, nodeId),
+    ])
     let nodeInfo: unknown
     let perf: unknown
     let pendingRewards: bigint
@@ -437,6 +466,7 @@ async function readNodeInfoFromManager(
         asBigInt(pick(nodeInfo, 10, 'totalRewardsClaimed')),
       ),
       operatorAgentId: Number(pick(nodeInfo, 11, 'operatorAgentId') ?? 0),
+      nodeIdentityAgentId,
       isActive: Boolean(pick(nodeInfo, 12, 'isActive')),
       isSlashed: Boolean(pick(nodeInfo, 13, 'isSlashed')),
       stateVersion,
