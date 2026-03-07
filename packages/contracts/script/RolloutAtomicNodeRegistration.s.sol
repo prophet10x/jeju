@@ -12,6 +12,8 @@ interface INodeStakingV2AtomicAdminRollout is INodeStakingAdminRollout {
     function setIdentityRegistry(address identityRegistry) external;
     function setRequireAgentRegistration(bool required) external;
     function setSlashAuthority(address slashAuthority) external;
+    function setRewardVault(address rewardVault) external;
+    function setRewardParameters(address rewardParameters) external;
 }
 
 interface INodeManagerRouterAdminRollout {
@@ -36,6 +38,8 @@ interface INodeManagerRouterAdminRollout {
  *  - NODE_MANAGER_ROUTER_ADDRESS
  *  - IDENTITY_REGISTRY_ADDRESS
  *  - SLASH_AUTHORITY_ADDRESS
+ *  - REWARD_VAULT_ADDRESS
+ *  - REWARD_PARAMETERS_ADDRESS
  *  - CONFIGURE_ATOMIC_MANAGER (default true)
  *  - FREEZE_LEGACY_MANAGERS (default true)
  *  - PAUSE_ROUTER (default true)
@@ -54,6 +58,8 @@ contract RolloutAtomicNodeRegistration is Script {
         address router = vm.envOr("NODE_MANAGER_ROUTER_ADDRESS", address(0));
         address identityRegistry = vm.envOr("IDENTITY_REGISTRY_ADDRESS", address(0));
         address slashAuthority = vm.envOr("SLASH_AUTHORITY_ADDRESS", address(0));
+        address rewardVault = vm.envOr("REWARD_VAULT_ADDRESS", address(0));
+        address rewardParameters = vm.envOr("REWARD_PARAMETERS_ADDRESS", address(0));
         bool configureAtomicManager = vm.envOr("CONFIGURE_ATOMIC_MANAGER", true);
         bool freezeLegacyManagers = vm.envOr("FREEZE_LEGACY_MANAGERS", true);
         bool pauseRouter = vm.envOr("PAUSE_ROUTER", true);
@@ -87,6 +93,12 @@ contract RolloutAtomicNodeRegistration is Script {
             if (slashAuthority != address(0)) {
                 atomic.setSlashAuthority(slashAuthority);
             }
+            if (rewardVault != address(0)) {
+                atomic.setRewardVault(rewardVault);
+            }
+            if (rewardParameters != address(0)) {
+                atomic.setRewardParameters(rewardParameters);
+            }
         }
 
         if (freezeLegacyManagers) {
@@ -117,4 +129,3 @@ contract RolloutAtomicNodeRegistration is Script {
         console.log("==================================================");
     }
 }
-

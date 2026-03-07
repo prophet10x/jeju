@@ -10,6 +10,8 @@ import {INodeStakingManager} from "./INodeStakingManager.sol";
 import {IIdentityRegistry} from "../registry/interfaces/IIdentityRegistry.sol";
 import {ITokenRegistry, IPaymasterFactory} from "../interfaces/IPaymaster.sol";
 import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
+import {INodeRewardVault} from "./interfaces/INodeRewardVault.sol";
+import {INodeStakingRewardParameters} from "./interfaces/INodeStakingRewardParameters.sol";
 
 /**
  * @title NodeStakingManager
@@ -33,11 +35,14 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     mapping(address => bool) public isPerformanceOracle;
     address[] public performanceOracles;
     IIdentityRegistry public identityRegistry;
+    INodeRewardVault public rewardVault;
+    INodeStakingRewardParameters public rewardParameters;
     bool public requireAgentRegistration;
     mapping(uint256 => bytes32[]) public agentNodes;
 
     uint256 public minStakeUSD = 1000 ether;
     uint256 public baseRewardPerMonthUSD = 100 ether;
+    uint256 public rewardPayoutBPS = 10000;
     uint256 public paymasterRewardCutBPS = 500;
     uint256 public paymasterStakeCutBPS = 200;
     uint256 public maxNodesPerOperator = 5;
@@ -75,9 +80,12 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     error TransferFailed();
     error UnauthorizedOracle();
     error InsufficientETHForFees();
+    error InsufficientRewardLiquidity(uint256 available, uint256 required);
     error AgentRequired();
     error InvalidAgentId();
     error NotAgentOwner();
+    error GovernedByRewardParameters();
+    error InvalidRewardPayoutBPS(uint256 provided);
 
     error InvalidAddress();
     error ZeroStake();
@@ -121,6 +129,8 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     event SlashDisputed(bytes32 indexed slashId, bytes32 indexed nodeId);
     event SlashExecuted(bytes32 indexed slashId, bytes32 indexed nodeId, uint256 slashAmount);
     event SlashAuthorityUpdated(address indexed oldAuthority, address indexed newAuthority);
+    event RewardVaultUpdated(address indexed oldVault, address indexed newVault);
+    event RewardParametersUpdated(address indexed oldParameters, address indexed newParameters);
 
     constructor(
         address _tokenRegistry,
@@ -295,11 +305,13 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         (uint256 rewardTokenPrice,) = priceOracle.getPrice(rewardToken);
         uint256 rewardAmount = (rewardsUSD * 1e18) / rewardTokenPrice;
 
-        uint256 rewardPaymasterFee = (rewardsUSD * paymasterRewardCutBPS) / 10000;
+        uint256 rewardPaymasterFeeBPS = _effectivePaymasterRewardCutBPS();
+        uint256 stakePaymasterFeeBPS = _effectivePaymasterStakeCutBPS();
+        uint256 rewardPaymasterFee = (rewardsUSD * rewardPaymasterFeeBPS) / 10000;
         uint256 stakingPaymasterFee = 0;
 
         if (stakedToken != rewardToken) {
-            stakingPaymasterFee = (rewardsUSD * paymasterStakeCutBPS) / 10000;
+            stakingPaymasterFee = (rewardsUSD * stakePaymasterFeeBPS) / 10000;
         }
 
         uint256 totalFeesETH = _convertUSDToETH(rewardPaymasterFee + stakingPaymasterFee);
@@ -336,7 +348,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             if (!success2) revert TransferFailed();
         }
 
-        IERC20(rewardToken).safeTransfer(msg.sender, rewardAmount);
+        _disburseRewardToken(rewardToken, msg.sender, rewardAmount);
     }
 
     function deregisterNode(bytes32 nodeId) external nonReentrant {
@@ -369,8 +381,10 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             (uint256 rewardTokenPrice,) = priceOracle.getPrice(rewardToken);
             if (rewardTokenPrice > 0) {
                 rewardAmount = (rewardsUSD * 1e18) / rewardTokenPrice;
-                rewardFee = (rewardsUSD * paymasterRewardCutBPS) / 10000;
-                stakeFee = (stakedToken != rewardToken) ? (rewardsUSD * paymasterStakeCutBPS) / 10000 : 0;
+                uint256 rewardPaymasterFeeBPS = _effectivePaymasterRewardCutBPS();
+                uint256 stakePaymasterFeeBPS = _effectivePaymasterStakeCutBPS();
+                rewardFee = (rewardsUSD * rewardPaymasterFeeBPS) / 10000;
+                stakeFee = (stakedToken != rewardToken) ? (rewardsUSD * stakePaymasterFeeBPS) / 10000 : 0;
                 uint256 totalFees = _convertUSDToETH(rewardFee + stakeFee);
 
                 if (address(this).balance >= totalFees) {
@@ -424,7 +438,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         }
 
         if (rewardAmount > 0) {
-            IERC20(rewardToken).safeTransfer(msg.sender, rewardAmount);
+            _disburseRewardToken(rewardToken, msg.sender, rewardAmount);
         }
 
         IERC20(stakedToken).safeTransfer(msg.sender, stakeToReturn);
@@ -461,7 +475,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         uint256 timeElapsed = block.timestamp - node.lastClaimTime;
         if (timeElapsed < 1 days) return 0;
 
-        uint256 baseRewardUSD = (baseRewardPerMonthUSD * timeElapsed) / 30 days;
+        uint256 baseRewardUSD = (_effectiveBaseRewardPerMonthUSD() * timeElapsed) / 30 days;
         uint256 uptimeMultiplier = _calculateUptimeMultiplier(perf.uptimeScore);
         uint256 rewardWithUptime = (baseRewardUSD * uptimeMultiplier) / 10000;
         uint256 volumeBonusUSD = (perf.requestsServed / 1000) * volumeBonusPerThousandRequests;
@@ -476,7 +490,8 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             diversityBonusUSD = _calculateTokenDiversityBonus(node.stakedToken, rewardWithUptime);
         }
 
-        return rewardWithUptime + volumeBonusUSD + geoBonusUSD + diversityBonusUSD;
+        uint256 grossRewardsUSD = rewardWithUptime + volumeBonusUSD + geoBonusUSD + diversityBonusUSD;
+        return (grossRewardsUSD * _effectiveRewardPayoutBPS()) / 10000;
     }
 
     function _calculateUptimeMultiplier(uint256 uptimeScore) internal view returns (uint256) {
@@ -556,6 +571,21 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
 
     event ParameterUpdated(string parameter, uint256 oldValue, uint256 newValue);
 
+    function setBaseRewardPerMonthUSD(uint256 newBaseRewardPerMonthUSD) external onlyOwner {
+        if (address(rewardParameters) != address(0)) revert GovernedByRewardParameters();
+        uint256 oldValue = baseRewardPerMonthUSD;
+        baseRewardPerMonthUSD = newBaseRewardPerMonthUSD;
+        emit ParameterUpdated("baseRewardPerMonthUSD", oldValue, newBaseRewardPerMonthUSD);
+    }
+
+    function setRewardPayoutBPS(uint256 newRewardPayoutBPS) external onlyOwner {
+        if (address(rewardParameters) != address(0)) revert GovernedByRewardParameters();
+        if (newRewardPayoutBPS > 10000) revert InvalidRewardPayoutBPS(newRewardPayoutBPS);
+        uint256 oldValue = rewardPayoutBPS;
+        rewardPayoutBPS = newRewardPayoutBPS;
+        emit ParameterUpdated("rewardPayoutBPS", oldValue, newRewardPayoutBPS);
+    }
+
     function setMinStakeUSD(uint256 newMinimum) external onlyOwner {
         uint256 oldValue = minStakeUSD;
         minStakeUSD = newMinimum;
@@ -565,6 +595,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     error FeesTooHigh();
 
     function setPaymasterFees(uint256 rewardCutBPS, uint256 stakeCutBPS) external onlyOwner {
+        if (address(rewardParameters) != address(0)) revert GovernedByRewardParameters();
         if (rewardCutBPS + stakeCutBPS > 1000) revert FeesTooHigh();
         uint256 oldReward = paymasterRewardCutBPS;
         uint256 oldStake = paymasterStakeCutBPS;
@@ -632,9 +663,44 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         emit IdentityRegistryUpdated(oldRegistry, _identityRegistry);
     }
 
+    function setRewardVault(address newRewardVault) external onlyOwner {
+        address oldVault = address(rewardVault);
+        rewardVault = INodeRewardVault(newRewardVault);
+        emit RewardVaultUpdated(oldVault, newRewardVault);
+    }
+
+    function setRewardParameters(address newRewardParameters) external onlyOwner {
+        address oldParameters = address(rewardParameters);
+        rewardParameters = INodeStakingRewardParameters(newRewardParameters);
+        emit RewardParametersUpdated(oldParameters, newRewardParameters);
+    }
+
     function setRequireAgentRegistration(bool required) external onlyOwner {
         requireAgentRegistration = required;
         emit AgentRegistrationRequirementUpdated(required);
+    }
+
+    function getEffectiveRewardConfig()
+        external
+        view
+        returns (
+            uint256 effectiveBaseRewardPerMonthUSD,
+            uint256 effectiveRewardPayoutBPS,
+            uint256 effectivePaymasterRewardCutBPS,
+            uint256 effectivePaymasterStakeCutBPS
+        )
+    {
+        effectiveBaseRewardPerMonthUSD = _effectiveBaseRewardPerMonthUSD();
+        effectiveRewardPayoutBPS = _effectiveRewardPayoutBPS();
+        effectivePaymasterRewardCutBPS = _effectivePaymasterRewardCutBPS();
+        effectivePaymasterStakeCutBPS = _effectivePaymasterStakeCutBPS();
+    }
+
+    function getAvailableRewardLiquidity(address rewardToken) external view returns (uint256) {
+        if (address(rewardVault) == address(0)) {
+            return IERC20(rewardToken).balanceOf(address(this));
+        }
+        return rewardVault.available(rewardToken);
     }
 
     function getNodesByAgent(uint256 agentId) external view returns (bytes32[] memory) {
@@ -762,6 +828,51 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     /// @notice Legacy withdrawEmergency - now requires timelock
     function withdrawEmergency(address token, uint256 amount) external onlyOwner {
         proposeEmergencyWithdrawal(token, amount);
+    }
+
+    function _effectiveBaseRewardPerMonthUSD() internal view returns (uint256) {
+        if (address(rewardParameters) != address(0)) {
+            return rewardParameters.baseRewardPerMonthUSD();
+        }
+        return baseRewardPerMonthUSD;
+    }
+
+    function _effectiveRewardPayoutBPS() internal view returns (uint256) {
+        if (address(rewardParameters) != address(0)) {
+            return rewardParameters.rewardPayoutBPS();
+        }
+        return rewardPayoutBPS;
+    }
+
+    function _effectivePaymasterRewardCutBPS() internal view returns (uint256) {
+        if (address(rewardParameters) != address(0)) {
+            return rewardParameters.paymasterRewardCutBPS();
+        }
+        return paymasterRewardCutBPS;
+    }
+
+    function _effectivePaymasterStakeCutBPS() internal view returns (uint256) {
+        if (address(rewardParameters) != address(0)) {
+            return rewardParameters.paymasterStakeCutBPS();
+        }
+        return paymasterStakeCutBPS;
+    }
+
+    function _disburseRewardToken(address rewardToken, address recipient, uint256 rewardAmount) internal {
+        if (rewardAmount == 0) {
+            return;
+        }
+
+        if (address(rewardVault) != address(0)) {
+            uint256 availableRewards = rewardVault.available(rewardToken);
+            if (availableRewards < rewardAmount) {
+                revert InsufficientRewardLiquidity(availableRewards, rewardAmount);
+            }
+            rewardVault.disburse(rewardToken, recipient, rewardAmount);
+            return;
+        }
+
+        IERC20(rewardToken).safeTransfer(recipient, rewardAmount);
     }
 
     receive() external payable {}

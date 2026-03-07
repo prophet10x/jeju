@@ -3,6 +3,7 @@ pragma solidity ^0.8.33;
 
 import {Script, console} from "forge-std/Script.sol";
 import {NodeStakingManagerV2Atomic} from "../src/staking/NodeStakingManagerV2Atomic.sol";
+import {NodeRewardVault} from "../src/staking/NodeRewardVault.sol";
 
 interface INodeStakingSource {
     function owner() external view returns (address);
@@ -37,6 +38,8 @@ interface INodeStakingSource {
  *   - PERFORMANCE_ORACLE_ADDRESS (default old manager performanceOracles(0))
  *   - IDENTITY_REGISTRY_ADDRESS (default old manager identityRegistry)
  *   - SLASH_AUTHORITY_ADDRESS (default old manager slashAuthority)
+ *   - REWARD_VAULT_ADDRESS (default unset)
+ *   - REWARD_PARAMETERS_ADDRESS (default unset)
  *   - REQUIRE_AGENT_REGISTRATION (default true)
  *   - COPY_RUNTIME_PARAMS (default true)
  *
@@ -57,6 +60,8 @@ contract DeployNodeStakingV2Atomic is Script {
         address performanceOracle = vm.envOr("PERFORMANCE_ORACLE_ADDRESS", oldManager.performanceOracles(0));
         address identityRegistry = vm.envOr("IDENTITY_REGISTRY_ADDRESS", oldManager.identityRegistry());
         address slashAuthority = vm.envOr("SLASH_AUTHORITY_ADDRESS", oldManager.slashAuthority());
+        address rewardVault = vm.envOr("REWARD_VAULT_ADDRESS", address(0));
+        address rewardParameters = vm.envOr("REWARD_PARAMETERS_ADDRESS", address(0));
         bool requireAgentRegistration = vm.envOr("REQUIRE_AGENT_REGISTRATION", true);
         bool copyRuntimeParams = vm.envOr("COPY_RUNTIME_PARAMS", true);
 
@@ -73,6 +78,8 @@ contract DeployNodeStakingV2Atomic is Script {
         console.log("PerformanceOracle:", performanceOracle);
         console.log("IdentityRegistry:", identityRegistry);
         console.log("SlashAuthority:", slashAuthority);
+        console.log("RewardVault:", rewardVault);
+        console.log("RewardParameters:", rewardParameters);
         console.log("RequireAgentRegistration:", requireAgentRegistration);
         console.log("CopyRuntimeParams:", copyRuntimeParams);
         console.log("");
@@ -90,6 +97,15 @@ contract DeployNodeStakingV2Atomic is Script {
             manager.setRequireAgentRegistration(requireAgentRegistration);
             if (slashAuthority != address(0)) {
                 manager.setSlashAuthority(slashAuthority);
+            }
+            if (rewardVault != address(0)) {
+                manager.setRewardVault(rewardVault);
+                try NodeRewardVault(rewardVault).setAuthorizedManager(address(manager), true) {} catch {
+                    console.log("NOTICE: reward vault manager authorization skipped.");
+                }
+            }
+            if (rewardParameters != address(0)) {
+                manager.setRewardParameters(rewardParameters);
             }
 
             if (copyRuntimeParams) {
