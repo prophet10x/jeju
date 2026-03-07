@@ -45,6 +45,7 @@ export default function NetworkStatsCard() {
 
   const maxOwnership = 20
   const isNearLimit = operatorOwnershipPercent > maxOwnership * 0.8 // 80% of limit
+  const hasCurrentManagerNodes = totalNodes > 0
 
   return (
     <div>
@@ -52,6 +53,26 @@ export default function NetworkStatsCard() {
         <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>
           Network Overview
         </h2>
+
+        {!hasCurrentManagerNodes && (
+          <div
+            style={{
+              marginBottom: '1rem',
+              padding: '0.875rem 1rem',
+              borderRadius: '10px',
+              background: 'var(--surface-hover)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--text-secondary)',
+              fontSize: '0.875rem',
+              lineHeight: 1.5,
+            }}
+          >
+            The strict V2 manager is live and this view now shows current-manager
+            nodes only. No nodes are registered on the current manager yet, so
+            network totals are temporarily zero and legacy nodes are hidden from
+            this default view.
+          </div>
+        )}
 
         <div className="grid grid-3" style={{ gap: '1rem' }}>
           <div

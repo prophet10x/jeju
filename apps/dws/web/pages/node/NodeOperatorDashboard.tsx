@@ -616,7 +616,7 @@ export default function NodeOperatorDashboard() {
               <p>
                 {hasStakingActivity
                   ? "On-chain node activity exists for this operator, but details are still syncing."
-                  : "Register a node to start earning rewards"}
+                  : "No nodes are registered on the current manager yet. Register a node to start earning rewards. Legacy managers are hidden from this default view."}
               </p>
               <a
                 href="/provider/node/register"
