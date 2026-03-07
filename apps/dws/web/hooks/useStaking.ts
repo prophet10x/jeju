@@ -11,7 +11,7 @@ import {
 } from "@jejunetwork/shared/gasless";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient } from "wagmi";
-import { getNodeStakingReadAddresses } from "../config";
+import { CONTRACTS, getNodeStakingReadAddresses } from "../config";
 import { fetchApi } from "../lib/eden";
 import { useGaslessSmartAccount } from "./useGaslessSmartAccount";
 
