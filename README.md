@@ -75,6 +75,12 @@ jeju deploy x402         # Payment protocol
 jeju deploy chainlink    # Chainlink integration
 ```
 
+### Contracts Docs
+
+- `packages/contracts/DEPLOYMENT.md` - current deployment phases and contract ordering
+- `packages/contracts/CONTRACTS_SECURITY_STATUS.md` - current security coverage and unaudited surface
+- `packages/contracts/SECURITY_AUDIT.md` - historical January 2, 2026 AI review for specific EIL contracts
+
 ### Deploy Apps
 
 ```bash
