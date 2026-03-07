@@ -29,7 +29,13 @@ import { useSearchParams } from "react-router-dom";
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from "viem";
 import { useAccount, usePublicClient } from "wagmi";
 import { SkeletonStatCard } from "../../components/Skeleton";
-import { CONTRACTS, EXPLORER_URL, NETWORK, TOKENS } from "../../config";
+import {
+  CONTRACTS,
+  EXPLORER_URL,
+  NETWORK,
+  TOKENS,
+  getNodeStakingReadAddresses,
+} from "../../config";
 import { useConfirm, useToast } from "../../context/AppContext";
 import {
   useClaimRewards,
@@ -119,18 +125,9 @@ const ZERO_NODE_ID =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 function getNodeStakingReadManagers(): Address[] {
-  const candidates = [
-    CONTRACTS.nodeStakingRouter,
-    CONTRACTS.nodeStakingManagerV2,
-    CONTRACTS.nodeStakingLegacyManagerV1,
-    CONTRACTS.nodeStakingManager,
-  ]
-    .filter(
-      (address): address is Address =>
-        Boolean(address) && address !== ZERO_ADDRESS,
-    )
-    .map((address) => address.toLowerCase() as Address);
-  return Array.from(new Set(candidates));
+  return getNodeStakingReadAddresses().map(
+    (address) => address.toLowerCase() as Address,
+  );
 }
 
 function formatNodeVersionLabel(node: NodeInfo): string {

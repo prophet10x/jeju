@@ -148,12 +148,52 @@ function parseCanaryOperators(value: string | undefined): Set<string> {
   )
 }
 
+function parseBooleanFlag(
+  value: string | undefined,
+  defaultValue = false,
+): boolean {
+  const normalized = (value ?? '').trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return defaultValue
+}
+
 export const NODE_STAKING_WRITE_PATH = parseNodeStakingWritePath(
   readEnvVar('NODE_STAKING_WRITE_PATH'),
 )
 export const NODE_STAKING_CANARY_OPERATORS = parseCanaryOperators(
   readEnvVar('NODE_STAKING_CANARY_OPERATORS'),
 )
+export const NODE_STAKING_INCLUDE_LEGACY_READS = parseBooleanFlag(
+  readEnvVar('NODE_STAKING_INCLUDE_LEGACY_READS'),
+)
+
+export function getNodeStakingReadAddresses(
+  includeLegacy = NODE_STAKING_INCLUDE_LEGACY_READS,
+): Address[] {
+  const primary =
+    CONTRACTS.nodeStakingManagerV2 !== ZERO_ADDRESS
+      ? CONTRACTS.nodeStakingManagerV2
+      : CONTRACTS.nodeStakingManager
+
+  const candidates = includeLegacy
+    ? [
+        primary,
+        CONTRACTS.nodeStakingRouter,
+        CONTRACTS.nodeStakingLegacyManagerV1,
+        CONTRACTS.nodeStakingManager,
+      ]
+    : [primary]
+
+  return Array.from(
+    new Set(
+      candidates.filter(
+        (address): address is Address =>
+          Boolean(address) && address !== ZERO_ADDRESS,
+      ),
+    ),
+  )
+}
 
 export function resolveNodeStakingWriteAddress(
   operatorAddress?: Address | string | null,

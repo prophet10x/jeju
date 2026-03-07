@@ -4,11 +4,10 @@ import {
   predictSimpleAccountAddress,
 } from '@jejunetwork/shared/gasless'
 import type { JsonRecord } from '@jejunetwork/types'
-import { ZERO_ADDRESS } from '@jejunetwork/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAccount, usePublicClient } from 'wagmi'
 import { z } from 'zod'
-import { CONTRACTS, DWS_API_URL } from '../config'
+import { CONTRACTS, DWS_API_URL, getNodeStakingReadAddresses } from '../config'
 import { fetchApi, postApi, uploadFile } from '../lib/eden'
 import type {
   APIListing,
@@ -985,17 +984,9 @@ const NODE_STAKING_OPERATOR_ABI = [
 ] as const
 
 function getNodeStakingContracts(): `0x${string}`[] {
-  const addresses = [
-    CONTRACTS.nodeStakingManagerV2,
-    CONTRACTS.nodeStakingManager,
-    CONTRACTS.nodeStakingLegacyManagerV1,
-  ]
-    .filter((value): value is `0x${string}` =>
-      Boolean(value && value !== ZERO_ADDRESS),
-    )
-    .map((value) => value.toLowerCase() as `0x${string}`)
-
-  return Array.from(new Set(addresses))
+  return getNodeStakingReadAddresses().map(
+    (value) => value.toLowerCase() as `0x${string}`,
+  )
 }
 
 interface OperatorStats {

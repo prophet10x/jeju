@@ -9,10 +9,9 @@ import {
   getConfiguredAddress,
   predictSimpleAccountAddress,
 } from "@jejunetwork/shared/gasless";
-import { ZERO_ADDRESS } from "@jejunetwork/types";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, usePublicClient } from "wagmi";
-import { CONTRACTS } from "../config";
+import { getNodeStakingReadAddresses } from "../config";
 import { fetchApi } from "../lib/eden";
 import { useGaslessSmartAccount } from "./useGaslessSmartAccount";
 
@@ -109,18 +108,7 @@ const NODE_STAKING_OPERATOR_ABI = [
 ] as const;
 
 function getNodeStakingContracts(): `0x${string}`[] {
-  const addresses = [
-    CONTRACTS.nodeStakingRouter,
-    CONTRACTS.nodeStakingManagerV2,
-    CONTRACTS.nodeStakingManager,
-    CONTRACTS.nodeStakingLegacyManagerV1,
-  ]
-    .filter((value): value is `0x${string}` =>
-      Boolean(value && value !== ZERO_ADDRESS),
-    )
-    .map((value) => value.toLowerCase() as `0x${string}`);
-
-  return Array.from(new Set(addresses));
+  return getNodeStakingReadAddresses().map((value) => value.toLowerCase() as `0x${string}`);
 }
 
 function useResolvedOperatorAddresses() {

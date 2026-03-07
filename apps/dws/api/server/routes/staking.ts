@@ -15,14 +15,26 @@ import {
   http,
 } from 'viem'
 
-const STAKING_MANAGER_CANDIDATES = [
-  'router',
-  'managerV2',
-  'manager',
-  'legacyManagerV1',
-] as const
+function parseBooleanFlag(
+  value: string | undefined,
+  defaultValue = false,
+): boolean {
+  const normalized = (value ?? '').trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return defaultValue
+}
 
-type StakingManagerSource = (typeof STAKING_MANAGER_CANDIDATES)[number]
+const INCLUDE_LEGACY_STAKING_READS = parseBooleanFlag(
+  process.env.NODE_STAKING_INCLUDE_LEGACY_READS,
+)
+
+type StakingManagerSource = 'router' | 'managerV2' | 'manager' | 'legacyManagerV1'
+
+const STAKING_MANAGER_CANDIDATES: readonly StakingManagerSource[] =
+  INCLUDE_LEGACY_STAKING_READS
+    ? ['managerV2', 'router', 'manager', 'legacyManagerV1']
+    : ['managerV2', 'manager']
 
 // NodeStakingManager ABI (read-only functions)
 const NODE_STAKING_MANAGER_ABI = [
