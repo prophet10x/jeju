@@ -157,6 +157,40 @@ contract NodeStakingRewardControlsTest is Test {
         assertEq(manager.calculatePendingRewards(nodeId), 100 ether);
     }
 
+    function test_MinStakingPeriod_CanBeGovernedByParameterContract() public {
+        manager.setRewardParameters(address(rewardParameters));
+        bytes32 nodeId = _registerNode();
+
+        vm.prank(governance);
+        rewardParameters.setParameter(keccak256("node.minStakingPeriod"), abi.encode(uint256(1 hours)));
+
+        assertEq(manager.getEffectiveMinimumStakingPeriod(), 1 hours);
+
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        vm.prank(alice);
+        manager.deregisterNode(nodeId);
+
+        (INodeStakingManager.NodeStake memory node,,) = manager.getNodeInfo(nodeId);
+        assertFalse(node.isActive);
+        assertEq(node.stakedAmount, 0);
+    }
+
+    function test_MinStakingPeriod_CanBeSetDirectlyBeforeGovernanceAttachment() public {
+        manager.setMinStakingPeriod(1 hours);
+        bytes32 nodeId = _registerNode();
+
+        assertEq(manager.getEffectiveMinimumStakingPeriod(), 1 hours);
+
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        vm.prank(alice);
+        manager.deregisterNode(nodeId);
+
+        (INodeStakingManager.NodeStake memory node,,) = manager.getNodeInfo(nodeId);
+        assertFalse(node.isActive);
+    }
+
     function test_OwnerFeeSettersRevertWhenRewardParametersConfigured() public {
         manager.setRewardParameters(address(rewardParameters));
 
@@ -165,6 +199,9 @@ contract NodeStakingRewardControlsTest is Test {
 
         vm.expectRevert(NodeStakingManager.GovernedByRewardParameters.selector);
         manager.setRewardPayoutBPS(9000);
+
+        vm.expectRevert(NodeStakingManager.GovernedByRewardParameters.selector);
+        manager.setMinStakingPeriod(1 hours);
     }
 
     function test_ClaimRewards_RevertsWhenVaultLiquidityIsInsufficient() public {

@@ -42,6 +42,7 @@ interface INodeStakingSource {
  *   - REWARD_PARAMETERS_ADDRESS (default unset)
  *   - REQUIRE_AGENT_REGISTRATION (default true)
  *   - COPY_RUNTIME_PARAMS (default true)
+ *   - MIN_STAKING_PERIOD_SECONDS (default 7 days, used when reward parameters are unset)
  *
  * Run example:
  *   forge script script/DeployNodeStakingV2Atomic.s.sol:DeployNodeStakingV2Atomic --rpc-url jeju_testnet --broadcast
@@ -64,6 +65,7 @@ contract DeployNodeStakingV2Atomic is Script {
         address rewardParameters = vm.envOr("REWARD_PARAMETERS_ADDRESS", address(0));
         bool requireAgentRegistration = vm.envOr("REQUIRE_AGENT_REGISTRATION", true);
         bool copyRuntimeParams = vm.envOr("COPY_RUNTIME_PARAMS", true);
+        uint256 minStakingPeriodSeconds = vm.envOr("MIN_STAKING_PERIOD_SECONDS", uint256(7 days));
 
         console.log("==================================================");
         console.log("Deploy NodeStakingManagerV2Atomic");
@@ -80,6 +82,7 @@ contract DeployNodeStakingV2Atomic is Script {
         console.log("SlashAuthority:", slashAuthority);
         console.log("RewardVault:", rewardVault);
         console.log("RewardParameters:", rewardParameters);
+        console.log("MinStakingPeriodSeconds:", minStakingPeriodSeconds);
         console.log("RequireAgentRegistration:", requireAgentRegistration);
         console.log("CopyRuntimeParams:", copyRuntimeParams);
         console.log("");
@@ -111,9 +114,12 @@ contract DeployNodeStakingV2Atomic is Script {
             if (copyRuntimeParams) {
                 manager.setMinStakeUSD(oldManager.minStakeUSD());
                 if (rewardParameters == address(0)) {
+                    manager.setMinStakingPeriod(minStakingPeriodSeconds);
                     manager.setPaymasterFees(oldManager.paymasterRewardCutBPS(), oldManager.paymasterStakeCutBPS());
                 } else {
-                    console.log("NOTICE: reward parameters attached; skipping direct paymaster fee copy.");
+                    console.log(
+                        "NOTICE: reward parameters attached; skipping direct paymaster fee and minStakingPeriod copy."
+                    );
                 }
                 manager.setGeographicBonus(oldManager.geographicBonusBPS());
                 manager.setTokenDiversityBonus(oldManager.tokenDiversityBonusBPS());

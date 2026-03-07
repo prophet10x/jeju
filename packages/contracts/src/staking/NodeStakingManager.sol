@@ -55,7 +55,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
 
     bool public tokenDiversityBonusEnabled = false;
 
-    uint256 public constant MIN_STAKING_PERIOD = 7 days;
+    uint256 public minStakingPeriod = 7 days;
     uint256 public constant UPTIME_THRESHOLD = 9900;
     uint256 public constant BPS_DENOMINATOR = 10000;
     uint256 public constant MONTH_DURATION = 30 days;
@@ -86,6 +86,7 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     error NotAgentOwner();
     error GovernedByRewardParameters();
     error InvalidRewardPayoutBPS(uint256 provided);
+    error InvalidMinStakingPeriod(uint256 provided);
 
     error InvalidAddress();
     error ZeroStake();
@@ -292,9 +293,10 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         if (!node.isActive) revert NodeNotActive();
         if (node.isSlashed) revert NodeAlreadySlashed();
 
+        uint256 minimumStakingPeriod = _effectiveMinStakingPeriod();
         uint256 elapsed = block.timestamp - node.registrationTime;
-        if (elapsed < MIN_STAKING_PERIOD) {
-            revert MinimumPeriodNotMet(elapsed, MIN_STAKING_PERIOD);
+        if (elapsed < minimumStakingPeriod) {
+            revert MinimumPeriodNotMet(elapsed, minimumStakingPeriod);
         }
 
         uint256 rewardsUSD = _calculateRewardsUSD(nodeId);
@@ -358,9 +360,10 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         if (node.operator != msg.sender) revert Unauthorized();
         if (node.isSlashed) revert NodeAlreadySlashed();
 
+        uint256 minimumStakingPeriod = _effectiveMinStakingPeriod();
         uint256 elapsed = block.timestamp - node.registrationTime;
-        if (elapsed < MIN_STAKING_PERIOD) {
-            revert MinimumPeriodNotMet(elapsed, MIN_STAKING_PERIOD);
+        if (elapsed < minimumStakingPeriod) {
+            revert MinimumPeriodNotMet(elapsed, minimumStakingPeriod);
         }
 
         address stakedToken = node.stakedToken;
@@ -592,6 +595,16 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         emit ParameterUpdated("minStakeUSD", oldValue, newMinimum);
     }
 
+    function setMinStakingPeriod(uint256 newMinimumStakingPeriod) external onlyOwner {
+        if (address(rewardParameters) != address(0)) revert GovernedByRewardParameters();
+        if (newMinimumStakingPeriod < 1 hours || newMinimumStakingPeriod > 365 days) {
+            revert InvalidMinStakingPeriod(newMinimumStakingPeriod);
+        }
+        uint256 oldValue = minStakingPeriod;
+        minStakingPeriod = newMinimumStakingPeriod;
+        emit ParameterUpdated("minStakingPeriod", oldValue, newMinimumStakingPeriod);
+    }
+
     error FeesTooHigh();
 
     function setPaymasterFees(uint256 rewardCutBPS, uint256 stakeCutBPS) external onlyOwner {
@@ -701,6 +714,10 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             return IERC20(rewardToken).balanceOf(address(this));
         }
         return rewardVault.available(rewardToken);
+    }
+
+    function getEffectiveMinimumStakingPeriod() external view returns (uint256) {
+        return _effectiveMinStakingPeriod();
     }
 
     function getNodesByAgent(uint256 agentId) external view returns (bytes32[] memory) {
@@ -856,6 +873,13 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             return rewardParameters.paymasterStakeCutBPS();
         }
         return paymasterStakeCutBPS;
+    }
+
+    function _effectiveMinStakingPeriod() internal view returns (uint256) {
+        if (address(rewardParameters) != address(0)) {
+            return rewardParameters.minStakingPeriod();
+        }
+        return minStakingPeriod;
     }
 
     function _disburseRewardToken(address rewardToken, address recipient, uint256 rewardAmount) internal {

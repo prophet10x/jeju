@@ -6,4 +6,5 @@ interface INodeStakingRewardParameters {
     function rewardPayoutBPS() external view returns (uint256);
     function paymasterRewardCutBPS() external view returns (uint256);
     function paymasterStakeCutBPS() external view returns (uint256);
+    function minStakingPeriod() external view returns (uint256);
 }
