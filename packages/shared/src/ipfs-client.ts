@@ -164,14 +164,34 @@ export async function fileExistsOnIPFS(
   apiUrl: string,
   cid: string,
 ): Promise<boolean> {
-  const response = await fetch(`${apiUrl}/pins?cid=${cid}`)
-  if (!response.ok) return false
-  const data = expectValid(
-    IPFSPinCountResponseSchema,
-    await response.json(),
-    'IPFS pin count response',
+  const baseUrl = apiUrl.replace(/\/$/, '')
+
+  const pinCountResponse = await fetch(`${baseUrl}/pins?cid=${cid}`).catch(
+    () => null,
   )
-  return (data.count ?? 0) > 0
+  if (pinCountResponse?.ok) {
+    const data = expectValid(
+      IPFSPinCountResponseSchema,
+      await pinCountResponse.json(),
+      'IPFS pin count response',
+    )
+    if ((data.count ?? 0) > 0) {
+      return true
+    }
+  }
+
+  const objectStatResponse = await fetch(
+    `${baseUrl}/api/v0/object/stat?arg=${cid}`,
+    { method: 'POST' },
+  ).catch(() => null)
+  if (objectStatResponse?.ok) {
+    return true
+  }
+
+  const gatewayResponse = await fetch(`${baseUrl}/ipfs/${cid}`).catch(
+    () => null,
+  )
+  return gatewayResponse?.ok === true || gatewayResponse?.status === 402
 }
 
 /**

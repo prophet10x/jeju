@@ -234,7 +234,7 @@
       "weth": "0x4200000000000000000000000000000000000006"
     },
     "registry": {
-      "identity": "0xefAB0Beb0A557E452b398035eA964948c750b2Fd",
+      "identity": "0x7b341a11abA71F34DC72e5B8551768fDefc50c4e",
       "app": "0x3aAde2dCD2Df6a8cAc689EE797591b2913658659",
       "node": "",
       "token": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
@@ -267,7 +267,8 @@
     },
     "nodeStaking": {
       "manager": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
-      "managerV2": "0x483433A42067E05D8a6451125317FdA1d7D3DD36",
+      "managerV2": "0x965535ae2A6Da281c31FbDbD56D93ECB5cb139a0",
+      "strictManagerV2": "0x965535ae2A6Da281c31FbDbD56D93ECB5cb139a0",
       "rewardAwareManagerV2": "0x483433A42067E05D8a6451125317FdA1d7D3DD36",
       "legacyManagerV1": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
       "registry": "0xaC9fCBA56E42d5960f813B9D0387F3D3bC003338",
@@ -281,7 +282,7 @@
       "autoSlasher": "0x82e01223d51Eb87e16A03E24687EDF0F294da6f1",
       "serviceStaking": "0x2bdCC0de6bE1f7D2ee689a0342D76F52E8EFABa3",
       "oraclePowerRegistry": "0x5133BBdfCCa3Eb4F739D599ee4eC45cBCD0E16c5",
-      "qosMetadataReporterConsensus": "0x8F4ec854Dd12F1fe79500a1f53D0cbB30f9b6134"
+      "qosMetadataReporterConsensus": "0x89Cab72AE1f0C157a3ED74eB67b4B9F2bfEB7868"
     },
     "jns": {
       "registry": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",

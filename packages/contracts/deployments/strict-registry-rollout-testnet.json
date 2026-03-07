@@ -1,0 +1,60 @@
+{
+  "network": "jeju-testnet",
+  "chainId": 420690,
+  "deployedAt": "2026-03-07",
+  "deployer": "0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c",
+  "contracts": {
+    "identityRegistry": {
+      "address": "0x7b341a11abA71F34DC72e5B8551768fDefc50c4e",
+      "txHash": "0x96bc203e8d67a5b942989846c06db064f78e2f273d0b068bc06017dcf65876ed"
+    },
+    "nodeStakingManagerV2Strict": {
+      "address": "0x965535ae2A6Da281c31FbDbD56D93ECB5cb139a0",
+      "txHash": "0xb4d05feef5b16bf331cca84d87451912c264f13a0021dd0b46bd2f45bcaeb9e3"
+    },
+    "qosMetadataReporterConsensus": {
+      "address": "0x89Cab72AE1f0C157a3ED74eB67b4B9F2bfEB7868",
+      "txHash": "0x725528ac932283c2899b6b39dcb1e492cf1ed16f6dd6c882b0d3f13222341efe",
+      "owner": "0x1291be112d480055dafd8a610b7d1e203891c274"
+    }
+  },
+  "postDeployActions": {
+    "jejuStakeTokenEnabledOnNewRegistry": {
+      "token": "0xB224F7607215139130Ea79111358C1908E69F30e",
+      "txHash": "0x27e72499365df9c66f4308a987b05264e239b629945175524e84baf8383c0154"
+    },
+    "strictManagerAuthorizedAsRegistrar": {
+      "txHash": "0x3be18e42e6d75c73c00687160033a836958fd03b1b51fdd37f93b8694b147d7f"
+    },
+    "qosConsensusAuthorizedAsMetadataReporter": {
+      "txHash": "0x21423456f4f02e8587e8d9549f1156ea20ace8e99108fd80cb249ef110de3a54"
+    },
+    "identityRegistryGovernanceTransferredToTimelock": {
+      "timelock": "0x1291be112d480055dafd8a610b7d1e203891c274",
+      "txHash": "0x13fc018ced2e51723e28ba053552b219f0c34183cd328d3d3d9c851e2d7af1d7"
+    },
+    "strictManagerMinimumStakingPeriodSeconds": {
+      "value": 3600
+    }
+  },
+  "frozenManagers": {
+    "rewardAwareManagerV2": {
+      "address": "0x483433A42067E05D8a6451125317FdA1d7D3DD36",
+      "txHash": "0x9a4a67078909e0fd0b2cc51fb6d7157bd1fb352eac01db479ce8ef16496bbc7a"
+    },
+    "supersededRewardAwareManagerV2": {
+      "address": "0x578fAe5FC691310cd25E332CFbe1D4C51d28155C",
+      "txHash": "0x2dae86c39d0c959f47648f22dcf3f3218bc29d534c30869d46507e453935ca40",
+      "owner": "0x1c8D40d6E81289B5a1B6e4E3a2E34eA23d1c2A0E"
+    },
+    "legacyManagerV1": {
+      "address": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
+      "status": "already frozen before this rollout"
+    }
+  },
+  "notes": [
+    "The strict manager reuses the existing reward vault 0x47cD4E989a284e64c17bf16f7966391aCa39efD1 and reward parameters 0x1bBdbaE8B5d9a75AF1f9E292393BeA61Daecb8E4.",
+    "The replacement QoS metadata consensus points at the new registry and is timelock-owned from deployment.",
+    "New node registrations now require strict atomic profile registration with a real node identity agent and ipfs:// metadata URI."
+  ]
+}

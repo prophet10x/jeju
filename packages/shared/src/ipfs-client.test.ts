@@ -4,8 +4,13 @@
  * Tests for IPFS URL generation and CID conversion utilities.
  */
 
-import { describe, expect, test } from 'bun:test'
-import { cidToBytes32, createIPFSClient, getIPFSUrl } from './ipfs-client'
+import { afterEach, describe, expect, test } from 'bun:test'
+import {
+  cidToBytes32,
+  createIPFSClient,
+  fileExistsOnIPFS,
+  getIPFSUrl,
+} from './ipfs-client'
 
 describe('getIPFSUrl', () => {
   describe('basic functionality', () => {
@@ -173,6 +178,103 @@ describe('createIPFSClient', () => {
     const result = client.cidToBytes32('QmTest')
     expect(result.startsWith('0x')).toBe(true)
     expect(result.length).toBe(66)
+  })
+})
+
+describe('fileExistsOnIPFS', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  test('returns true when the legacy /pins endpoint reports a count', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://api.ipfs.example.com/pins?cid=QmTest')
+      return new Response(JSON.stringify({ count: 1 }), { status: 200 })
+    }) as typeof fetch
+
+    await expect(
+      fileExistsOnIPFS('https://api.ipfs.example.com', 'QmTest'),
+    ).resolves.toBe(true)
+  })
+
+  test('falls back to object/stat when /pins is unavailable', async () => {
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push(url)
+
+      if (url.endsWith('/pins?cid=QmTest')) {
+        return new Response('missing', { status: 404 })
+      }
+      if (url.endsWith('/api/v0/object/stat?arg=QmTest')) {
+        expect(init?.method).toBe('POST')
+        return new Response(JSON.stringify({ CumulativeSize: 123 }), {
+          status: 200,
+        })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }) as typeof fetch
+
+    await expect(
+      fileExistsOnIPFS('https://api.ipfs.example.com/', 'QmTest'),
+    ).resolves.toBe(true)
+    expect(calls).toEqual([
+      'https://api.ipfs.example.com/pins?cid=QmTest',
+      'https://api.ipfs.example.com/api/v0/object/stat?arg=QmTest',
+    ])
+  })
+
+  test('falls back to the gateway path when pin/object routes are unavailable', async () => {
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+
+      if (url.endsWith('/pins?cid=QmTest')) {
+        return new Response('missing', { status: 404 })
+      }
+      if (url.endsWith('/api/v0/object/stat?arg=QmTest')) {
+        return new Response('missing', { status: 404 })
+      }
+      if (url.endsWith('/ipfs/QmTest')) {
+        return new Response('ok', { status: 200 })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }) as typeof fetch
+
+    await expect(
+      fileExistsOnIPFS('https://api.ipfs.example.com', 'QmTest'),
+    ).resolves.toBe(true)
+    expect(calls).toEqual([
+      'https://api.ipfs.example.com/pins?cid=QmTest',
+      'https://api.ipfs.example.com/api/v0/object/stat?arg=QmTest',
+      'https://api.ipfs.example.com/ipfs/QmTest',
+    ])
+  })
+
+  test('treats payment-required gateway responses as existing content', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/pins?cid=QmPaid')) {
+        return new Response('missing', { status: 404 })
+      }
+      if (url.endsWith('/api/v0/object/stat?arg=QmPaid')) {
+        return new Response('missing', { status: 404 })
+      }
+      if (url.endsWith('/ipfs/QmPaid')) {
+        return new Response('payment required', { status: 402 })
+      }
+
+      throw new Error(`Unexpected fetch ${url}`)
+    }) as typeof fetch
+
+    await expect(
+      fileExistsOnIPFS('https://api.ipfs.example.com', 'QmPaid'),
+    ).resolves.toBe(true)
   })
 })
 
