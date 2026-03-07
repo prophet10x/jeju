@@ -30,7 +30,7 @@
     }
   },
   "notes": [
-    "packages/config/contracts.json managerV2 remains pointed at 0x22aC5D58e870a4D1F2D536BAE1eB5be49160618d for now to avoid hiding current live nodes before operator-wallet migration.",
-    "Current live V2 nodes are operated by 0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c and must be re-registered onto the new reward-aware manager before cutover/freeze of the old active manager."
+    "packages/config/contracts.json managerV2 was switched to 0x578fAe5FC691310cd25E332CFbe1D4C51d28155C on 2026-03-07.",
+    "Old active manager 0x22aC5D58e870a4D1F2D536BAE1eB5be49160618d was frozen for new registrations by setting minStakeUSD to uint256 max in tx 0x02f3ccd60c730970f0058e3b2b2e25c17630b6fb57c9e9fdd07334ee7fbf2f27."
   ]
 }

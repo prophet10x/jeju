@@ -267,7 +267,7 @@
     },
     "nodeStaking": {
       "manager": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
-      "managerV2": "0x22aC5D58e870a4D1F2D536BAE1eB5be49160618d",
+      "managerV2": "0x578fAe5FC691310cd25E332CFbe1D4C51d28155C",
       "rewardAwareManagerV2": "0x578fAe5FC691310cd25E332CFbe1D4C51d28155C",
       "legacyManagerV1": "0x586b880fB2f6831F1a1AD1E6754861008264816c",
       "registry": "0xaC9fCBA56E42d5960f813B9D0387F3D3bC003338",
