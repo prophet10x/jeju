@@ -110,7 +110,11 @@ contract DeployNodeStakingV2Atomic is Script {
 
             if (copyRuntimeParams) {
                 manager.setMinStakeUSD(oldManager.minStakeUSD());
-                manager.setPaymasterFees(oldManager.paymasterRewardCutBPS(), oldManager.paymasterStakeCutBPS());
+                if (rewardParameters == address(0)) {
+                    manager.setPaymasterFees(oldManager.paymasterRewardCutBPS(), oldManager.paymasterStakeCutBPS());
+                } else {
+                    console.log("NOTICE: reward parameters attached; skipping direct paymaster fee copy.");
+                }
                 manager.setGeographicBonus(oldManager.geographicBonusBPS());
                 manager.setTokenDiversityBonus(oldManager.tokenDiversityBonusBPS());
                 manager.setVolumeBonus(oldManager.volumeBonusPerThousandRequests());

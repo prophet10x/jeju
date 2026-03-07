@@ -1,0 +1,36 @@
+{
+  "network": "jeju-testnet",
+  "chainId": 420690,
+  "deployedAt": "2026-03-07",
+  "deployer": "0x1c8D40d6E81289B5a1B6e4E3a2E34eA23d1c2A0E",
+  "contracts": {
+    "rewardVault": {
+      "address": "0x987d38096b4f71970c11971d572038ee71F23901",
+      "txHash": "0x5027b0de020f69fad92be3d5230169aa6d8b01e979d2722915a9e97792c060f2"
+    },
+    "rewardParameters": {
+      "address": "0xA52bcbE1D4BB30b615767a6E4E43B30900FF8501",
+      "txHash": "0x476f1e5e2fc6dec24713716da88ce5bb9bc0d43553cfc16f32e0c8166314131d",
+      "governance": "0x1291be112d480055dafd8a610b7d1e203891c274"
+    },
+    "rewardAwareManagerV2Atomic": {
+      "address": "0x578fAe5FC691310cd25E332CFbe1D4C51d28155C",
+      "txHash": "0x1a51a04dc5236eb14f66478165062d20717ef8d724af8e7ed42d4e55979ff996"
+    }
+  },
+  "postDeployActions": {
+    "managerAuthorizedOnRewardVault": {
+      "txHash": "0x738c16b8ddc38b61dce2b0740c405c5bd6e3aa01c577e54550437b35035a7058"
+    },
+    "initialRewardFunding": {
+      "token": "0xB224F7607215139130Ea79111358C1908E69F30e",
+      "amount": "100000000000000000000",
+      "approveTxHash": "0x98e5de4206542cd595a409b9159c3564d7cae756f92dbb763ef554bd4e7807fa",
+      "depositTxHash": "0x84a60ce9000154e3f9278da8dd279b62ffd6080ce382468e688cbb79566d986d"
+    }
+  },
+  "notes": [
+    "packages/config/contracts.json managerV2 remains pointed at 0x22aC5D58e870a4D1F2D536BAE1eB5be49160618d for now to avoid hiding current live nodes before operator-wallet migration.",
+    "Current live V2 nodes are operated by 0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c and must be re-registered onto the new reward-aware manager before cutover/freeze of the old active manager."
+  ]
+}
