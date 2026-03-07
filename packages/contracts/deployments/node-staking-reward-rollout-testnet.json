@@ -2,35 +2,41 @@
   "network": "jeju-testnet",
   "chainId": 420690,
   "deployedAt": "2026-03-07",
-  "deployer": "0x1c8D40d6E81289B5a1B6e4E3a2E34eA23d1c2A0E",
+  "deployer": "0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c",
   "contracts": {
     "rewardVault": {
-      "address": "0x987d38096b4f71970c11971d572038ee71F23901",
-      "txHash": "0x5027b0de020f69fad92be3d5230169aa6d8b01e979d2722915a9e97792c060f2"
+      "address": "0x47cD4E989a284e64c17bf16f7966391aCa39efD1",
+      "txHash": "0x83c64b182b57172cd7f6e4b4b0917361c95561efa26148122390ebe6d393d230"
     },
     "rewardParameters": {
-      "address": "0xA52bcbE1D4BB30b615767a6E4E43B30900FF8501",
-      "txHash": "0x476f1e5e2fc6dec24713716da88ce5bb9bc0d43553cfc16f32e0c8166314131d",
-      "governance": "0x1291be112d480055dafd8a610b7d1e203891c274"
+      "address": "0x1bBdbaE8B5d9a75AF1f9E292393BeA61Daecb8E4",
+      "txHash": "0x9057572462c2c458877ca7a8800612d971b1f9fb4ee8065b44aed1f0ad550ccc",
+      "governance": "0x86d240bFf6C1Fdc0A5a4D7e371E59F0938f1666c"
     },
     "rewardAwareManagerV2Atomic": {
-      "address": "0x578fAe5FC691310cd25E332CFbe1D4C51d28155C",
-      "txHash": "0x1a51a04dc5236eb14f66478165062d20717ef8d724af8e7ed42d4e55979ff996"
+      "address": "0x483433A42067E05D8a6451125317FdA1d7D3DD36",
+      "txHash": "0x29a9a1017c68713beff15c2925ace5c3421ad77f079c07f4bd9c4a0ff23883e8"
     }
   },
   "postDeployActions": {
     "managerAuthorizedOnRewardVault": {
-      "txHash": "0x738c16b8ddc38b61dce2b0740c405c5bd6e3aa01c577e54550437b35035a7058"
+      "txHash": "0xde19a69b7883a0f4c9504bb95db32fa49cc2949d1b992d515eae12eaf7362e68"
+    },
+    "minStakingPeriodUpdated": {
+      "seconds": 3600,
+      "txHash": "0x53270a7ee1c5d4b5cc91e7944b87f2a5ba1b7cc92ce8c0769be680e18bb9ab07"
     },
     "initialRewardFunding": {
       "token": "0xB224F7607215139130Ea79111358C1908E69F30e",
-      "amount": "100000000000000000000",
-      "approveTxHash": "0x98e5de4206542cd595a409b9159c3564d7cae756f92dbb763ef554bd4e7807fa",
-      "depositTxHash": "0x84a60ce9000154e3f9278da8dd279b62ffd6080ce382468e688cbb79566d986d"
+      "amount": "100000000000000000000000",
+      "approveTxHash": "0xe57384cd405fefa434ce6b4d3858fbade20ce13bedb31a17b48f6c5c0c490659",
+      "depositTxHash": "0xcb72a4b6c15d766feb02a5e273b19f99636f3e09f0a42a7f9f9b9345518bb5c8"
     }
   },
   "notes": [
-    "packages/config/contracts.json managerV2 was switched to 0x578fAe5FC691310cd25E332CFbe1D4C51d28155C on 2026-03-07.",
-    "Old active manager 0x22aC5D58e870a4D1F2D536BAE1eB5be49160618d was frozen for new registrations by setting minStakeUSD to uint256 max in tx 0x02f3ccd60c730970f0058e3b2b2e25c17630b6fb57c9e9fdd07334ee7fbf2f27."
+    "packages/config/contracts.json managerV2 was switched to 0x483433A42067E05D8a6451125317FdA1d7D3DD36 on 2026-03-07.",
+    "Legacy manager 0x586b880fB2f6831F1a1AD1E6754861008264816c remains frozen for new registrations.",
+    "Previous reward-aware manager 0x578fAe5FC691310cd25E332CFbe1D4C51d28155C remains onchain but does not include the governable minStakingPeriod patch.",
+    "The new reward parameter contract is temporarily governed by the deployer EOA so minStakingPeriod could be set to 1 hour immediately without waiting for DAO execution."
   ]
 }
