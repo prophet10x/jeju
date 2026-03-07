@@ -55,4 +55,8 @@ The `packages/contracts/` directory contains `src/` with subdirectories for toke
 
 ## Security
 
-Production deployments use Gnosis Safe multi-sig ownership. Upgradeable contracts use the OpenZeppelin UUPS pattern. All contracts are audited before mainnet deployment. A bug bounty program is active.
+Production deployments use Safe multi-sig ownership, and some upgradeable flows use OpenZeppelin UUPS patterns where applicable.
+
+Current audit coverage is narrower than the full contracts surface. The only documented in-repo audit artifact is a historical January 2, 2026 AI review for specific EIL contracts, and it does not cover the broader February-March 2026 staking, delegated-wallet, paymaster, governance, or moderation work.
+
+See [Contracts Security Status](/contracts/security) for the current coverage summary and safe wording.

@@ -177,6 +177,7 @@ export default defineConfig({
         text: 'Contracts',
         items: [
           { text: 'Overview', link: '/contracts/overview' },
+          { text: 'Security Status', link: '/contracts/security' },
           { text: 'Identity', link: '/contracts/identity' },
           { text: 'Payments', link: '/contracts/payments' },
           { text: 'Tokens', link: '/contracts/tokens' },

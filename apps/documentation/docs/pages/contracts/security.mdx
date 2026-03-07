@@ -1,0 +1,67 @@
+# Contracts Security Status
+
+Current documentation status as of March 7, 2026.
+
+This page summarizes what the repository actually documents about smart-contract security coverage today. It is a status page, not an audit report.
+
+## Bottom Line
+
+- Jeju does not currently have a documented comprehensive in-repo audit covering the full `packages/contracts` surface.
+- The only in-repo audit artifact is a historical automated AI review for two EIL contracts:
+  - `CrossChainPaymasterUpgradeable`
+  - `L1StakeManager`
+- That review predates the February-March 2026 staking, delegated-wallet, paymaster, governance, and moderation changes.
+
+## What Exists Today
+
+- `packages/contracts/SECURITY_AUDIT.md`
+  - Historical January 2, 2026 AI review
+  - Narrow scope
+  - Not a full contracts audit
+- `DEPLOYMENT-HARDENING.md`
+  - Operational rollout and hardening checklist
+  - Useful for releases and incident prevention
+  - Not an audit
+- `packages/contracts/test/*.t.sol`
+  - Behavioral and regression coverage
+  - Tests are not audit coverage
+
+## Highest-Churn Areas Not Covered By The Historical Review
+
+Post-February 2026 contract work is concentrated in:
+
+- Staking and node registration
+- Identity / delegated wallet flow
+- Paymaster and credit path
+- Governance / upgrade control
+- Moderation refactors
+
+Those are the areas that should be treated as the current unaudited surface unless a newer review artifact lands.
+
+## Accurate Claims
+
+What is safe to say:
+
+- There is a limited historical AI-generated review for specific EIL contracts.
+- The repo contains tests and deployment-hardening documents.
+- The repo does not currently document a comprehensive full-surface audit for `packages/contracts`.
+
+What should not be said:
+
+- "All contracts are audited"
+- "Regular audits cover the contracts package"
+- "`packages/contracts` is audited" without naming exact files and dates
+
+## Canonical Repo Reference
+
+The canonical repo-truth source for this status is:
+
+- `packages/contracts/CONTRACTS_SECURITY_STATUS.md`
+
+That file should be updated first whenever a new manual review, third-party audit, or formal verification artifact lands.
+
+## Related
+
+- [Contracts Overview](/contracts/overview)
+- [Contracts Package](/packages/contracts)
+- [Contract Deployment](/deployment/contracts)
