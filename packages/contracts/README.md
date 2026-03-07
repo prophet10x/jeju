@@ -112,7 +112,7 @@ ENABLE_FAUCET=true forge script script/DeployJejuToken.s.sol --rpc-url $RPC_URL 
 bun run scripts/deploy-jeju-token.ts --network mainnet --safe 0x...
 ```
 
-See [Deployment Runbook](./DEPLOYMENT_RUNBOOK.md) for detailed instructions.
+See [Deployment Guide](./DEPLOYMENT.md) for current deployment phases and [Contracts Security Status](./CONTRACTS_SECURITY_STATUS.md) for current audit coverage.
 
 ## Development
 
@@ -136,6 +136,8 @@ forge test --gas-report
 - BanManager integration allows network-wide moderation
 - ModerationMarketplace uses futarchy for decentralized bans
 - Ban-exempt addresses allow appeals via staking
+- Current coverage summary: [Contracts Security Status](./CONTRACTS_SECURITY_STATUS.md)
+- Historical limited review: [Security Audit Checklist](./SECURITY_AUDIT.md) for the January 2, 2026 EIL AI review
 
 ## License
 

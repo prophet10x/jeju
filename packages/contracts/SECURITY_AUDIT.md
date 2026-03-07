@@ -1,5 +1,7 @@
 # Security Audit Checklist
 
+> Historical artifact: this is a January 2, 2026 automated AI review for `CrossChainPaymasterUpgradeable` and `L1StakeManager` only. It is not a comprehensive audit of `packages/contracts`. See [CONTRACTS_SECURITY_STATUS.md](./CONTRACTS_SECURITY_STATUS.md) for current coverage status.
+
 This document outlines the security review of the CrossChainPaymasterUpgradeable and L1StakeManager contracts.
 
 ## Audit Summary
@@ -128,5 +130,4 @@ January 2, 2026
 AI Security Review (Claude Opus 4.5)
 
 **⚠️ IMPORTANT:** This is an automated security review. A professional third-party audit is required before mainnet deployment.
-
 
