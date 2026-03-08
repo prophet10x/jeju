@@ -59,7 +59,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <WagmiProvider config={config}>
+        <WagmiProvider config={config} reconnectOnMount={false}>
           <QueryClientProvider client={queryClient}>
             <GatewayOAuth3Provider>
               <ToastProvider>

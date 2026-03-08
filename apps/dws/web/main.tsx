@@ -84,7 +84,7 @@ if (root) {
   createRoot(root).render(
     <StrictMode>
       <ErrorBoundary>
-        <WagmiProvider config={config}>
+        <WagmiProvider config={config} reconnectOnMount={false}>
           <QueryClientProvider client={queryClient}>
             <OAuth3Provider
               config={
