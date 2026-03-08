@@ -77,6 +77,10 @@ export function LoginModal({
     onClose()
   }, [onSuccess, onClose])
 
+  const handleProviderError = useCallback((err: Error) => {
+    setError(err.message || 'Login failed')
+  }, [])
+
   const handleEmailSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
@@ -234,6 +238,7 @@ export function LoginModal({
           <>
             <h2 style={titleStyle}>{title}</h2>
             <p style={subtitleStyle}>{subtitle}</p>
+            {error && <p style={errorStyle}>{error}</p>}
 
             <div
               style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
@@ -243,6 +248,7 @@ export function LoginModal({
                   key={provider}
                   provider={provider}
                   onSuccess={handleSuccess}
+                  onError={handleProviderError}
                   style={{ width: '100%' }}
                 />
               ))}

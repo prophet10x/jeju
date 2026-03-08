@@ -13,6 +13,7 @@ import type { Chain, Hex } from 'viem'
 import { createConfig, http } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 import { createTestWalletProvider } from './testWalletProvider'
+import type { EIP1193Provider } from 'viem'
 
 export interface ChainConfig {
   id: number
@@ -66,6 +67,32 @@ function isHostAllowlisted(currentHost: string, allowlist: string[]): boolean {
   })
 }
 
+function installGlobalTestProvider(provider: EIP1193Provider) {
+  if (typeof window === 'undefined') return
+
+  const testProvider = provider as EIP1193Provider & {
+    isJejuTestWallet?: boolean
+  }
+  testProvider.isJejuTestWallet = true
+
+  const currentEthereum = (window as { ethereum?: unknown }).ethereum as
+    | (EIP1193Provider & { providers?: EIP1193Provider[] })
+    | undefined
+
+  if (!currentEthereum) {
+    ;(window as { ethereum?: EIP1193Provider }).ethereum = testProvider
+    return
+  }
+
+  const existingProviders = Array.isArray(currentEthereum.providers)
+    ? currentEthereum.providers
+    : [currentEthereum]
+
+  if (!existingProviders.includes(testProvider)) {
+    currentEthereum.providers = [testProvider, ...existingProviders]
+  }
+}
+
 function createTestWalletConnector(
   testWallet: TestWalletConfig | undefined,
   chains: readonly Chain[],
@@ -99,6 +126,7 @@ function createTestWalletConnector(
     chains,
     privateKey,
   })
+  installGlobalTestProvider(provider)
 
   return injected({
     shimDisconnect: true,

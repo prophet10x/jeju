@@ -9,8 +9,9 @@ import {
   getConfiguredAddress,
   predictSimpleAccountAddress,
 } from "@jejunetwork/shared/gasless";
+import { useJejuAuth } from "@jejunetwork/auth/react";
 import { useQuery } from "@tanstack/react-query";
-import { useAccount, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
 import { CONTRACTS, getNodeStakingReadAddresses } from "../config";
 import { fetchApi } from "../lib/eden";
 import { useGaslessSmartAccount } from "./useGaslessSmartAccount";
@@ -144,19 +145,23 @@ function getNodeStakingContracts(): `0x${string}`[] {
 }
 
 function useResolvedOperatorAddresses() {
-  const { address } = useAccount();
+  const { authenticated, walletAddress } = useJejuAuth();
   const publicClient = usePublicClient();
   const gasless = useGaslessSmartAccount();
+  const ownerAddress =
+    authenticated && walletAddress
+      ? (walletAddress as `0x${string}`)
+      : undefined;
 
   const { data: predictedSmartAccountAddress } = useQuery({
     queryKey: [
       "staking",
       "predicted-smart-account",
-      address,
+      ownerAddress,
       CONTRACTS.simpleAccountFactory,
     ],
     queryFn: async () => {
-      if (!address || !publicClient) return null;
+      if (!ownerAddress || !publicClient) return null;
       const factoryAddress = getConfiguredAddress(
         CONTRACTS.simpleAccountFactory,
       );
@@ -165,19 +170,19 @@ function useResolvedOperatorAddresses() {
         return await predictSimpleAccountAddress({
           publicClient,
           factoryAddress,
-          ownerAddress: address,
+          ownerAddress,
         });
       } catch {
         return null;
       }
     },
-    enabled: Boolean(address && publicClient),
+    enabled: Boolean(ownerAddress && publicClient),
     staleTime: 60_000,
   });
 
   return Array.from(
     new Set(
-      [address, gasless.smartAccountAddress, predictedSmartAccountAddress]
+      [ownerAddress, gasless.smartAccountAddress, predictedSmartAccountAddress]
         .filter((value): value is string => Boolean(value))
         .map((value) => value.toLowerCase()),
     ),

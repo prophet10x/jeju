@@ -48,7 +48,7 @@ const providerIcons: Record<AuthProvider, string> = {
 export function LoginButton({
   provider = AuthProvider.WALLET,
   onSuccess,
-  onError: _onError,
+  onError,
   className = '',
   style,
   children,
@@ -65,13 +65,22 @@ export function LoginButton({
       await login(provider)
       onSuccess?.()
     } catch (err) {
-      console.error(`[LoginButton] ${provider} login failed:`, err)
-      // Still close the modal - wallet may be connected even if OAuth3 session failed
-      onSuccess?.()
+      const normalizedError =
+        err instanceof Error ? err : new Error('Login failed')
+      console.error(`[LoginButton] ${provider} login failed:`, normalizedError)
+      onError?.(normalizedError)
     } finally {
       setIsButtonLoading(false)
     }
-  }, [login, provider, isLoading, isButtonLoading, disabled, onSuccess])
+  }, [
+    login,
+    provider,
+    isLoading,
+    isButtonLoading,
+    disabled,
+    onSuccess,
+    onError,
+  ])
 
   const buttonLabel = children ?? (
     <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

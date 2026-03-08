@@ -6,6 +6,7 @@ import {
   getConfiguredAddress,
   predictSimpleAccountAddress,
 } from '@jejunetwork/shared/gasless'
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, type Hex } from 'viem'
 import {
@@ -98,6 +99,7 @@ function toNetworkStats(value: unknown): [bigint, bigint, bigint] | null {
 
 export function useNodeStaking() {
   const { address: userAddress } = useAccount()
+  const { authenticated, walletAddress } = useJejuAuth()
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
   const [predictedSmartAccountAddress, setPredictedSmartAccountAddress] =
@@ -113,6 +115,8 @@ export function useNodeStaking() {
   ] = useState<boolean | null>(null)
   const resolvedSmartAccountAddress =
     gasless.smartAccountAddress ?? predictedSmartAccountAddress
+  const ownerAddressForLookup =
+    authenticated && walletAddress ? (walletAddress as Address) : undefined
   const stakingManager = useMemo(
     () => getNodeStakingAddress(resolvedSmartAccountAddress ?? userAddress),
     [resolvedSmartAccountAddress, userAddress],
@@ -152,7 +156,7 @@ export function useNodeStaking() {
     let cancelled = false
 
     async function resolveSmartAccountAddress() {
-      if (!publicClient || !userAddress) {
+      if (!publicClient || !ownerAddressForLookup) {
         setPredictedSmartAccountAddress(undefined)
         return
       }
@@ -169,7 +173,7 @@ export function useNodeStaking() {
         const predictedAddress = await predictSimpleAccountAddress({
           publicClient,
           factoryAddress,
-          ownerAddress: userAddress,
+          ownerAddress: ownerAddressForLookup,
         })
         if (!cancelled) {
           setPredictedSmartAccountAddress(predictedAddress)
@@ -186,7 +190,7 @@ export function useNodeStaking() {
     return () => {
       cancelled = true
     }
-  }, [publicClient, userAddress])
+  }, [ownerAddressForLookup, publicClient])
 
   const probeAtomicNodeIdentityRegistrationSupport = useCallback(async () => {
     if (
@@ -243,14 +247,18 @@ export function useNodeStaking() {
 
   const operatorAddresses = useMemo(() => {
     const addresses = [
-      userAddress,
+      ownerAddressForLookup,
       gasless.smartAccountAddress,
       predictedSmartAccountAddress,
     ].filter((address): address is Address => Boolean(address))
     return Array.from(
       new Set(addresses.map((address) => address.toLowerCase())),
     ).map((address) => address as Address)
-  }, [gasless.smartAccountAddress, predictedSmartAccountAddress, userAddress])
+  }, [
+    gasless.smartAccountAddress,
+    ownerAddressForLookup,
+    predictedSmartAccountAddress,
+  ])
 
   const stakingReadManagers = useMemo(() => getNodeStakingReadAddresses(), [])
 
@@ -293,10 +301,12 @@ export function useNodeStaking() {
   const { data: operatorNodeResults, refetch: refetchOperatorNodes } =
     useReadContracts({
       contracts: operatorNodeContracts,
+      query: { enabled: operatorNodeContracts.length > 0 },
     })
 
   const { data: operatorStatsResults } = useReadContracts({
     contracts: operatorStatsContracts,
+    query: { enabled: operatorStatsContracts.length > 0 },
   })
 
   const { data: networkStatsResults } = useReadContracts({
@@ -563,6 +573,7 @@ export function useNodeStaking() {
 
   const { data: operatorNodeInfoResults } = useReadContracts({
     contracts: operatorNodeInfoContracts,
+    query: { enabled: operatorNodeInfoContracts.length > 0 },
   })
 
   const operatorNodeInfoById = useMemo(() => {
