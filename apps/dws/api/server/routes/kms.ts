@@ -140,7 +140,9 @@ function evaluateHsmAvailability(): boolean {
 async function evaluateHsmEvidence(hsmAvailable: boolean): Promise<boolean> {
   if (!hsmAvailable) return false
   const endpoint = process.env.HSM_ENDPOINT?.trim()
+  const keyId = process.env.HSM_KEY_ID?.trim()
   if (!endpoint) return false
+  if (!keyId) return false
 
   try {
     const isVaultTransit = endpoint.includes('/v1/transit')
