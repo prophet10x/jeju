@@ -9,8 +9,10 @@
  */
 
 import { getL2RpcUrl } from '@jejunetwork/config'
+import type { Chain, Hex } from 'viem'
 import { createConfig, http } from 'wagmi'
 import { injected } from 'wagmi/connectors'
+import { createTestWalletProvider } from './testWalletProvider'
 
 export interface ChainConfig {
   id: number
@@ -30,6 +32,82 @@ export interface ChainConfig {
 export interface CreateWagmiConfigOptions {
   chains: ChainConfig[]
   appName?: string
+  testWallet?: TestWalletConfig
+}
+
+export interface TestWalletConfig {
+  enabled?: boolean
+  privateKey?: string
+  label?: string
+  hostAllowlist?: string[]
+}
+
+const TEST_WALLET_DEFAULT_LABEL = 'Jeju Test Wallet'
+
+function normalizePrivateKey(value?: string): Hex | null {
+  if (!value) return null
+  const normalized = value.startsWith('0x') ? value : `0x${value}`
+  if (!/^0x[a-fA-F0-9]{64}$/.test(normalized)) return null
+  return normalized as Hex
+}
+
+function normalizeHostAllowlist(hostAllowlist?: string[]): string[] {
+  return (hostAllowlist ?? [])
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function isHostAllowlisted(currentHost: string, allowlist: string[]): boolean {
+  const normalizedHost = currentHost.trim().toLowerCase()
+  return allowlist.some((entry) => {
+    if (entry === '*') return true
+    if (normalizedHost === entry) return true
+    return normalizedHost.endsWith(`.${entry}`)
+  })
+}
+
+function createTestWalletConnector(
+  testWallet: TestWalletConfig | undefined,
+  chains: readonly Chain[],
+) {
+  if (!testWallet?.enabled) return null
+
+  const privateKey = normalizePrivateKey(testWallet.privateKey)
+  if (!privateKey) {
+    throw new Error(
+      'VITE_TEST_WALLET_PRIVATE_KEY must be a 32-byte hex private key when VITE_ENABLE_TEST_WALLET=true.',
+    )
+  }
+
+  const hostAllowlist = normalizeHostAllowlist(testWallet.hostAllowlist)
+  if (hostAllowlist.length === 0) {
+    throw new Error(
+      'VITE_ENABLE_TEST_WALLET=true requires an explicit host allowlist (for example VITE_TEST_WALLET_HOST_ALLOWLIST=localhost,127.0.0.1).',
+    )
+  }
+
+  if (typeof window !== 'undefined') {
+    const currentHost = window.location.hostname
+    if (!isHostAllowlisted(currentHost, hostAllowlist)) {
+      throw new Error(
+        `Test wallet refused to boot on host "${currentHost}". Allowed hosts: ${hostAllowlist.join(', ')}`,
+      )
+    }
+  }
+
+  const provider = createTestWalletProvider({
+    chains,
+    privateKey,
+  })
+
+  return injected({
+    shimDisconnect: true,
+    target: {
+      id: 'jeju-test-wallet',
+      name: testWallet.label ?? TEST_WALLET_DEFAULT_LABEL,
+      provider: () => provider,
+    },
+  })
 }
 
 /**
@@ -38,6 +116,7 @@ export interface CreateWagmiConfigOptions {
  */
 export function createDecentralizedWagmiConfig({
   chains,
+  testWallet,
 }: CreateWagmiConfigOptions) {
   if (chains.length === 0) {
     throw new Error('At least one chain config is required')
@@ -66,13 +145,20 @@ export function createDecentralizedWagmiConfig({
     transports[chain.id] = http(chain.rpcUrl)
   }
 
+  const typedChains = wagmiChains as [Chain, ...Chain[]]
+  const connectors = [
+    injected({
+      shimDisconnect: true,
+    }),
+  ]
+  const testWalletConnector = createTestWalletConnector(testWallet, typedChains)
+  if (testWalletConnector) {
+    connectors.unshift(testWalletConnector)
+  }
+
   return createConfig({
-    chains: wagmiChains as [(typeof wagmiChains)[0], ...typeof wagmiChains],
-    connectors: [
-      injected({
-        shimDisconnect: true,
-      }),
-    ],
+    chains: typedChains,
+    connectors,
     transports,
     ssr: false,
   })

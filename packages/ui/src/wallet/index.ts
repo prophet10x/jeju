@@ -26,6 +26,7 @@
 export {
   type ChainConfig,
   type CreateWagmiConfigOptions,
+  type TestWalletConfig,
   createDecentralizedWagmiConfig,
   ETHEREUM_MAINNET,
   JEJU_CHAINS,

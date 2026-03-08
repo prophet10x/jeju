@@ -6,7 +6,7 @@
  * In-process MPC for testnet, distributed parties for mainnet.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { getLocalhostHost, getOAuth3Url } from '@jejunetwork/config'
 import { getSQLit, type SQLitClient } from '@jejunetwork/db'
@@ -62,11 +62,123 @@ const CURVE_ORDER = secp256k1.CURVE.n
 const PERSISTENCE_ASSOCIATED_DATA = new TextEncoder().encode('jeju:dws:kms:v1')
 const KMS_AUTH_MAX_CLOCK_SKEW_SECONDS = 300
 const KMS_AUTH_VERIFY_TIMEOUT_MS = 5000
+const KMS_HEALTH_PROBE_TIMEOUT_MS = 4000
+const TEE_ATTESTATION_STATUS_FILE = resolve(
+  process.cwd(),
+  process.env.TEE_ATTESTATION_STATUS_FILE ??
+    '/var/run/jeju/kms-attestation.json',
+)
+
+let securityEvidenceCache:
+  | {
+      cachedAt: number
+      teeAttested: boolean
+      hsmConfigured: boolean
+    }
+  | null = null
 
 let sqlitClient: SQLitClient | null = null
 let tablesInitialized = false
 let keysLoaded = false
 let keysRestoredAt: number | null = null
+
+async function hasPath(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function evaluateTeeEvidence(): Promise<boolean> {
+  const enclaveId = process.env.TEE_ENCLAVE_ID?.trim()
+  if (!enclaveId) return false
+
+  const hardwareDevicePaths = [
+    '/dev/nitro_enclaves',
+    '/dev/sev-guest',
+    '/dev/sgx_enclave',
+    '/dev/sgx',
+  ]
+  const hasTeeDevice = await Promise.all(hardwareDevicePaths.map(hasPath)).then(
+    (results) => results.some(Boolean),
+  )
+  if (!hasTeeDevice) return false
+
+  try {
+    const raw = await readFile(TEE_ATTESTATION_STATUS_FILE, 'utf8')
+    const parsed = JSON.parse(raw) as {
+      verified?: boolean
+      enclaveId?: string
+      verifiedAt?: number
+    }
+    if (!parsed.verified) return false
+    if (parsed.enclaveId && parsed.enclaveId !== enclaveId) return false
+    if (
+      typeof parsed.verifiedAt === 'number' &&
+      parsed.verifiedAt <= 0
+    ) {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function evaluateHsmEvidence(): Promise<boolean> {
+  const endpoint = process.env.HSM_ENDPOINT?.trim()
+  if (!endpoint) return false
+
+  try {
+    const isVaultTransit = endpoint.includes('/v1/transit')
+    const probeUrl = isVaultTransit
+      ? (() => {
+          const url = new URL(endpoint)
+          url.pathname = '/v1/sys/health'
+          return url.toString()
+        })()
+      : endpoint
+
+    const response = await fetch(probeUrl, {
+      method: isVaultTransit ? 'GET' : 'POST',
+      headers: isVaultTransit
+        ? undefined
+        : {
+            'Content-Type': 'application/json',
+          },
+      body: isVaultTransit ? undefined : '{}',
+      signal: AbortSignal.timeout(KMS_HEALTH_PROBE_TIMEOUT_MS),
+    })
+
+    // 2xx, 3xx, 4xx all prove endpoint reachability/configuration for this check.
+    return response.status > 0 && response.status < 500
+  } catch {
+    return false
+  }
+}
+
+async function getSecurityEvidence(): Promise<{
+  teeAttested: boolean
+  hsmConfigured: boolean
+}> {
+  const now = Date.now()
+  if (securityEvidenceCache && now - securityEvidenceCache.cachedAt < 30_000) {
+    return securityEvidenceCache
+  }
+
+  const [teeAttested, hsmConfigured] = await Promise.all([
+    evaluateTeeEvidence(),
+    evaluateHsmEvidence(),
+  ])
+  securityEvidenceCache = {
+    cachedAt: now,
+    teeAttested,
+    hsmConfigured,
+  }
+  return securityEvidenceCache
+}
 
 async function getSQLitClient(): Promise<SQLitClient> {
   if (!sqlitClient) {
@@ -115,6 +227,7 @@ const frostCoordinators = new Map<string, FROSTCoordinator>()
 // Key metadata storage
 interface StoredKey {
   keyId: string
+  name: string
   owner: Address
   publicKey: Hex
   address: Address
@@ -149,6 +262,7 @@ interface SecretRow {
 
 interface PersistedKeyState {
   keyId: string
+  name?: string
   owner: Address
   threshold: number
   totalParties: number
@@ -289,6 +403,7 @@ function serializeKeyState(
 
   return {
     keyId: key.keyId,
+    name: key.name,
     owner: key.owner,
     threshold: key.threshold,
     totalParties: key.totalParties,
@@ -348,6 +463,12 @@ function restoreCoordinatorFromState(state: PersistedKeyState): {
   return {
     key: {
       keyId: state.keyId,
+      name:
+        state.name ??
+        state.metadata.name ??
+        state.metadata.label ??
+        state.metadata.serviceId ??
+        'threshold-key',
       owner: state.owner,
       publicKey: groupPublicKey,
       address: groupAddress,
@@ -621,7 +742,7 @@ function isProxyRequest(request: Request): boolean {
   )
 }
 
-function getOAuth3SessionValidateUrl(): string {
+function getOAuth3BaseUrl(): string {
   const configured = process.env.KMS_OAUTH3_URL ?? process.env.OAUTH3_URL
   let discoveredOAuth3Url: string | null = null
   if (!configured) {
@@ -633,7 +754,54 @@ function getOAuth3SessionValidateUrl(): string {
   }
   const baseUrl =
     configured ?? discoveredOAuth3Url ?? `http://${getLocalhostHost()}:4200`
-  return `${baseUrl.replace(/\/+$/, '')}/session/validate`
+  return baseUrl.replace(/\/+$/, '')
+}
+
+function getOAuth3SessionValidateUrl(): string {
+  return `${getOAuth3BaseUrl()}/session/validate`
+}
+
+function getOAuth3SessionVerifyUrl(token: string): string {
+  return `${getOAuth3BaseUrl()}/session/verify?token=${encodeURIComponent(token)}`
+}
+
+async function fetchOAuth3SessionPayload(
+  token: string,
+): Promise<Record<string, unknown> | null> {
+  const validateResponse = await fetch(getOAuth3SessionValidateUrl(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+    signal: AbortSignal.timeout(KMS_AUTH_VERIFY_TIMEOUT_MS),
+  })
+  if (validateResponse.ok) {
+    return (await validateResponse.json()) as Record<string, unknown>
+  }
+
+  // Standalone OAuth3 app exposes GET /session/verify?token=... instead of
+  // POST /session/validate. Support both so KMS auth works on either host.
+  if (
+    validateResponse.status !== 404 &&
+    validateResponse.status !== 405 &&
+    validateResponse.status !== 500
+  ) {
+    return null
+  }
+
+  const verifyResponse = await fetch(getOAuth3SessionVerifyUrl(token), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    signal: AbortSignal.timeout(KMS_AUTH_VERIFY_TIMEOUT_MS),
+  })
+  if (!verifyResponse.ok) return null
+
+  return (await verifyResponse.json()) as Record<string, unknown>
 }
 
 function extractBearerToken(request: Request): string | null {
@@ -651,18 +819,8 @@ async function validateOwnerWithOAuth3Session(
   if (!token) return false
 
   try {
-    const response = await fetch(getOAuth3SessionValidateUrl(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: '{}',
-      signal: AbortSignal.timeout(KMS_AUTH_VERIFY_TIMEOUT_MS),
-    })
-    if (!response.ok) return false
-
-    const payload = (await response.json()) as Record<string, unknown>
+    const payload = await fetchOAuth3SessionPayload(token)
+    if (!payload) return false
     const sessionAddress = parseAddress(
       typeof payload.smartAccount === 'string'
         ? payload.smartAccount
@@ -670,6 +828,11 @@ async function validateOwnerWithOAuth3Session(
           ? payload.address
           : typeof payload.walletAddress === 'string'
             ? payload.walletAddress
+            : payload.session &&
+                typeof payload.session === 'object' &&
+                  typeof (payload.session as Record<string, unknown>).address ===
+                    'string'
+              ? ((payload.session as Record<string, unknown>).address as string)
             : null,
     )
     return sessionAddress?.toLowerCase() === owner.toLowerCase()
@@ -781,6 +944,7 @@ export function createKMSRouter() {
       .get('/health', () => {
         return (async () => {
           await ensurePersistedKeysLoaded()
+          const securityEvidence = await getSecurityEvidence()
           const activeSessions = Array.from(signingSessions.values()).filter(
             (s) => s.status === 'pending' || s.status === 'signing',
           ).length
@@ -794,6 +958,9 @@ export function createKMSRouter() {
             persistentKeys: keys.size,
             secrets: secrets.size,
             activeSessions,
+            teeAttested: securityEvidence.teeAttested,
+            hsmConfigured: securityEvidence.hsmConfigured,
+            kmsEndpointConfigured: Boolean(process.env.KMS_ENDPOINT),
             persistenceEnabled: isPersistenceEnabled(),
             persistenceBackend: getPersistenceBackend(),
             persistenceFile: KMS_STATE_FILE,
@@ -868,6 +1035,7 @@ export function createKMSRouter() {
             if (existingKey) {
               return {
                 keyId: existingKey.keyId,
+                name: existingKey.name,
                 publicKey: existingKey.publicKey,
                 address: existingKey.address,
                 threshold: existingKey.threshold,
@@ -914,12 +1082,14 @@ export function createKMSRouter() {
         frostCoordinators.set(keyId, coordinator)
 
         const metadata = validBody.metadata ? { ...validBody.metadata } : {}
+        metadata.name ??= validBody.name
         if (serviceId) {
           metadata.serviceId = serviceId
         }
 
         const key: StoredKey = {
           keyId,
+          name: validBody.name,
           owner,
           publicKey: cluster.groupPublicKey,
           address: cluster.groupAddress,
@@ -939,6 +1109,7 @@ export function createKMSRouter() {
         set.status = 201
         return {
           keyId,
+          name: key.name,
           publicKey: key.publicKey,
           address: key.address,
           threshold,
@@ -964,6 +1135,7 @@ export function createKMSRouter() {
           return {
             keys: keyList.map((k) => ({
               keyId: k.keyId,
+              name: k.name,
               publicKey: k.publicKey,
               address: k.address,
               threshold: k.threshold,
@@ -999,6 +1171,7 @@ export function createKMSRouter() {
 
           return {
             keyId: key.keyId,
+            name: key.name,
             publicKey: key.publicKey,
             address: key.address,
             threshold: key.threshold,

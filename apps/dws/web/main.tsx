@@ -22,6 +22,14 @@ import { CHAIN_ID, NETWORK, OAUTH3_AGENT_URL, RPC_URL } from './config'
 import { AppProvider } from './context/AppContext'
 import './styles/index.css'
 
+function getDwsRouterBasename(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.pathname === '/dws' ||
+    window.location.pathname.startsWith('/dws/')
+    ? '/dws'
+    : ''
+}
+
 const jejuChain = {
   id: CHAIN_ID,
   name:
@@ -34,10 +42,23 @@ const jejuChain = {
   testnet: NETWORK !== 'mainnet',
 }
 
+const testWalletAllowlist = (
+  import.meta.env.VITE_TEST_WALLET_HOST_ALLOWLIST ?? ''
+)
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean)
+
 // Create decentralized config - no WalletConnect, no external dependencies
 const config = createDecentralizedWagmiConfig({
   chains: [jejuChain],
   appName: 'DWS Console',
+  testWallet: {
+    enabled: import.meta.env.VITE_ENABLE_TEST_WALLET === 'true',
+    privateKey: import.meta.env.VITE_TEST_WALLET_PRIVATE_KEY,
+    label: import.meta.env.VITE_TEST_WALLET_LABEL,
+    hostAllowlist: testWalletAllowlist,
+  },
 })
 
 const queryClient = new QueryClient({
@@ -53,6 +74,11 @@ const queryClient = new QueryClient({
   },
 })
 
+const routerBasename = getDwsRouterBasename()
+const authCallbackPath = routerBasename
+  ? `${routerBasename}/auth/callback`
+  : '/auth/callback'
+
 const root = document.getElementById('root')
 if (root) {
   createRoot(root).render(
@@ -64,7 +90,7 @@ if (root) {
               config={
                 {
                   appId: 'dws.apps.jeju',
-                  redirectUri: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
+                  redirectUri: `${typeof window !== 'undefined' ? window.location.origin : ''}${authCallbackPath}`,
                   chainId: CHAIN_ID,
                   rpcUrl: RPC_URL,
                   teeAgentUrl: OAUTH3_AGENT_URL,
@@ -76,7 +102,7 @@ if (root) {
               autoConnect={true}
             >
               <AppProvider>
-                <BrowserRouter>
+                <BrowserRouter basename={routerBasename || undefined}>
                   <App />
                   <OnboardingModal />
                   <ToastContainer />

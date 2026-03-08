@@ -76,6 +76,12 @@ interface ImportMetaEnv {
   readonly PUBLIC_LEADERBOARD_API_URL?: string
   readonly PUBLIC_EXPLORER_URL?: string
 
+  // Non-production test wallet harness
+  readonly VITE_ENABLE_TEST_WALLET?: string
+  readonly VITE_TEST_WALLET_PRIVATE_KEY?: string
+  readonly VITE_TEST_WALLET_LABEL?: string
+  readonly VITE_TEST_WALLET_HOST_ALLOWLIST?: string
+
   // Build mode
   readonly MODE?: string
   readonly DEV?: boolean

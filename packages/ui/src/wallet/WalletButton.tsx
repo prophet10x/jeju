@@ -40,16 +40,24 @@ export function WalletButton({
   const { disconnect } = useDisconnect()
   const [showDropdown, setShowDropdown] = useState(false)
 
+  const resolvePreferredConnector = useCallback(() => {
+    return (
+      connectors.find((c) => c.id === 'jeju-test-wallet') ??
+      connectors.find((c) => c.id === 'injected') ??
+      connectors[0]
+    )
+  }, [connectors])
+
   const formatAddress = (addr: string) => {
     if (showFullAddress) return addr
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
   }
 
   const handleConnect = useCallback(() => {
-    const injectedConnector = connectors.find((c) => c.id === 'injected')
-    if (injectedConnector) {
+    const connector = resolvePreferredConnector()
+    if (connector) {
       connect(
-        { connector: injectedConnector },
+        { connector },
         {
           onSuccess: (data) => {
             if (data.accounts[0]) {
@@ -59,7 +67,7 @@ export function WalletButton({
         },
       )
     }
-  }, [connect, connectors, onConnect])
+  }, [connect, onConnect, resolvePreferredConnector])
 
   const handleDisconnect = useCallback(() => {
     disconnect()
@@ -205,12 +213,20 @@ export function useWallet() {
   const { connect, connectors } = useConnect()
   const { disconnect } = useDisconnect()
 
+  const resolvePreferredConnector = useCallback(() => {
+    return (
+      connectors.find((c) => c.id === 'jeju-test-wallet') ??
+      connectors.find((c) => c.id === 'injected') ??
+      connectors[0]
+    )
+  }, [connectors])
+
   const connectWallet = useCallback(() => {
-    const injectedConnector = connectors.find((c) => c.id === 'injected')
-    if (injectedConnector) {
-      connect({ connector: injectedConnector })
+    const connector = resolvePreferredConnector()
+    if (connector) {
+      connect({ connector })
     }
-  }, [connect, connectors])
+  }, [connect, resolvePreferredConnector])
 
   return {
     address,

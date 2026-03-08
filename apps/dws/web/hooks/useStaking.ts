@@ -108,8 +108,39 @@ const NODE_STAKING_OPERATOR_ABI = [
   },
 ] as const;
 
+function normalizeLowercaseString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0
+    ? value.toLowerCase()
+    : null;
+}
+
+function sanitizeNodeInfo(node: NodeInfo): NodeInfo | null {
+  const nodeId = normalizeLowercaseString(node?.nodeId);
+  if (!nodeId) return null;
+
+  return {
+    ...node,
+    nodeId,
+    operator:
+      typeof node.operator === "string"
+        ? node.operator
+        : "",
+    stakedToken:
+      typeof node.stakedToken === "string"
+        ? node.stakedToken
+        : ZERO_ADDRESS,
+    rewardToken:
+      typeof node.rewardToken === "string"
+        ? node.rewardToken
+        : ZERO_ADDRESS,
+    rpcUrl: typeof node.rpcUrl === "string" ? node.rpcUrl : "",
+  };
+}
+
 function getNodeStakingContracts(): `0x${string}`[] {
-  return getNodeStakingReadAddresses().map((value) => value.toLowerCase() as `0x${string}`);
+  return getNodeStakingReadAddresses()
+    .map((value) => normalizeLowercaseString(value))
+    .filter((value): value is `0x${string}` => Boolean(value));
 }
 
 function useResolvedOperatorAddresses() {
@@ -202,10 +233,14 @@ export function useOperatorStats() {
               }),
             );
 
-            return nodeIdsPerContract.flat().map((nodeId) => ({
-              nodeId: nodeId.toLowerCase(),
-              operator: operatorAddress,
-            }));
+            return nodeIdsPerContract
+              .flat()
+              .map((nodeId) => normalizeLowercaseString(nodeId))
+              .filter((nodeId): nodeId is string => Boolean(nodeId))
+              .map((nodeId) => ({
+                nodeId,
+                operator: operatorAddress,
+              }));
           }),
         ),
       ]);
@@ -221,10 +256,13 @@ export function useOperatorStats() {
           ).toString(),
           nodes: [
             ...acc.nodes,
-            ...current.nodes.filter(
-              (node) =>
-                !acc.nodes.some((existing) => existing.nodeId === node.nodeId),
-            ),
+            ...current.nodes
+              .map(sanitizeNodeInfo)
+              .filter((node): node is NodeInfo => Boolean(node))
+              .filter(
+                (node) =>
+                  !acc.nodes.some((existing) => existing.nodeId === node.nodeId),
+              ),
           ],
         }),
         {
@@ -244,7 +282,9 @@ export function useOperatorStats() {
           .map((record) => [record.nodeId, record.operator] as const),
       );
       const existingNodeIds = new Set(
-        mergedStats.nodes.map((node) => node.nodeId.toLowerCase()),
+        mergedStats.nodes
+          .map((node) => normalizeLowercaseString(node.nodeId))
+          .filter((nodeId): nodeId is string => Boolean(nodeId)),
       );
       const fallbackNodes: NodeInfo[] = onChainNodeIds
         .filter((nodeId) => !existingNodeIds.has(nodeId))

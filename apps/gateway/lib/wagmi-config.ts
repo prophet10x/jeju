@@ -20,10 +20,23 @@ const jejuChain = {
   testnet: NETWORK !== 'mainnet',
 }
 
+const testWalletAllowlist = (
+  import.meta.env.VITE_TEST_WALLET_HOST_ALLOWLIST ?? ''
+)
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean)
+
 // Create decentralized config - no WalletConnect, no external dependencies
 const config = createDecentralizedWagmiConfig({
   chains: [jejuChain],
   appName: 'Gateway',
+  testWallet: {
+    enabled: import.meta.env.VITE_ENABLE_TEST_WALLET === 'true',
+    privateKey: import.meta.env.VITE_TEST_WALLET_PRIVATE_KEY,
+    label: import.meta.env.VITE_TEST_WALLET_LABEL,
+    hostAllowlist: testWalletAllowlist,
+  },
 })
 
 export function getConfig() {
