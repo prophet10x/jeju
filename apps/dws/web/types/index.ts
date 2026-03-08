@@ -168,6 +168,7 @@ export interface CIStep {
 
 export interface KMSKey {
   keyId: string
+  name: string
   publicKey: string
   address: Address
   threshold: number
@@ -186,6 +187,9 @@ export interface KMSHealth {
   persistentKeys: number
   secrets: number
   activeSessions: number
+  teeAttested: boolean
+  hsmConfigured: boolean
+  kmsEndpointConfigured: boolean
   persistenceEnabled: boolean
   persistenceBackend: string
   persistenceFile?: string

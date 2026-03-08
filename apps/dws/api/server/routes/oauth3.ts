@@ -187,33 +187,6 @@ export function createOAuth3Router() {
         },
       )
 
-      // Get session
-      .get(
-        '/session/:sessionId',
-        async ({ params, set }) => {
-          const response = await fetch(
-            `${getAgentUrl()}/session/${params.sessionId}`,
-          )
-          const data = await response.json()
-          if (!response.ok) {
-            set.status = response.status as
-              | 400
-              | 401
-              | 403
-              | 404
-              | 500
-              | 502
-              | 503
-          }
-          return data
-        },
-        {
-          params: t.Object({
-            sessionId: t.String({ format: 'uuid' }),
-          }),
-        },
-      )
-
       // Validate session (accepts bearer token or body token)
       .post(
         '/session/validate',
@@ -242,6 +215,33 @@ export function createOAuth3Router() {
         },
         {
           body: t.Optional(t.Record(t.String(), t.Unknown())),
+        },
+      )
+
+      // Get session
+      .get(
+        '/session/:sessionId',
+        async ({ params, set }) => {
+          const response = await fetch(
+            `${getAgentUrl()}/session/${params.sessionId}`,
+          )
+          const data = await response.json()
+          if (!response.ok) {
+            set.status = response.status as
+              | 400
+              | 401
+              | 403
+              | 404
+              | 500
+              | 502
+              | 503
+          }
+          return data
+        },
+        {
+          params: t.Object({
+            sessionId: t.String({ format: 'uuid' }),
+          }),
         },
       )
 

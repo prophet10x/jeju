@@ -37,7 +37,7 @@ import ScrapingPage from './pages/services/Scraping'
 import StorageAnalyticsPage from './pages/storage/Analytics'
 import BucketsPage from './pages/storage/Buckets'
 import CDNPage from './pages/storage/CDN'
-import IPFSPage from './pages/storage/IPFS'
+import IPFSPage from './pages/storage/IPFSV2'
 
 export default function App() {
   return (

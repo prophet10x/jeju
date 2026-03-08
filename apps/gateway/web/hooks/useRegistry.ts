@@ -2,12 +2,15 @@ import {
   JEJU_AGENT_REGISTRATION_METADATA_SERVICE,
   JEJU_AGENT_REGISTRATION_SERVICE,
 } from '@jejunetwork/shared'
+import { getConfiguredAddress } from '@jejunetwork/shared/gasless'
 import { ZERO_ADDRESS } from '@jejunetwork/types'
 import { useState } from 'react'
 import {
   type Address,
+  decodeAbiParameters,
   decodeEventLog,
   encodeFunctionData,
+  type Hex,
   type TransactionReceipt,
 } from 'viem'
 import {
@@ -35,6 +38,12 @@ export const StakeTier = {
   HIGH: 3,
 } as const
 export type StakeTierValue = (typeof StakeTier)[keyof typeof StakeTier]
+
+const USER_OPERATION_EVENT_TOPIC =
+  '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f'
+const USER_OPERATION_REVERT_REASON_TOPIC =
+  '0xf62676f440ff169a3a9afdbf812e89e7f95975ee8e5c31214ffdef631c5f4792'
+const POST_OP_REVERTED_SELECTOR = '0xad7954bc'
 
 const IDENTITY_REGISTRY_ABI = [
   // Register without staking
@@ -429,6 +438,101 @@ export function useRegistry() {
   const { writeAsync } = useTypedWriteContract()
   const gasless = useGaslessSmartAccount()
 
+  function topicForAddress(address: Address): Hex {
+    return `0x${address.toLowerCase().slice(2).padStart(64, '0')}` as Hex
+  }
+
+  function getUserOperationFailureMessage(params: {
+    receipt: Awaited<
+      ReturnType<NonNullable<typeof publicClient>['waitForTransactionReceipt']>
+    >
+    entryPointAddress: Address
+    senderAddress?: Address
+  }): string | null {
+    const { receipt, entryPointAddress, senderAddress } = params
+    const senderTopic = senderAddress
+      ? topicForAddress(senderAddress).toLowerCase()
+      : null
+    const entryPointLower = entryPointAddress.toLowerCase()
+
+    const entryPointLogs = receipt.logs
+      .filter((log) => log.address.toLowerCase() === entryPointLower)
+      .map(
+        (log) =>
+          log as {
+            address: Address
+            data: Hex
+            topics?: readonly Hex[]
+          },
+      )
+    const userOperationLog = entryPointLogs.find((log) => {
+      const topic0 = log.topics?.[0]?.toLowerCase()
+      if (topic0 !== USER_OPERATION_EVENT_TOPIC) return false
+      if (!senderTopic) return true
+      return log.topics?.[2]?.toLowerCase() === senderTopic
+    })
+
+    if (!userOperationLog) return null
+
+    let success = false
+    try {
+      ;[, success] = decodeAbiParameters(
+        [
+          { type: 'uint256' }, // nonce
+          { type: 'bool' }, // success
+          { type: 'uint256' }, // actualGasCost
+          { type: 'uint256' }, // actualGasUsed
+        ],
+        userOperationLog.data,
+      )
+    } catch {
+      return 'Gasless transaction mined, but user operation status could not be decoded.'
+    }
+
+    if (success) return null
+
+    const userOpHash = userOperationLog.topics?.[1]?.toLowerCase()
+    if (!userOpHash) {
+      return 'Gasless user operation failed in EntryPoint.'
+    }
+
+    const revertReasonLog = entryPointLogs.find((log) => {
+      const topic0 = log.topics?.[0]?.toLowerCase()
+      const topic1 = log.topics?.[1]?.toLowerCase()
+      const topic2 = log.topics?.[2]?.toLowerCase()
+      return (
+        topic0 === USER_OPERATION_REVERT_REASON_TOPIC &&
+        topic1 === userOpHash &&
+        (senderTopic ? topic2 === senderTopic : true)
+      )
+    })
+
+    if (!revertReasonLog) {
+      return 'Gasless user operation failed in EntryPoint.'
+    }
+
+    try {
+      const [, revertReason] = decodeAbiParameters(
+        [
+          { type: 'uint256' }, // nonce
+          { type: 'bytes' }, // revertReason
+        ],
+        revertReasonLog.data,
+      )
+
+      const reasonHex = (revertReason as Hex).toLowerCase()
+      if (!reasonHex || reasonHex === '0x') {
+        return 'Gasless user operation failed in EntryPoint.'
+      }
+      if (reasonHex.startsWith(POST_OP_REVERTED_SELECTOR)) {
+        return 'Paymaster postOp reverted (PostOpReverted). Top up JEJU or paymaster allowance on the smart account and retry.'
+      }
+      return `Gasless user operation reverted: ${reasonHex}`
+    } catch {
+      return 'Gasless user operation failed in EntryPoint.'
+    }
+  }
+
   function getRegisteredAgentIdFromReceipt(
     receipt: TransactionReceipt,
   ): bigint | undefined {
@@ -557,7 +661,27 @@ export function useRegistry() {
       throw new Error('Transaction reverted on-chain')
     }
 
+    const entryPointAddress = getConfiguredAddress(
+      CONTRACTS.entryPointV07 || CONTRACTS.entryPoint,
+    )
+    if (entryPointAddress) {
+      const userOpFailure = getUserOperationFailureMessage({
+        receipt,
+        entryPointAddress,
+        senderAddress: gasless.smartAccountAddress,
+      })
+      if (userOpFailure) {
+        throw new Error(userOpFailure)
+      }
+    }
+
     return receipt
+  }
+
+  function extractTxHashFromError(error: unknown): `0x${string}` | undefined {
+    const message = error instanceof Error ? error.message : String(error ?? '')
+    const match = message.match(/0x[a-fA-F0-9]{64}/)
+    return match?.[0] as `0x${string}` | undefined
   }
 
   async function registerApp(
@@ -729,35 +853,46 @@ export function useRegistry() {
     agentId: bigint,
     wallet: Address,
     options?: { gasless?: boolean },
-  ): Promise<{ success: boolean; error?: string }> {
-    if (options?.gasless) {
-      const hash = await gasless.executeGaslessCalls({
-        serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
-        calls: [
-          {
-            to: REGISTRY_ADDRESS,
-            data: encodeFunctionData({
-              abi: IDENTITY_REGISTRY_ABI,
-              functionName: 'setAgentWallet',
-              args: [agentId, wallet],
-            }),
-          },
-        ],
-      })
-      setLastTx(hash)
-      await waitForSuccessfulReceipt(hash)
-      return { success: true }
-    }
+  ): Promise<{ success: boolean; error?: string; txHash?: `0x${string}` }> {
+    let submittedHash: `0x${string}` | undefined
 
-    const hash = await writeAsync({
-      address: REGISTRY_ADDRESS,
-      abi: IDENTITY_REGISTRY_ABI,
-      functionName: 'setAgentWallet',
-      args: [agentId, wallet],
-    })
-    setLastTx(hash)
-    await waitForSuccessfulReceipt(hash)
-    return { success: true }
+    try {
+      if (options?.gasless) {
+        submittedHash = await gasless.executeGaslessCalls({
+          serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
+          calls: [
+            {
+              to: REGISTRY_ADDRESS,
+              data: encodeFunctionData({
+                abi: IDENTITY_REGISTRY_ABI,
+                functionName: 'setAgentWallet',
+                args: [agentId, wallet],
+              }),
+            },
+          ],
+        })
+      } else {
+        submittedHash = await writeAsync({
+          address: REGISTRY_ADDRESS,
+          abi: IDENTITY_REGISTRY_ABI,
+          functionName: 'setAgentWallet',
+          args: [agentId, wallet],
+        })
+      }
+
+      setLastTx(submittedHash)
+      await waitForSuccessfulReceipt(submittedHash)
+      return { success: true, txHash: submittedHash }
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to update delegated wallet.',
+        txHash: submittedHash ?? extractTxHashFromError(error),
+      }
+    }
   }
 
   async function updateAgentTags(
@@ -945,6 +1080,7 @@ export function useRegistry() {
     updateAgentTags,
     updateAgentCategory,
     updateAgentUri,
+    lastTransactionHash: lastTx ?? gasless.lastTransactionHash,
     lastTransaction: txReceipt ?? gasless.lastTransactionReceipt,
     gasless,
   }

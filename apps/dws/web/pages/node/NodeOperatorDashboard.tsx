@@ -124,10 +124,14 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ZERO_NODE_ID =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 
+function normalizeLower(value: unknown): string {
+  return typeof value === "string" ? value.toLowerCase() : "";
+}
+
 function getNodeStakingReadManagers(): Address[] {
-  return getNodeStakingReadAddresses().map(
-    (address) => address.toLowerCase() as Address,
-  );
+  return getNodeStakingReadAddresses()
+    .filter((address): address is Address => typeof address === "string")
+    .map((address) => normalizeLower(address) as Address);
 }
 
 function formatNodeVersionLabel(node: NodeInfo): string {
@@ -213,13 +217,14 @@ export default function NodeOperatorDashboard() {
   const [tokenPricesUsd, setTokenPricesUsd] = useState<Record<string, number>>(
     {},
   );
+  const [isRefreshingStats, setIsRefreshingStats] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [claimingNode, setClaimingNode] = useState<string | null>(null);
   const [updatingNode, setUpdatingNode] = useState<string | null>(null);
   const [deregisteringNode, setDeregisteringNode] = useState<string | null>(
     null,
   );
-  const requestedNodeParam = searchParams.get("node")?.toLowerCase() ?? null;
+  const requestedNodeParam = normalizeLower(searchParams.get("node"));
 
   const updateSelectedNode = (nodeId: string | null) => {
     setSelectedNode(nodeId);
@@ -361,10 +366,26 @@ export default function NodeOperatorDashboard() {
     ? nodes.find((node) => node.nodeId === selectedNode)
     : undefined;
 
+  const handleRefreshStats = async () => {
+    setIsRefreshingStats(true);
+    try {
+      const result = await refetchStats();
+      if (result.error) throw result.error;
+      showSuccess("Dashboard refreshed", "Latest node stats loaded.");
+    } catch (error) {
+      showError(
+        "Refresh failed",
+        error instanceof Error ? error.message : "Failed to refresh dashboard",
+      );
+    } finally {
+      setIsRefreshingStats(false);
+    }
+  };
+
   useEffect(() => {
     if (!requestedNodeParam || nodes.length === 0) return;
     const requestedNode = nodes.find(
-      (node) => node.nodeId.toLowerCase() === requestedNodeParam,
+      (node) => normalizeLower(node.nodeId) === requestedNodeParam,
     );
     if (!requestedNode || selectedNode === requestedNode.nodeId) return;
     setSelectedNode(requestedNode.nodeId);
@@ -529,9 +550,10 @@ export default function NodeOperatorDashboard() {
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => refetchStats()}
+          onClick={() => void handleRefreshStats()}
+          disabled={isRefreshingStats}
         >
-          <RefreshCw size={16} /> Refresh
+          <RefreshCw size={16} className={isRefreshingStats ? "spin" : undefined} /> Refresh
         </button>
       </div>
 
@@ -1222,7 +1244,7 @@ function NodeDetailsPanel({
         const resolvedMetadataUri = metadataUriResult as string;
         setNodeManagerAddress(resolvedManager);
         setCurrentServicesHash(
-          resolvedHash.toLowerCase() === ZERO_NODE_ID.toLowerCase()
+          normalizeLower(resolvedHash) === normalizeLower(ZERO_NODE_ID)
             ? null
             : resolvedHash,
         );
@@ -1265,13 +1287,14 @@ function NodeDetailsPanel({
 
   const hasPendingRewards = parseFloat(node.pendingRewards) > 0;
   const metadataPending = Boolean(node.metadataPending);
-  const nodeName = node.nodeId.slice(0, 10);
+  const safeNodeId = typeof node.nodeId === "string" ? node.nodeId : "";
+  const nodeName = safeNodeId.slice(0, 10) || "Node";
   const nodeIdentityFallback =
     node.nodeIdentityAgentId > 0 &&
     node.nodeIdentityAgentId === node.operatorAgentId;
-  const normalizedOperator = node.operator?.toLowerCase();
-  const normalizedOwner = gasless.ownerAddress?.toLowerCase();
-  const normalizedSmartOwner = gasless.smartAccountAddress?.toLowerCase();
+  const normalizedOperator = normalizeLower(node.operator);
+  const normalizedOwner = normalizeLower(gasless.ownerAddress);
+  const normalizedSmartOwner = normalizeLower(gasless.smartAccountAddress);
   const isSmartAccountOperator =
     Boolean(normalizedSmartOwner) &&
     normalizedOperator === normalizedSmartOwner;

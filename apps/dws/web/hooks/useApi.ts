@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAccount, usePublicClient } from 'wagmi'
 import { z } from 'zod'
 import { CONTRACTS, DWS_API_URL, getNodeStakingReadAddresses } from '../config'
-import { fetchApi, postApi, uploadFile } from '../lib/eden'
+import { deleteApi, fetchApi, postApi, uploadFile } from '../lib/eden'
 import type {
   APIListing,
   APIProvider,
@@ -772,7 +772,7 @@ export function usePipelines() {
 export function useKMSKeys() {
   const { address } = useAccount()
   const { walletAddress } = useJejuAuth()
-  const requestAddress = address ?? walletAddress ?? undefined
+  const requestAddress = walletAddress ?? address ?? undefined
   return useQuery({
     queryKey: ['kms-keys', requestAddress],
     queryFn: () =>
@@ -792,7 +792,7 @@ export function useKMSHealth() {
 export function useCreateKey() {
   const { address } = useAccount()
   const { walletAddress } = useJejuAuth()
-  const requestAddress = address ?? walletAddress ?? undefined
+  const requestAddress = walletAddress ?? address ?? undefined
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -807,10 +807,27 @@ export function useCreateKey() {
   })
 }
 
+export function useDeleteKey() {
+  const { address } = useAccount()
+  const { walletAddress } = useJejuAuth()
+  const requestAddress = walletAddress ?? address ?? undefined
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (keyId: string) =>
+      deleteApi<{ success: true }>(`/kms/keys/${keyId}`, {
+        address: requestAddress,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['kms-keys'] })
+    },
+  })
+}
+
 export function useSecrets() {
   const { address } = useAccount()
   const { walletAddress } = useJejuAuth()
-  const requestAddress = address ?? walletAddress ?? undefined
+  const requestAddress = walletAddress ?? address ?? undefined
   return useQuery({
     queryKey: ['secrets', requestAddress],
     queryFn: () =>
@@ -824,7 +841,7 @@ export function useSecrets() {
 export function useCreateSecret() {
   const { address } = useAccount()
   const { walletAddress } = useJejuAuth()
-  const requestAddress = address ?? walletAddress ?? undefined
+  const requestAddress = walletAddress ?? address ?? undefined
   const queryClient = useQueryClient()
 
   return useMutation({

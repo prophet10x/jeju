@@ -16,6 +16,7 @@ import {
 import { type ComponentType, useEffect, useState } from 'react'
 import { createPublicClient, http, parseAbi } from 'viem'
 import { CONTRACTS, RPC_URL } from '../../lib/config'
+import { useToast } from './Toast'
 
 const SearchIcon = Search as ComponentType<LucideProps>
 const RefreshCwIcon = RefreshCw as ComponentType<LucideProps>
@@ -176,9 +177,14 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
 
   const client = getRegistryClient()
   const agents: RegisteredApp[] = []
+  const maxScanId = 500
+  const maxConsecutiveMisses = 25
+  let consecutiveMisses = 0
 
-  // Try reading agents starting from ID 1
-  for (let id = 1; id <= 100; id++) {
+  // Agent IDs are not guaranteed to be contiguous because earlier identities can
+  // be withdrawn/burned. Keep scanning across gaps until we have seen a
+  // meaningful run of empty slots after the last live agent.
+  for (let id = 1; id <= maxScanId; id++) {
     try {
       const owner = await client.readContract({
         address: registryAddr,
@@ -304,9 +310,12 @@ async function fetchAgentsFromContract(): Promise<RegisteredApp[]> {
               : 'app',
         category: categoryResult || undefined,
       })
+      consecutiveMisses = 0
     } catch {
-      // ownerOf reverts for non-existent tokens, stop scanning
-      break
+      consecutiveMisses += 1
+      if (agents.length > 0 && consecutiveMisses >= maxConsecutiveMisses) {
+        break
+      }
     }
   }
 
@@ -367,6 +376,7 @@ function getServiceIcon(type: string) {
 export default function RegisteredAppsList({
   onSelectApp,
 }: RegisteredAppsListProps) {
+  const toast = useToast()
   const [selectedTag, setSelectedTag] = useState('all')
   const [selectedType, setSelectedType] = useState('all')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -374,6 +384,7 @@ export default function RegisteredAppsList({
   const [activeOnly, setActiveOnly] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300)
@@ -406,8 +417,22 @@ export default function RegisteredAppsList({
       }),
   })
 
-  const fetchApps = () => {
-    refetch()
+  const fetchApps = async () => {
+    setIsManualRefreshing(true)
+    try {
+      const result = await refetch()
+      if (result.error) {
+        throw result.error
+      }
+      toast.success('App list refreshed')
+    } catch (error) {
+      toast.error(
+        'Failed to refresh app list',
+        error instanceof Error ? error.message : 'Unknown refresh error',
+      )
+    } finally {
+      setIsManualRefreshing(false)
+    }
   }
 
   const error = queryError?.message ?? null
@@ -457,9 +482,11 @@ export default function RegisteredAppsList({
         </select>
         <button
           type="button"
-          onClick={fetchApps}
+          onClick={() => void fetchApps()}
           className="button button-secondary"
           style={{ padding: '0.75rem', flexShrink: 0 }}
+          disabled={isManualRefreshing}
+          title={isManualRefreshing ? 'Refreshing…' : 'Refresh app list'}
         >
           <RefreshCwIcon size={16} />
         </button>

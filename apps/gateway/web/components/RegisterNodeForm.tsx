@@ -10,6 +10,7 @@ import {
   getNodeIdentityLinkedAgentIdFromReceipt,
   getNodeRegisteredIdFromReceipt,
   getNodeServiceMinimumStakeUsd,
+  JEJU_AGENT_REGISTRATION_SERVICE,
   JEJU_NODE_REGISTRATION_SERVICE,
   NODE_SERVICE_DEFINITIONS,
   type NodeIdentityMetadata,
@@ -388,6 +389,16 @@ export default function RegisterNodeForm() {
 
     void (async () => {
       try {
+        if (setAgentWalletHash) {
+          setAuthorizeResult({
+            status: 'info',
+            title: 'Waiting for delegated wallet update',
+            message:
+              'Transaction confirmed. Waiting for delegated wallet readback.',
+            txHash: setAgentWalletHash,
+            explorerUrl: EXPLORER_URL,
+          })
+        }
         const resolvedWallet = await waitForAgentWallet({
           publicClient,
           registryAddress: CONTRACTS.identityRegistry,
@@ -425,10 +436,10 @@ export default function RegisterNodeForm() {
         }
       } catch (error) {
         if (cancelled) return
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'Failed to confirm delegated wallet authorization'
+        const message = describeNodeRegistrationError(
+          error,
+          'Failed to confirm delegated wallet authorization',
+        )
         setAuthorizeResult({
           status: 'error',
           title: 'Authorization failed',
@@ -566,7 +577,7 @@ export default function RegisterNodeForm() {
 
       try {
         const hash = await gasless.executeGaslessCalls({
-          serviceName: JEJU_NODE_REGISTRATION_SERVICE,
+          serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
           calls: [
             {
               to: CONTRACTS.identityRegistry,
@@ -582,6 +593,14 @@ export default function RegisterNodeForm() {
           status: 'info',
           title: 'Authorization submitted',
           message: 'Waiting for on-chain confirmation.',
+          txHash: hash,
+          explorerUrl: EXPLORER_URL,
+        })
+        setAuthorizeResult({
+          status: 'info',
+          title: 'Waiting for delegated wallet update',
+          message:
+            'Transaction confirmed. Waiting for delegated wallet readback.',
           txHash: hash,
           explorerUrl: EXPLORER_URL,
         })
@@ -617,10 +636,10 @@ export default function RegisterNodeForm() {
           explorerUrl: EXPLORER_URL,
         })
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'Failed to authorize node wallet'
+        const message = describeNodeRegistrationError(
+          error,
+          'Failed to authorize node wallet',
+        )
         setAuthorizeResult({
           status: 'error',
           title: 'Authorization failed',

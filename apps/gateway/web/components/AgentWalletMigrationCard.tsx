@@ -1,31 +1,23 @@
 import { fetchAgentWallet } from '@jejunetwork/shared'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { type Address, getAddress, isAddress } from 'viem'
-import {
-  useAccount,
-  usePublicClient,
-  useWaitForTransactionReceipt,
-  useWriteContract,
-} from 'wagmi'
+import { useAccount, usePublicClient } from 'wagmi'
 import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
 import { useAgentId } from '../hooks/useAgentId'
+import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
+import { useKMSKeys } from '../hooks/useKMSKeys'
+import { useRegistry } from '../hooks/useRegistry'
+import { useToast } from './Toast'
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
-
-const AGENT_WALLET_ABI = [
-  {
-    inputs: [
-      { internalType: 'uint256', name: 'agentId', type: 'uint256' },
-      { internalType: 'address', name: 'wallet', type: 'address' },
-    ],
-    name: 'setAgentWallet',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-] as const
 
 function toShortAddress(address: string | null | undefined): string {
   if (!address) return 'Not set'
@@ -33,7 +25,8 @@ function toShortAddress(address: string | null | undefined): string {
 }
 
 export default function AgentWalletMigrationCard() {
-  const { isConnected } = useAccount()
+  const { address, isConnected } = useAccount()
+  const toast = useToast()
   const publicClient = usePublicClient()
   const {
     agents,
@@ -47,10 +40,15 @@ export default function AgentWalletMigrationCard() {
   const [formError, setFormError] = useState<string | null>(null)
   const [txHash, setTxHash] = useState<`0x${string}`>()
   const [txMessage, setTxMessage] = useState<string | null>(null)
-
-  const { writeContractAsync, isPending: isSubmitting } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({ hash: txHash })
+  const [isSavingWallet, setIsSavingWallet] = useState(false)
+  const [isRefreshingWallets, setIsRefreshingWallets] = useState(false)
+  const {
+    data: kmsKeysData,
+    isLoading: isLoadingKmsKeys,
+    error: kmsKeysError,
+  } = useKMSKeys()
+  const { setAgentWallet, gasless, lastTransactionHash } = useRegistry()
+  const gaslessBootstrap = useGaslessBootstrap({ gasless })
 
   useEffect(() => {
     if (!selectedAgentId && agents.length > 0) {
@@ -89,14 +87,6 @@ export default function AgentWalletMigrationCard() {
     },
   })
 
-  useEffect(() => {
-    if (!isConfirmed) return
-    setTxMessage(
-      'Delegated wallet updated. getAgentWallet(agentId) has been refreshed from chain.',
-    )
-    void refetchWallets()
-  }, [isConfirmed, refetchWallets])
-
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId),
     [agents, selectedAgentId],
@@ -107,11 +97,38 @@ export default function AgentWalletMigrationCard() {
     : null
 
   const isRegistryConfigured = CONTRACTS.identityRegistry !== ZERO_ADDRESS
-  const isBusy = isSubmitting || isConfirming
+  const connectedAddress = useMemo<Address | undefined>(() => {
+    if (address && isAddress(address)) return getAddress(address)
+    return undefined
+  }, [address])
+  const effectiveSmartAccountAddress = useMemo<Address | undefined>(() => {
+    if (smartAccountAddress && isAddress(smartAccountAddress)) {
+      return getAddress(smartAccountAddress)
+    }
+    return undefined
+  }, [smartAccountAddress])
+  const useGaslessOwnerPath = Boolean(
+    selectedAgent &&
+      effectiveSmartAccountAddress &&
+      selectedAgent.owner.toLowerCase() ===
+        effectiveSmartAccountAddress.toLowerCase() &&
+      (!connectedAddress ||
+        selectedAgent.owner.toLowerCase() !== connectedAddress.toLowerCase()),
+  )
+  const isBusy = isSavingWallet || gaslessBootstrap.isBootstrapping
+  const kmsKeys = kmsKeysData?.keys ?? []
+  const selectedKmsKeyAddress = useMemo(() => {
+    const normalized = newWalletInput.trim().toLowerCase()
+    const match = kmsKeys.find(
+      (key) => key.address.toLowerCase() === normalized,
+    )
+    return match?.address ?? ''
+  }, [kmsKeys, newWalletInput])
 
   const handleSetWallet = async () => {
     setFormError(null)
     setTxMessage(null)
+    setTxHash(undefined)
 
     if (!selectedAgentId) {
       setFormError('Select an agent first.')
@@ -128,25 +145,92 @@ export default function AgentWalletMigrationCard() {
       return
     }
 
+    if (!selectedAgent) {
+      setFormError('Selected agent could not be resolved.')
+      return
+    }
+
+    const ownerLower = selectedAgent.owner.toLowerCase()
+    const connectedLower = connectedAddress?.toLowerCase()
+    const smartLower = effectiveSmartAccountAddress?.toLowerCase()
+
+    if (ownerLower !== connectedLower && ownerLower !== smartLower) {
+      setFormError(
+        `Owner mismatch. Agent owner is ${selectedAgent.owner}, but connected owner context is ${connectedAddress ?? 'not connected'}${effectiveSmartAccountAddress ? ` / smart account ${effectiveSmartAccountAddress}` : ''}.`,
+      )
+      return
+    }
+
+    setIsSavingWallet(true)
     try {
       const wallet = getAddress(newWalletInput.trim())
-      const hash = await writeContractAsync({
-        address: CONTRACTS.identityRegistry,
-        abi: AGENT_WALLET_ABI,
-        functionName: 'setAgentWallet',
-        args: [BigInt(selectedAgentId), wallet],
-      })
 
-      setTxHash(hash)
-      setTxMessage(
-        'Transaction submitted. Confirm in wallet and wait for receipt.',
-      )
+      if (useGaslessOwnerPath) {
+        if (!connectedAddress || !effectiveSmartAccountAddress) {
+          throw new Error('Smart account owner mode is not ready yet.')
+        }
+
+        const readiness = gasless.getReadiness()
+        if (!readiness.readyViaAllowance) {
+          await gaslessBootstrap.bootstrap({
+            purpose: 'registry',
+            requiredStakeAmount: 0n,
+            ownerAddress: connectedAddress,
+            smartAccountAddress: effectiveSmartAccountAddress,
+          })
+        }
+      }
+
+      const result = await setAgentWallet(BigInt(selectedAgentId), wallet, {
+        gasless: useGaslessOwnerPath,
+      })
+      setTxHash(result.txHash ?? lastTransactionHash)
+
+      if (!result.success) {
+        setFormError(
+          result.error ??
+            'Failed to update delegated wallet. Check explorer via the tx hash.',
+        )
+        return
+      }
+
+      const refreshed = await refetchWallets()
+      const refreshedWallet = refreshed.data?.[selectedAgentId] ?? null
+      if (
+        !refreshedWallet ||
+        refreshedWallet.toLowerCase() !== wallet.toLowerCase()
+      ) {
+        setFormError(
+          'Transaction was submitted, but delegated wallet did not update on-chain. Check explorer via tx hash and retry.',
+        )
+        return
+      }
+
+      setTxMessage('Delegated wallet updated on-chain and verified.')
     } catch (error) {
       setFormError(
         error instanceof Error
           ? error.message
-          : 'Failed to submit transaction.',
+          : 'Failed to update delegated wallet.',
       )
+    } finally {
+      setIsSavingWallet(false)
+    }
+  }
+
+  const handleRefreshWallets = async () => {
+    setIsRefreshingWallets(true)
+    try {
+      const result = await refetchWallets()
+      if (result.error) throw result.error
+      toast.success('Delegated wallet state refreshed')
+    } catch (error) {
+      toast.error(
+        'Failed to refresh delegated wallets',
+        error instanceof Error ? error.message : 'Unknown refresh error',
+      )
+    } finally {
+      setIsRefreshingWallets(false)
     }
   }
 
@@ -187,6 +271,17 @@ export default function AgentWalletMigrationCard() {
               We auto-refresh `getAgentWallet(agentId)` after confirmation.
             </li>
           </ol>
+
+          <div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void handleRefreshWallets()}
+              disabled={isRefreshingWallets || isBusy}
+            >
+              <RefreshCw size={16} /> Refresh Wallets
+            </button>
+          </div>
 
           <div style={{ display: 'grid', gap: '0.75rem' }}>
             <label style={{ display: 'grid', gap: '0.35rem' }}>
@@ -238,7 +333,56 @@ export default function AgentWalletMigrationCard() {
                   <code>{toShortAddress(smartAccountAddress)}</code>
                 </div>
               )}
+              {selectedAgent && useGaslessOwnerPath && (
+                <div>
+                  Write path: <code>gasless smart-account owner</code>
+                </div>
+              )}
+              {selectedAgent &&
+                !useGaslessOwnerPath &&
+                connectedAddress &&
+                selectedAgent.owner.toLowerCase() ===
+                  connectedAddress.toLowerCase() && (
+                  <div>
+                    Write path: <code>direct owner EOA</code>
+                  </div>
+                )}
             </div>
+
+            <label style={{ display: 'grid', gap: '0.35rem' }}>
+              <span style={{ fontWeight: 600 }}>Saved KMS Key</span>
+              <select
+                className="input"
+                value={selectedKmsKeyAddress}
+                onChange={(event) => setNewWalletInput(event.target.value)}
+                disabled={isBusy || !hasAgent || isLoadingKmsKeys}
+              >
+                <option value="">
+                  {isLoadingKmsKeys
+                    ? 'Loading your KMS keys...'
+                    : kmsKeys.length > 0
+                      ? 'Choose a saved KMS key'
+                      : 'No saved KMS keys found'}
+                </option>
+                {kmsKeys.map((key) => (
+                  <option key={key.keyId} value={key.address}>
+                    {key.name || `Key ${key.keyId.slice(0, 8)}`} (
+                    {toShortAddress(key.address)})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {kmsKeysError instanceof Error && (
+              <div
+                style={{
+                  fontSize: '0.875rem',
+                  color: 'var(--danger)',
+                }}
+              >
+                Could not load KMS keys: <code>{kmsKeysError.message}</code>
+              </div>
+            )}
 
             <label style={{ display: 'grid', gap: '0.35rem' }}>
               <span style={{ fontWeight: 600 }}>New KMS Wallet</span>
@@ -250,6 +394,15 @@ export default function AgentWalletMigrationCard() {
                 onChange={(event) => setNewWalletInput(event.target.value)}
                 disabled={isBusy || !hasAgent}
               />
+              <span
+                style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Delegated wallet is the runtime signer. Owner wallet remains
+                required for owner-only actions.
+              </span>
             </label>
 
             <button
@@ -261,7 +414,9 @@ export default function AgentWalletMigrationCard() {
               {isBusy ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  {isSubmitting ? 'Submitting...' : 'Confirming...'}
+                  {gaslessBootstrap.isBootstrapping
+                    ? 'Preparing...'
+                    : 'Saving...'}
                 </>
               ) : (
                 'Set Delegated Wallet'

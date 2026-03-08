@@ -35,6 +35,35 @@ interface FetchOptions extends Omit<RequestInit, 'body'> {
   body?: string
 }
 
+async function parseResponseBody(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
+}
+
+function getErrorMessageFromBody(body: unknown, fallback: string): string {
+  if (typeof body === 'string') {
+    return body.trim().length > 0 ? body : fallback
+  }
+  if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>
+    if (typeof record.error === 'string' && record.error.trim().length > 0) {
+      return record.error
+    }
+    if (
+      typeof record.message === 'string' &&
+      record.message.trim().length > 0
+    ) {
+      return record.message
+    }
+  }
+  return fallback
+}
+
 function getStoredOAuth3SessionId(): string | null {
   if (typeof window === 'undefined') return null
   if (typeof localStorage === 'undefined') return null
@@ -93,15 +122,17 @@ export async function fetchApi<T>(
   })
 
   if (!response.ok) {
-    const error = await response.json()
+    const error = await parseResponseBody(response)
     throw new APIError(
-      error.error ?? error.message ?? 'API request failed',
+      getErrorMessageFromBody(error, 'API request failed'),
       response.status,
-      error.code,
+      typeof error === 'object' && error && 'code' in error
+        ? String((error as Record<string, unknown>).code)
+        : undefined,
     )
   }
 
-  const data = await response.json()
+  const data = await parseResponseBody(response)
 
   if (schema) {
     const result = schema.safeParse(data)
@@ -142,15 +173,17 @@ export async function fetchValidated<T>(
   })
 
   if (!response.ok) {
-    const error = await response.json()
+    const error = await parseResponseBody(response)
     throw new APIError(
-      error.error ?? error.message ?? 'API request failed',
+      getErrorMessageFromBody(error, 'API request failed'),
       response.status,
-      error.code,
+      typeof error === 'object' && error && 'code' in error
+        ? String((error as Record<string, unknown>).code)
+        : undefined,
     )
   }
 
-  const data = await response.json()
+  const data = await parseResponseBody(response)
   const result = schema.safeParse(data)
 
   if (!result.success) {
@@ -253,14 +286,22 @@ export async function uploadFile(
   })
 
   if (!response.ok) {
-    const error = await response.json()
+    const error = await parseResponseBody(response)
     throw new APIError(
-      error.error ?? error.message ?? 'Upload failed',
+      getErrorMessageFromBody(error, 'Upload failed'),
       response.status,
     )
   }
 
-  return response.json()
+  return (await parseResponseBody(response)) as {
+    cid: string
+    size?: number
+    contentType?: string
+    accessClass?: 'SYSTEM_PUBLIC' | 'PRIVATE_OWNER' | 'MANAGED_EXECUTION'
+    encryptionMode?: 'none' | 'kms'
+    requestedMinReplicas?: number
+    effectiveReplicaCount?: number
+  }
 }
 
 /**

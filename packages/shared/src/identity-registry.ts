@@ -856,8 +856,8 @@ export async function waitForAgentWallet(params: {
     registryAddress,
     agentId,
     expectedWallet,
-    attempts = 6,
-    delayMs = 1250,
+    attempts = 15,
+    delayMs = 1500,
   } = params
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {

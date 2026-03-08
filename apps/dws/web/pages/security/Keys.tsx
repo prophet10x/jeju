@@ -8,18 +8,34 @@ import {
   Shield,
   Trash2,
 } from 'lucide-react'
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import { useState } from 'react'
 import { useAccount } from 'wagmi'
-import { useCreateKey, useKMSHealth, useKMSKeys } from '../../hooks'
+import { useToast } from '../../context/AppContext'
+import {
+  useCreateKey,
+  useDeleteKey,
+  useKMSHealth,
+  useKMSKeys,
+} from '../../hooks'
+
+function truncateMiddle(value: string, leading = 6, trailing = 4): string {
+  if (value.length <= leading + trailing + 3) return value
+  return `${value.slice(0, leading)}...${value.slice(-trailing)}`
+}
 
 export default function KeysPage() {
-  const { isConnected } = useAccount()
+  const { address, isConnected } = useAccount()
+  const { authenticated, walletAddress } = useJejuAuth()
+  const { showError, showSuccess } = useToast()
   const { data: keysData, isLoading, refetch } = useKMSKeys()
   const { data: kmsHealth } = useKMSHealth()
   const createKey = useCreateKey()
+  const deleteKey = useDeleteKey()
 
   const [showModal, setShowModal] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     threshold: '2',
@@ -70,7 +86,54 @@ export default function KeysPage() {
     }
   }
 
+  const handleDelete = async (keyId: string, keyName: string) => {
+    if (!window.confirm(`Delete key "${keyName}"? This cannot be undone.`)) {
+      return
+    }
+    await deleteKey
+      .mutateAsync(keyId)
+      .then(() => showSuccess('Key deleted', `Deleted key "${keyName}"`))
+      .catch((error) =>
+        showError(
+          'Delete failed',
+          error instanceof Error ? error.message : 'Failed to delete key',
+        ),
+      )
+  }
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      const result = await refetch()
+      if (result.error) throw result.error
+      showSuccess('KMS keys refreshed')
+    } catch (error) {
+      showError(
+        'Refresh failed',
+        error instanceof Error ? error.message : 'Failed to refresh keys',
+      )
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const requestAddress = walletAddress ?? address ?? undefined
+  const canManageKeys = Boolean(requestAddress)
+  const authSourceLabel =
+    authenticated && walletAddress
+      ? 'authenticated smart-account session'
+      : isConnected
+        ? 'connected wallet'
+        : null
   const keys = keysData?.keys ?? []
+  const securityMode = kmsHealth?.mode?.toUpperCase() ?? 'UNKNOWN'
+  const securityDetail = kmsHealth
+    ? kmsHealth.teeAttested
+      ? 'TEE attested'
+      : kmsHealth.hsmConfigured
+        ? 'HSM-backed, no TEE attestation'
+        : 'No TEE attestation or HSM'
+    : null
 
   return (
     <div>
@@ -91,18 +154,62 @@ export default function KeysPage() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => refetch()}
+            onClick={() => void handleRefresh()}
+            disabled={isRefreshing}
           >
-            <RefreshCw size={16} /> Refresh
+            <RefreshCw size={16} className={isRefreshing ? 'spin' : undefined} /> Refresh
           </button>
           <button
             type="button"
             className="btn btn-primary"
             onClick={() => setShowModal(true)}
-            disabled={!isConnected}
+            disabled={!canManageKeys}
+            title={
+              canManageKeys
+                ? 'Create a new threshold key'
+                : 'Sign In with your owner wallet or passkey first'
+            }
           >
             <Plus size={16} /> Create Key
           </button>
+        </div>
+      </div>
+
+      <div
+        className="card"
+        style={{
+          marginBottom: '1.5rem',
+          borderColor: canManageKeys
+            ? 'rgba(14, 165, 233, 0.2)'
+            : 'rgba(245, 158, 11, 0.35)',
+          background: canManageKeys
+            ? 'rgba(14, 165, 233, 0.05)'
+            : 'rgba(245, 158, 11, 0.06)',
+        }}
+      >
+        <div
+          style={{
+            padding: '1rem 1.25rem',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            gap: '0.75rem',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          {canManageKeys ? (
+            <>
+              <span>Using {authSourceLabel} for KMS ownership:</span>
+              <code style={{ fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                {requestAddress}
+              </code>
+            </>
+          ) : (
+            <span>
+              Sign In in the top-right with your owner wallet or passkey before
+              creating KMS keys.
+            </span>
+          )}
         </div>
       </div>
 
@@ -121,8 +228,11 @@ export default function KeysPage() {
             <Shield size={24} />
           </div>
           <div className="stat-content">
-            <div className="stat-label">TEE Secured</div>
-            <div className="stat-value">{keys.length}</div>
+            <div className="stat-label">Security Mode</div>
+            <div className="stat-value">{securityMode}</div>
+            {securityDetail ? (
+              <div className="stat-subtitle">{securityDetail}</div>
+            ) : null}
           </div>
         </div>
         <div className="stat-card">
@@ -204,6 +314,23 @@ export default function KeysPage() {
           </div>
         ) : null}
 
+        {deleteKey.isError ? (
+          <div
+            style={{
+              margin: '0 1.5rem 1rem',
+              padding: '0.875rem 1rem',
+              borderRadius: '0.75rem',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              background: 'rgba(239, 68, 68, 0.08)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            {deleteKey.error instanceof Error
+              ? deleteKey.error.message
+              : 'Failed to delete key'}
+          </div>
+        ) : null}
+
         {isLoading ? (
           <div
             style={{
@@ -222,10 +349,26 @@ export default function KeysPage() {
               type="button"
               className="btn btn-primary"
               onClick={() => setShowModal(true)}
-              disabled={!isConnected}
+              disabled={!canManageKeys}
+              title={
+                canManageKeys
+                  ? 'Create a new threshold key'
+                  : 'Sign In with your owner wallet or passkey first'
+              }
             >
               <Plus size={16} /> Create Key
             </button>
+            {!canManageKeys ? (
+              <p
+                style={{
+                  marginTop: '0.75rem',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.9rem',
+                }}
+              >
+                Key creation requires a wallet-authenticated request.
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="table-container">
@@ -234,17 +377,19 @@ export default function KeysPage() {
               style={{ tableLayout: 'fixed', width: '100%' }}
             >
               <colgroup>
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '29%' }} />
-                <col style={{ width: '29%' }} />
+              <col style={{ width: '14%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '24%' }} />
+                <col style={{ width: '22%' }} />
                 <col style={{ width: '10%' }} />
                 <col style={{ width: '6%' }} />
                 <col style={{ width: '8%' }} />
-                <col style={{ width: '4%' }} />
+                <col style={{ width: '6%' }} />
               </colgroup>
               <thead>
                 <tr>
                   <th>Key ID</th>
+                  <th>Name</th>
                   <th>Public Key</th>
                   <th>Address</th>
                   <th>Threshold</th>
@@ -267,6 +412,17 @@ export default function KeysPage() {
                     >
                       {key.keyId}
                     </td>
+                    <td
+                      style={{
+                        fontWeight: 600,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={key.name}
+                    >
+                      {key.name}
+                    </td>
                     <td>
                       {key.publicKey ? (
                         <div
@@ -282,12 +438,13 @@ export default function KeysPage() {
                               fontSize: '0.8rem',
                               flex: 1,
                               minWidth: 0,
-                              wordBreak: 'break-all',
-                              whiteSpace: 'normal',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
                             }}
                             title={key.publicKey}
                           >
-                            {key.publicKey}
+                            {truncateMiddle(key.publicKey, 12, 10)}
                           </code>
                           <button
                             type="button"
@@ -324,11 +481,13 @@ export default function KeysPage() {
                             fontSize: '0.8rem',
                             flex: 1,
                             minWidth: 0,
-                            wordBreak: 'break-all',
-                            whiteSpace: 'normal',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
                           }}
+                          title={key.address}
                         >
-                          {key.address}
+                          {truncateMiddle(key.address, 6, 4)}
                         </code>
                         <button
                           type="button"
@@ -360,6 +519,8 @@ export default function KeysPage() {
                         type="button"
                         className="btn btn-ghost btn-sm"
                         title="Delete"
+                        onClick={() => handleDelete(key.keyId, key.name)}
+                        disabled={deleteKey.isPending}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -469,6 +630,22 @@ export default function KeysPage() {
                     <div className="form-hint">Total key shares</div>
                   </div>
                 </div>
+                {createKey.isError ? (
+                  <div
+                    style={{
+                      marginTop: '1rem',
+                      padding: '0.875rem 1rem',
+                      borderRadius: '0.75rem',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {createKey.error instanceof Error
+                      ? createKey.error.message
+                      : 'Failed to create key'}
+                  </div>
+                ) : null}
               </div>
               <div className="modal-footer">
                 <button

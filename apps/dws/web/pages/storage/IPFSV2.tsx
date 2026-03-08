@@ -14,8 +14,9 @@ import {
 import { useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
 import { DWS_IPFS_API_URL, DWS_IPFS_GATEWAY_URL } from '../../config'
-import { useToast } from '../../context/AppContext'
 import { useRecentStorageUploads, useStorageHealth, useUploadFile } from '../../hooks'
+
+// Kept on a new module path to bypass Bun's stale module cache for the old IPFS page.
 
 type StorageClass = 'SYSTEM_PUBLIC' | 'PRIVATE_OWNER' | 'MANAGED_EXECUTION'
 
@@ -73,7 +74,6 @@ function labelForStorageClass(storageClass?: string | null, tier?: string | null
 
 export default function IPFSPage() {
   const { isConnected, address } = useAccount()
-  const { showError, showSuccess } = useToast()
   const {
     data: healthData,
     refetch: refetchHealth,
@@ -91,7 +91,6 @@ export default function IPFSPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
-  const [isManualRefreshing, setIsManualRefreshing] = useState(false)
   const [storageClass, setStorageClass] =
     useState<StorageClass>('SYSTEM_PUBLIC')
   const [minReplicas, setMinReplicas] = useState(6)
@@ -114,23 +113,7 @@ export default function IPFSPage() {
   })
 
   const handleRefresh = async () => {
-    setIsManualRefreshing(true)
-    try {
-      const [healthResult, uploadsResult] = await Promise.all([
-        refetchHealth(),
-        refetchUploads(),
-      ])
-      if (healthResult.error) throw healthResult.error
-      if (uploadsResult.error) throw uploadsResult.error
-      showSuccess('Storage data refreshed')
-    } catch (error) {
-      showError(
-        'Refresh failed',
-        error instanceof Error ? error.message : 'Failed to refresh storage data',
-      )
-    } finally {
-      setIsManualRefreshing(false)
-    }
+    await Promise.all([refetchHealth(), refetchUploads()])
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,14 +188,11 @@ export default function IPFSPage() {
             type="button"
             className="btn btn-secondary"
             onClick={() => void handleRefresh()}
-            disabled={isManualRefreshing}
           >
             <RefreshCw
               size={16}
               className={
-                isManualRefreshing || isRefreshingHealth || isRefreshingUploads
-                  ? 'spin'
-                  : undefined
+                isRefreshingHealth || isRefreshingUploads ? 'spin' : undefined
               }
             />{' '}
             Refresh

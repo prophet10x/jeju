@@ -22,6 +22,7 @@ import {
   useWriteContract,
 } from 'wagmi'
 import { CONTRACTS, EXPLORER_URL, TOKENS } from '../config'
+import { useKMSKeys } from '../hooks/useApi'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import type { GaslessCall } from '../hooks/useGaslessSmartAccount'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
@@ -226,6 +227,11 @@ export default function AgentSettingsModal({
   const { walletAddress } = useJejuAuth()
   const publicClient = usePublicClient()
   const { writeContractAsync } = useWriteContract()
+  const {
+    data: kmsKeysData,
+    isLoading: isLoadingKmsKeys,
+    error: kmsKeysError,
+  } = useKMSKeys()
   const gasless = useGaslessSmartAccount()
   const gaslessBootstrap = useGaslessBootstrap({ gasless })
   const [sessionSmartAccountAddress, setSessionSmartAccountAddress] =
@@ -302,6 +308,7 @@ export default function AgentSettingsModal({
   const [lastActionTxHash, setLastActionTxHash] = useState<`0x${string}` | null>(
     null,
   )
+  const kmsKeys = kmsKeysData?.keys ?? []
 
   const { data: targetTierStake } = useReadContract({
     address: registryAddress,
@@ -343,6 +350,13 @@ export default function AgentSettingsModal({
   const canEdit = Boolean(isOwner || isSmartAccountOwner)
   const useGaslessOwnerPath = Boolean(!isOwner && isSmartAccountOwner)
   const registryConfigured = registryAddress !== ZERO_ADDRESS
+  const selectedKmsKeyAddress = useMemo(() => {
+    const normalized = walletInput.trim().toLowerCase()
+    const match = kmsKeys.find(
+      (key) => key.address.toLowerCase() === normalized,
+    )
+    return match?.address ?? ''
+  }, [kmsKeys, walletInput])
 
   useEffect(() => {
     let cancelled = false
@@ -884,6 +898,25 @@ export default function AgentSettingsModal({
               <label htmlFor="wallet-input" style={{ fontWeight: 600 }}>
                 Set delegated wallet
               </label>
+              <select
+                className="form-input"
+                value={selectedKmsKeyAddress}
+                onChange={(event) => setWalletInput(event.target.value)}
+                disabled={isBusy || !canEdit || isLoadingKmsKeys}
+              >
+                <option value="">
+                  {isLoadingKmsKeys
+                    ? 'Loading your KMS keys...'
+                    : kmsKeys.length > 0
+                      ? 'Choose a saved KMS key'
+                      : 'No saved KMS keys found'}
+                </option>
+                {kmsKeys.map((key) => (
+                  <option key={key.keyId} value={key.address}>
+                    {key.name || `Key ${key.keyId.slice(0, 8)}`} ({key.address.slice(0, 6)}...{key.address.slice(-4)})
+                  </option>
+                ))}
+              </select>
               <input
                 id="wallet-input"
                 className="form-input"
@@ -895,6 +928,11 @@ export default function AgentSettingsModal({
               <small style={{ color: 'var(--text-muted)' }}>
                 Use your KMS key wallet from <code>/security/keys</code>.
               </small>
+              {kmsKeysError instanceof Error && (
+                <small style={{ color: 'var(--warning)' }}>
+                  Could not load KMS keys: {kmsKeysError.message}
+                </small>
+              )}
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"

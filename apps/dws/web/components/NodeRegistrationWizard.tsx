@@ -15,6 +15,7 @@ import {
   fetchAgentWallet,
   getNodeIdentityLinkedAgentIdFromReceipt,
   getNodeRegisteredIdFromReceipt,
+  JEJU_AGENT_REGISTRATION_SERVICE,
   JEJU_NODE_REGISTRATION_SERVICE,
   NODE_SERVICE_DEFINITIONS,
   type NodeIdentityMetadata,
@@ -834,7 +835,7 @@ export default function NodeRegistrationWizard() {
 
       try {
         const txHash = await gasless.executeGaslessCalls({
-          serviceName: JEJU_NODE_REGISTRATION_SERVICE,
+          serviceName: JEJU_AGENT_REGISTRATION_SERVICE,
           calls: [
             {
               to: CONTRACTS.identityRegistry,
@@ -851,6 +852,14 @@ export default function NodeRegistrationWizard() {
           status: 'info',
           title: 'Authorization submitted',
           message: 'Waiting for on-chain confirmation.',
+          txHash,
+          explorerUrl: EXPLORER_URL,
+        })
+        setAuthorizeResult({
+          status: 'info',
+          title: 'Waiting for delegated wallet update',
+          message:
+            'Transaction confirmed. Waiting for delegated wallet readback.',
           txHash,
           explorerUrl: EXPLORER_URL,
         })
@@ -886,20 +895,17 @@ export default function NodeRegistrationWizard() {
           explorerUrl: EXPLORER_URL,
         })
       } catch (err) {
+        const message = describeNodeRegistrationError(
+          err,
+          'Failed to authorize node wallet',
+        )
         setAuthorizeResult({
           status: 'error',
           title: 'Authorization failed',
-          message:
-            err instanceof Error
-              ? err.message
-              : 'Failed to authorize node wallet',
+          message,
           explorerUrl: EXPLORER_URL,
         })
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Failed to authorize node wallet',
-        )
+        setError(message)
       } finally {
         setIsAuthorizingNodeWallet(false)
       }
@@ -1074,6 +1080,16 @@ export default function NodeRegistrationWizard() {
 
     void (async () => {
       try {
+        if (setAgentWalletHash) {
+          setAuthorizeResult({
+            status: 'info',
+            title: 'Waiting for delegated wallet update',
+            message:
+              'Transaction confirmed. Waiting for delegated wallet readback.',
+            txHash: setAgentWalletHash,
+            explorerUrl: EXPLORER_URL,
+          })
+        }
         const resolvedWallet = await waitForAgentWallet({
           publicClient,
           registryAddress: CONTRACTS.identityRegistry,
@@ -1110,10 +1126,10 @@ export default function NodeRegistrationWizard() {
         }
       } catch (err) {
         if (cancelled) return
-        const message =
-          err instanceof Error
-            ? err.message
-            : 'Failed to confirm delegated wallet authorization'
+        const message = describeNodeRegistrationError(
+          err,
+          'Failed to confirm delegated wallet authorization',
+        )
         setAuthorizeResult({
           status: 'error',
           title: 'Authorization failed',

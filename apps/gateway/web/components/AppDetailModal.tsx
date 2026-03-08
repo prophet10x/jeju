@@ -18,8 +18,9 @@ import {
 import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
 import { type Address, getAddress, isAddress } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
-import { CONTRACTS } from '../../lib/config'
+import { CONTRACTS, EXPLORER_URL } from '../../lib/config'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
+import { useKMSKeys } from '../hooks/useKMSKeys'
 import {
   IDENTITY_REGISTRY_ADDRESS,
   StakeTier,
@@ -149,9 +150,15 @@ export default function AppDetailModal({
     updateAgentCategory,
     updateAgentTags,
     updateAgentUri,
+    lastTransactionHash,
     gasless,
   } = useRegistry()
   const gaslessBootstrap = useGaslessBootstrap({ gasless })
+  const {
+    data: kmsKeysData,
+    isLoading: isLoadingKmsKeys,
+    error: kmsKeysError,
+  } = useKMSKeys()
 
   const [isWithdrawing, setIsWithdrawing] = useState(false)
   const [isSavingWallet, setIsSavingWallet] = useState(false)
@@ -166,6 +173,7 @@ export default function AppDetailModal({
   const [targetTier, setTargetTier] = useState<StakeTierValue>(StakeTier.SMALL)
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
+  const [walletTxHash, setWalletTxHash] = useState<`0x${string}` | null>(null)
   const [githubToken, setGithubToken] = useState<string>()
   const [isLinkingGithub, setIsLinkingGithub] = useState(false)
   const [githubLinkError, setGithubLinkError] = useState<string | null>(null)
@@ -226,6 +234,14 @@ export default function AppDetailModal({
     () => linkedAccounts.find((account) => account.type === 'github'),
     [linkedAccounts],
   )
+  const kmsKeys = kmsKeysData?.keys ?? []
+  const selectedKmsKeyAddress = useMemo(() => {
+    const normalized = walletInput.trim().toLowerCase()
+    const match = kmsKeys.find(
+      (key) => key.address.toLowerCase() === normalized,
+    )
+    return match?.address ?? ''
+  }, [kmsKeys, walletInput])
 
   useEffect(() => {
     let cancelled = false
@@ -337,6 +353,7 @@ export default function AppDetailModal({
   const clearMessages = () => {
     setFormError(null)
     setFormSuccess(null)
+    setWalletTxHash(null)
   }
 
   const handleLinkGithubSession = async () => {
@@ -421,8 +438,17 @@ export default function AppDetailModal({
           gasless: useGaslessOwnerPath,
         },
       )
+      setWalletTxHash(
+        result.txHash ??
+          lastTransactionHash ??
+          gasless.lastTransactionHash ??
+          null,
+      )
       if (!result.success) {
-        setFormError(result.error ?? 'Failed to update delegated wallet.')
+        setFormError(
+          result.error ??
+            'Failed to update delegated wallet. Review the explorer link for details.',
+        )
         return
       }
       setFormSuccess('Delegated wallet updated on-chain.')
@@ -1051,11 +1077,71 @@ export default function AppDetailModal({
                         style={{
                           fontSize: '0.75rem',
                           color: 'var(--text-muted)',
+                          lineHeight: 1.5,
                         }}
                       >
-                        Use your KMS key wallet from <code>/security/keys</code>
-                        .
+                        Delegated wallet is the runtime signer for the agent.
+                        Owner wallet stays in control of owner-only actions like
+                        stake changes, metadata edits, and wallet rotation.
                       </div>
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--text-muted)',
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        Pick one of your KMS keys from{' '}
+                        <a
+                          href={kmsKeysData?.manageKeysUrl ?? '/dws/security/keys'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Security &gt; Keys
+                        </a>{' '}
+                        or paste an address manually.
+                      </div>
+                      <label style={{ display: 'grid', gap: '0.35rem' }}>
+                        <span
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Existing KMS Key
+                        </span>
+                        <select
+                          className="input"
+                          value={selectedKmsKeyAddress}
+                          onChange={(event) => setWalletInput(event.target.value)}
+                          disabled={isSavingWallet || !canEdit || isLoadingKmsKeys}
+                        >
+                          <option value="">
+                            {isLoadingKmsKeys
+                              ? 'Loading your KMS keys...'
+                              : kmsKeys.length > 0
+                                ? 'Choose a saved KMS key'
+                                : 'No saved KMS keys found'}
+                          </option>
+                          {kmsKeys.map((key) => (
+                            <option key={key.keyId} value={key.address}>
+                              {key.name || `Key ${key.keyId.slice(0, 8)}`} (
+                              {toShortAddress(key.address)})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {kmsKeysError instanceof Error && (
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--danger)',
+                          }}
+                        >
+                          Could not load KMS keys: <code>{kmsKeysError.message}</code>
+                        </div>
+                      )}
                       <input
                         className="input"
                         type="text"
@@ -1091,6 +1177,23 @@ export default function AppDetailModal({
                           </>
                         )}
                       </button>
+                      {(walletTxHash || (isSavingWallet && lastTransactionHash)) && (
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Tx:{' '}
+                          <a
+                            href={`${EXPLORER_URL}/tx/${walletTxHash ?? lastTransactionHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <code>{toShortAddress(walletTxHash ?? lastTransactionHash)}</code>
+                          </a>
+                        </div>
+                      )}
                     </div>
 
                     <div

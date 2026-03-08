@@ -51,6 +51,7 @@ export const OAUTH3_AGENT_URL = requireServiceUrl(
   services.oauth3?.api,
   'OAuth3',
 )
+export const DWS_API_URL = requireServiceUrl(services.dws.api, 'DWS API')
 export const INDEXER_URL = requireServiceUrl(
   services.indexer.graphql,
   'Indexer GraphQL',
