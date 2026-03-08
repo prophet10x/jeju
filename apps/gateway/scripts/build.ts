@@ -44,6 +44,15 @@ async function build() {
     : gitShaResult && gitShaResult.exitCode === 0
       ? gitShaResult.stdout.toString().trim() || 'unknown'
       : 'unknown'
+  const testWalletEnv = {
+    VITE_ENABLE_TEST_WALLET:
+      process.env.VITE_ENABLE_TEST_WALLET === 'true' ? 'true' : 'false',
+    VITE_TEST_WALLET_PRIVATE_KEY:
+      process.env.VITE_TEST_WALLET_PRIVATE_KEY ?? '',
+    VITE_TEST_WALLET_LABEL: process.env.VITE_TEST_WALLET_LABEL ?? '',
+    VITE_TEST_WALLET_HOST_ALLOWLIST:
+      process.env.VITE_TEST_WALLET_HOST_ALLOWLIST ?? '',
+  }
 
   // Browser plugin for shimming and deduping
   const browserPlugin: BunPlugin = {
@@ -90,6 +99,12 @@ async function build() {
       })
       build.onResolve({ filter: /^@jejunetwork\/shared$/ }, () => ({
         path: resolve(APP_DIR, '../../packages/shared/src/index.ts'),
+      }))
+      build.onResolve({ filter: /^@jejunetwork\/auth$/ }, () => ({
+        path: resolve(APP_DIR, '../../packages/auth/src/index.ts'),
+      }))
+      build.onResolve({ filter: /^@jejunetwork\/auth\/react$/ }, () => ({
+        path: resolve(APP_DIR, '../../packages/auth/src/react/index.ts'),
       }))
       build.onResolve({ filter: /^@jejunetwork\/types$/ }, () => ({
         path: resolve(APP_DIR, '../../packages/types/src/index.ts'),
@@ -162,12 +177,25 @@ async function build() {
       'process.browser': 'true',
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
       'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
+      'import.meta.env.VITE_ENABLE_TEST_WALLET': JSON.stringify(
+        testWalletEnv.VITE_ENABLE_TEST_WALLET,
+      ),
+      'import.meta.env.VITE_TEST_WALLET_PRIVATE_KEY': JSON.stringify(
+        testWalletEnv.VITE_TEST_WALLET_PRIVATE_KEY,
+      ),
+      'import.meta.env.VITE_TEST_WALLET_LABEL': JSON.stringify(
+        testWalletEnv.VITE_TEST_WALLET_LABEL,
+      ),
+      'import.meta.env.VITE_TEST_WALLET_HOST_ALLOWLIST': JSON.stringify(
+        testWalletEnv.VITE_TEST_WALLET_HOST_ALLOWLIST,
+      ),
       'globalThis.process': JSON.stringify({
         env: {
           NODE_ENV: 'production',
           JEJU_NETWORK: network,
           VITE_APP_VERSION: appVersion,
           VITE_GIT_SHA: gitSha,
+          ...testWalletEnv,
         },
         browser: true,
       }),
@@ -177,6 +205,7 @@ async function build() {
           JEJU_NETWORK: network,
           VITE_APP_VERSION: appVersion,
           VITE_GIT_SHA: gitSha,
+          ...testWalletEnv,
         },
         browser: true,
       }),
@@ -186,6 +215,7 @@ async function build() {
         VITE_APP_VERSION: appVersion,
         VITE_GIT_SHA: gitSha,
         PUBLIC_NETWORK: network,
+        ...testWalletEnv,
         MODE: 'production',
         DEV: false,
         PROD: true,

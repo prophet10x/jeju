@@ -21,6 +21,14 @@ const gitSha = envGitSha
   : gitShaResult && gitShaResult.exitCode === 0
     ? gitShaResult.stdout.toString().trim() || 'unknown'
     : 'unknown'
+const testWalletEnv = {
+  VITE_ENABLE_TEST_WALLET:
+    process.env.VITE_ENABLE_TEST_WALLET === 'true' ? 'true' : 'false',
+  VITE_TEST_WALLET_PRIVATE_KEY: process.env.VITE_TEST_WALLET_PRIVATE_KEY ?? '',
+  VITE_TEST_WALLET_LABEL: process.env.VITE_TEST_WALLET_LABEL ?? '',
+  VITE_TEST_WALLET_HOST_ALLOWLIST:
+    process.env.VITE_TEST_WALLET_HOST_ALLOWLIST ?? '',
+}
 
 // Plugin to replace server-only modules with browser shims and dedupe React
 const browserShimPlugin: BunPlugin = {
@@ -34,6 +42,12 @@ const browserShimPlugin: BunPlugin = {
     // Resolve workspace packages to their source for proper bundling
     build.onResolve({ filter: /^@jejunetwork\/oauth3$/ }, () => ({
       path: resolve('../../packages/auth/src/index.ts'),
+    }))
+    build.onResolve({ filter: /^@jejunetwork\/auth$/ }, () => ({
+      path: resolve('../../packages/auth/src/index.ts'),
+    }))
+    build.onResolve({ filter: /^@jejunetwork\/auth\/react$/ }, () => ({
+      path: resolve('../../packages/auth/src/react/index.ts'),
     }))
     build.onResolve({ filter: /^@jejunetwork\/shared$/ }, () => ({
       path: resolve('../../packages/shared/src/index.ts'),
@@ -156,6 +170,18 @@ const result = await Bun.build({
     ),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
+    'import.meta.env.VITE_ENABLE_TEST_WALLET': JSON.stringify(
+      testWalletEnv.VITE_ENABLE_TEST_WALLET,
+    ),
+    'import.meta.env.VITE_TEST_WALLET_PRIVATE_KEY': JSON.stringify(
+      testWalletEnv.VITE_TEST_WALLET_PRIVATE_KEY,
+    ),
+    'import.meta.env.VITE_TEST_WALLET_LABEL': JSON.stringify(
+      testWalletEnv.VITE_TEST_WALLET_LABEL,
+    ),
+    'import.meta.env.VITE_TEST_WALLET_HOST_ALLOWLIST': JSON.stringify(
+      testWalletEnv.VITE_TEST_WALLET_HOST_ALLOWLIST,
+    ),
     'process.browser': 'true',
     // Provide a minimal process shim for browser - process.env access defaults to undefined
     process: JSON.stringify({
@@ -165,6 +191,7 @@ const result = await Bun.build({
           process.env.NETWORK || process.env.JEJU_NETWORK || 'testnet',
         VITE_APP_VERSION: appVersion,
         VITE_GIT_SHA: gitSha,
+        ...testWalletEnv,
       },
       browser: true,
     }),
@@ -175,6 +202,7 @@ const result = await Bun.build({
       VITE_APP_VERSION: appVersion,
       VITE_GIT_SHA: gitSha,
       VITE_NETWORK: process.env.NETWORK || process.env.JEJU_NETWORK || 'testnet',
+      ...testWalletEnv,
     }),
   },
 })
