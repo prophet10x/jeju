@@ -1361,13 +1361,22 @@ export function createKMSRouter() {
 
         return {
           encrypted: ciphertext,
+          ciphertext,
           keyId,
           mode: process.env.MPC_COORDINATOR_URL ? 'mpc' : 'development',
         }
       })
       .post('/decrypt', async ({ body }) => {
         const validBody = expectValid(
-          decryptRequestSchema.extend({
+          decryptRequestSchema
+            .partial()
+            .extend({
+              ciphertext: z.string().optional(),
+            })
+            .refine((value) => Boolean(value.encrypted ?? value.ciphertext), {
+              message: 'Either encrypted or ciphertext must be provided',
+            })
+            .extend({
             keyId: z.string().uuid(),
           }),
           body,
@@ -1377,8 +1386,12 @@ export function createKMSRouter() {
         const mpcEnabled = !!process.env.MPC_COORDINATOR_URL
 
         // Decrypt with AES-256-GCM (development mode)
+        const encodedCiphertext = validBody.encrypted ?? validBody.ciphertext
+        if (!encodedCiphertext) {
+          throw new Error('Missing ciphertext payload')
+        }
         const data = new Uint8Array(
-          atob(validBody.encrypted)
+          atob(encodedCiphertext)
             .split('')
             .map((c) => c.charCodeAt(0)),
         )
