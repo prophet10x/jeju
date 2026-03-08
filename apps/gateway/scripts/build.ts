@@ -31,12 +31,17 @@ async function build() {
         readFileSync(resolve(APP_DIR, 'package.json'), 'utf-8'),
       ) as { version?: string }
     ).version ?? '0.0.0'
-  const gitShaResult = Bun.spawnSync({
-    cmd: ['git', 'rev-parse', '--short', 'HEAD'],
-    cwd: resolve(APP_DIR, '../..'),
-  })
-  const gitSha =
-    gitShaResult.exitCode === 0
+  const envGitSha =
+    process.env.VITE_GIT_SHA || process.env.GIT_SHA || process.env.COMMIT_SHA
+  const gitShaResult = envGitSha
+    ? null
+    : Bun.spawnSync({
+        cmd: ['git', 'rev-parse', '--short', 'HEAD'],
+        cwd: resolve(APP_DIR, '../..'),
+      })
+  const gitSha = envGitSha
+    ? envGitSha.trim() || 'unknown'
+    : gitShaResult && gitShaResult.exitCode === 0
       ? gitShaResult.stdout.toString().trim() || 'unknown'
       : 'unknown'
 

@@ -160,46 +160,53 @@ function detectNetworkFromHostname(): NetworkType | null {
   if (typeof window === 'undefined') return null
 
   const hostname = window.location.hostname
+  const lowerHostname = hostname.toLowerCase()
 
   // Localhost or local IP → localnet
   if (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname.startsWith('192.168.') ||
-    hostname.startsWith('10.') ||
-    hostname.endsWith('.local.jejunetwork.org')
+    lowerHostname === 'localhost' ||
+    lowerHostname === '127.0.0.1' ||
+    lowerHostname.startsWith('192.168.') ||
+    lowerHostname.startsWith('10.') ||
+    lowerHostname.endsWith('.local.jejunetwork.org')
   ) {
     return 'localnet'
   }
 
   // Check for testnet subdomain
-  if (hostname.includes('.testnet.jejunetwork.org')) {
+  if (lowerHostname.includes('.testnet.jejunetwork.org')) {
     return 'testnet'
   }
 
   // Check for testnet domain directly
-  if (hostname === 'testnet.jejunetwork.org') {
+  if (lowerHostname === 'testnet.jejunetwork.org') {
     return 'testnet'
   }
 
   // Jeju testnet deployments on fartbag.fun
-  if (
-    hostname === 'jeju-testnet.fartbag.fun' ||
-    hostname === 'jeju-dws.fartbag.fun'
-  ) {
+  const testnetFartbagHosts = new Set([
+    'jeju-testnet.fartbag.fun',
+    'jeju-dws.fartbag.fun',
+    'jeju-explorer.fartbag.fun',
+    'jeju-faucet.fartbag.fun',
+    'node1.fartbag.fun',
+    'aws0.fartbag.fun',
+    'ora0.fartbag.fun',
+  ])
+  if (testnetFartbagHosts.has(lowerHostname)) {
     return 'testnet'
   }
 
   // DWS public testnet hostnames
   if (
-    hostname === 'dws.testnet.jejunetwork.org' ||
-    hostname.endsWith('.dws.testnet.jejunetwork.org')
+    lowerHostname === 'dws.testnet.jejunetwork.org' ||
+    lowerHostname.endsWith('.dws.testnet.jejunetwork.org')
   ) {
     return 'testnet'
   }
 
   // Production jejunetwork.org domains → mainnet
-  if (hostname.endsWith('.jejunetwork.org')) {
+  if (lowerHostname.endsWith('.jejunetwork.org')) {
     return 'mainnet'
   }
 

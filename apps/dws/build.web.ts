@@ -8,12 +8,17 @@ mkdirSync(outdir, { recursive: true })
 const appVersion =
   (JSON.parse(readFileSync('./package.json', 'utf-8')) as { version?: string })
     .version ?? '0.0.0'
-const gitShaResult = Bun.spawnSync({
-  cmd: ['git', 'rev-parse', '--short', 'HEAD'],
-  cwd: resolve('../../'),
-})
-const gitSha =
-  gitShaResult.exitCode === 0
+const envGitSha =
+  process.env.VITE_GIT_SHA || process.env.GIT_SHA || process.env.COMMIT_SHA
+const gitShaResult = envGitSha
+  ? null
+  : Bun.spawnSync({
+      cmd: ['git', 'rev-parse', '--short', 'HEAD'],
+      cwd: resolve('../../'),
+    })
+const gitSha = envGitSha
+  ? envGitSha.trim() || 'unknown'
+  : gitShaResult && gitShaResult.exitCode === 0
     ? gitShaResult.stdout.toString().trim() || 'unknown'
     : 'unknown'
 

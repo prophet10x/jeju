@@ -8,6 +8,7 @@ import {
   getConfig,
   getConstant,
   getContract,
+  getCurrentNetwork,
   getCrossChainPaymaster,
   getEILChain,
   getEILChainById,
@@ -26,6 +27,20 @@ import {
   getServiceUrl,
 } from './index'
 import type { NetworkType } from './schemas'
+
+function setMockWindowHostname(hostname: string) {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { location: { hostname } },
+  })
+}
+
+function clearMockWindow() {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: undefined,
+  })
+}
 
 describe('Contract Resolution', () => {
   const originalEnv = { ...process.env }
@@ -145,6 +160,39 @@ describe('Contract Resolution', () => {
         getExternalContract('unknownChain', 'oif', 'solver'),
       ).toThrow('External chain unknownChain not configured')
     })
+  })
+})
+
+describe('Network Detection', () => {
+  const originalEnv = { ...process.env }
+  const originalWindow = (globalThis as { window?: unknown }).window
+
+  beforeEach(() => {
+    process.env = { ...originalEnv }
+  })
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: originalWindow,
+    })
+  })
+
+  it('detects testnet for ora0 and aws0 fartbag hosts', () => {
+    delete process.env.JEJU_NETWORK
+
+    setMockWindowHostname('ora0.fartbag.fun')
+    expect(getCurrentNetwork()).toBe('testnet')
+
+    setMockWindowHostname('aws0.fartbag.fun')
+    expect(getCurrentNetwork()).toBe('testnet')
+  })
+
+  it('still falls back to env/network defaults when window is unavailable', () => {
+    clearMockWindow()
+    process.env.JEJU_NETWORK = 'mainnet'
+    expect(getCurrentNetwork()).toBe('mainnet')
   })
 })
 
