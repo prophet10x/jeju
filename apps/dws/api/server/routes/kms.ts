@@ -68,11 +68,19 @@ const TEE_ATTESTATION_STATUS_FILE = resolve(
   process.env.TEE_ATTESTATION_STATUS_FILE ??
     '/var/run/jeju/kms-attestation.json',
 )
+const TEE_DEVICE_PATHS = [
+  '/dev/nitro_enclaves',
+  '/dev/sev-guest',
+  '/dev/sgx_enclave',
+  '/dev/sgx',
+]
 
 let securityEvidenceCache:
   | {
       cachedAt: number
+      teeAvailable: boolean
       teeAttested: boolean
+      hsmAvailable: boolean
       hsmConfigured: boolean
     }
   | null = null
@@ -91,20 +99,18 @@ async function hasPath(path: string): Promise<boolean> {
   }
 }
 
-async function evaluateTeeEvidence(): Promise<boolean> {
-  const enclaveId = process.env.TEE_ENCLAVE_ID?.trim()
-  if (!enclaveId) return false
-
-  const hardwareDevicePaths = [
-    '/dev/nitro_enclaves',
-    '/dev/sev-guest',
-    '/dev/sgx_enclave',
-    '/dev/sgx',
-  ]
-  const hasTeeDevice = await Promise.all(hardwareDevicePaths.map(hasPath)).then(
+async function evaluateTeeAvailability(): Promise<boolean> {
+  const hasTeeDevice = await Promise.all(TEE_DEVICE_PATHS.map(hasPath)).then(
     (results) => results.some(Boolean),
   )
-  if (!hasTeeDevice) return false
+  return hasTeeDevice
+}
+
+async function evaluateTeeEvidence(teeAvailable: boolean): Promise<boolean> {
+  if (!teeAvailable) return false
+
+  const enclaveId = process.env.TEE_ENCLAVE_ID?.trim()
+  if (!enclaveId) return false
 
   try {
     const raw = await readFile(TEE_ATTESTATION_STATUS_FILE, 'utf8')
@@ -127,7 +133,12 @@ async function evaluateTeeEvidence(): Promise<boolean> {
   }
 }
 
-async function evaluateHsmEvidence(): Promise<boolean> {
+function evaluateHsmAvailability(): boolean {
+  return Boolean(process.env.HSM_ENDPOINT?.trim())
+}
+
+async function evaluateHsmEvidence(hsmAvailable: boolean): Promise<boolean> {
+  if (!hsmAvailable) return false
   const endpoint = process.env.HSM_ENDPOINT?.trim()
   if (!endpoint) return false
 
@@ -160,7 +171,9 @@ async function evaluateHsmEvidence(): Promise<boolean> {
 }
 
 async function getSecurityEvidence(): Promise<{
+  teeAvailable: boolean
   teeAttested: boolean
+  hsmAvailable: boolean
   hsmConfigured: boolean
 }> {
   const now = Date.now()
@@ -168,13 +181,17 @@ async function getSecurityEvidence(): Promise<{
     return securityEvidenceCache
   }
 
+  const teeAvailable = await evaluateTeeAvailability()
+  const hsmAvailable = evaluateHsmAvailability()
   const [teeAttested, hsmConfigured] = await Promise.all([
-    evaluateTeeEvidence(),
-    evaluateHsmEvidence(),
+    evaluateTeeEvidence(teeAvailable),
+    evaluateHsmEvidence(hsmAvailable),
   ])
   securityEvidenceCache = {
     cachedAt: now,
+    teeAvailable,
     teeAttested,
+    hsmAvailable,
     hsmConfigured,
   }
   return securityEvidenceCache
@@ -958,7 +975,9 @@ export function createKMSRouter() {
             persistentKeys: keys.size,
             secrets: secrets.size,
             activeSessions,
+            teeAvailable: securityEvidence.teeAvailable,
             teeAttested: securityEvidence.teeAttested,
+            hsmAvailable: securityEvidence.hsmAvailable,
             hsmConfigured: securityEvidence.hsmConfigured,
             kmsEndpointConfigured: Boolean(process.env.KMS_ENDPOINT),
             persistenceEnabled: isPersistenceEnabled(),

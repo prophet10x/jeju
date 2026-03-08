@@ -187,7 +187,9 @@ export interface KMSHealth {
   persistentKeys: number
   secrets: number
   activeSessions: number
+  teeAvailable: boolean
   teeAttested: boolean
+  hsmAvailable: boolean
   hsmConfigured: boolean
   kmsEndpointConfigured: boolean
   persistenceEnabled: boolean

@@ -129,10 +129,22 @@ export default function KeysPage() {
   const securityMode = kmsHealth?.mode?.toUpperCase() ?? 'UNKNOWN'
   const securityDetail = kmsHealth
     ? kmsHealth.teeAttested
-      ? 'TEE attested'
-      : kmsHealth.hsmConfigured
-        ? 'HSM-backed, no TEE attestation'
-        : 'No TEE attestation or HSM'
+      ? kmsHealth.hsmConfigured
+        ? 'TEE attested, HSM-backed'
+        : kmsHealth.hsmAvailable
+          ? 'TEE attested, HSM available (not configured)'
+          : 'TEE attested'
+      : kmsHealth.teeAvailable
+        ? kmsHealth.hsmConfigured
+          ? 'TEE available (attestation pending), HSM-backed'
+          : kmsHealth.hsmAvailable
+            ? 'TEE available (attestation pending), HSM available (not configured)'
+            : 'TEE available (attestation pending)'
+        : kmsHealth.hsmConfigured
+          ? 'HSM-backed, no TEE attestation'
+          : kmsHealth.hsmAvailable
+            ? 'HSM available (not configured), no TEE attestation'
+            : 'No TEE or HSM available'
     : null
 
   return (
