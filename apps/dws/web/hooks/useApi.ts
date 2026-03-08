@@ -150,6 +150,14 @@ export function useStorageHealth() {
         status: 'healthy' | 'unhealthy'
         backends: string[]
         health: Record<string, boolean>
+        encryption: {
+          configured: boolean
+          healthy: boolean
+          mode: 'kms' | 'none'
+          accessClasses: Array<
+            'SYSTEM_PUBLIC' | 'PRIVATE_OWNER' | 'MANAGED_EXECUTION'
+          >
+        }
         stats: {
           entries?: number
           sizeBytes?: number
@@ -467,11 +475,55 @@ export function useDeleteWorker() {
 
 // Storage hooks
 
+export interface StorageAuditListItem {
+  cid: string
+  owner?: string | null
+  tier?: string | null
+  category?: string | null
+  backend?: string | null
+  sizeBytes: number
+  createdAt: number
+  updatedAt: number
+  audit: {
+    commitment: string
+    merkleRoot: string
+    chunkSize: number
+    chunkCount: number
+    storedSha256: string
+    timestamp: number
+  }
+}
+
+export interface StorageUploadParams {
+  file: File
+  storageClass?: 'SYSTEM_PUBLIC' | 'PRIVATE_OWNER' | 'MANAGED_EXECUTION'
+  minReplicas?: number
+  tier?: 'system' | 'popular' | 'private'
+  category?: string
+}
+
 export function useUploadFile() {
   const { address } = useAccount()
 
   return useMutation({
-    mutationFn: (file: File) => uploadFile('/storage/upload', file, address),
+    mutationFn: (params: StorageUploadParams) =>
+      uploadFile('/storage/upload', params.file, address, {
+        storageClass: params.storageClass,
+        minReplicas: params.minReplicas,
+        tier: params.tier,
+        category: params.category,
+      }),
+  })
+}
+
+export function useRecentStorageUploads(owner?: string) {
+  return useQuery({
+    queryKey: ['storage-audit', owner],
+    queryFn: () =>
+      fetchApi<{ items: StorageAuditListItem[]; limit: number; offset: number }>(
+        `/storage/audit?limit=20${owner ? `&owner=${encodeURIComponent(owner)}` : ''}`,
+      ),
+    enabled: !!owner,
   })
 }
 

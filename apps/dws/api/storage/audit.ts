@@ -8,7 +8,7 @@ import {
 import type { BlobCommitment, Chunk } from '../da/types'
 import type { ContentAuditCommitment } from './types'
 
-export const DEFAULT_STORAGE_CHUNK_SIZE = 64 * 1024
+export const DEFAULT_STORAGE_CHUNK_SIZE = 1024 * 1024
 
 function splitIntoChunks(data: Uint8Array, chunkSize: number): Uint8Array[] {
   const chunks: Uint8Array[] = []

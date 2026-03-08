@@ -19,6 +19,7 @@ import {
   getExternalRpc,
   getFederatedNetworks,
   getFederationHub,
+  getFrontendContracts,
   getFrontendServices,
   getPoCConfig,
   getServicesConfig,
@@ -417,6 +418,18 @@ describe('Convenience Functions', () => {
       const weth = getConstant('weth')
       expect(entryPoint).toMatch(/^0x[a-fA-F0-9]{40}$/)
       expect(weth).toMatch(/^0x[a-fA-F0-9]{40}$/)
+    })
+
+    it('should expose storage v2 frontend contract keys', () => {
+      process.env.GOVERNANCE_GOVERNOR =
+        '0x1111111111111111111111111111111111111111'
+      process.env.GOVERNANCE_FUTARCHY_GOVERNOR =
+        '0x2222222222222222222222222222222222222222'
+      const contracts = getFrontendContracts('testnet')
+      expect(contracts).toHaveProperty('dwsStorageProviderRegistryV2')
+      expect(contracts).toHaveProperty('dwsStorageRegistryV2')
+      expect(contracts).toHaveProperty('dwsStorageEscrowV2')
+      expect(contracts).toHaveProperty('dwsStorageRecoveryManagerV2')
     })
   })
 

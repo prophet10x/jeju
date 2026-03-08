@@ -26,6 +26,7 @@ import { createStorageAuditCommitment } from './audit'
 import { type FilecoinBackend, getFilecoinBackend } from './filecoin-backend'
 import type {
   ContentAddress,
+  StorageAccessClass,
   ContentCategory,
   ContentMetadata,
   ContentTier,
@@ -40,6 +41,10 @@ import type {
   UploadResult,
 } from './types'
 import type { WebTorrentBackend } from './webtorrent-backend'
+
+const STORAGE_MIN_REPLICAS_MIN = 4
+const STORAGE_MIN_REPLICAS_MAX = 10
+const STORAGE_DEFAULT_MIN_REPLICAS = 6
 
 // Types
 
@@ -327,12 +332,15 @@ export class MultiBackendManager {
   ): Promise<UploadResult> {
     const tier = options.tier ?? this.config.defaultTier
     const category = options.category ?? 'data'
+    const accessClass = this.resolveAccessClass(options, tier)
+    const requestedMinReplicas = this.resolveRequestedReplicaCount(options)
 
-    // Encrypt private content
+    // Encrypted classes must go through KMS or fail closed.
     let uploadContent = content
     let encryptionKeyId: string | undefined
 
-    if (tier === 'private' && options.encrypt !== false) {
+    if (accessClass !== 'SYSTEM_PUBLIC') {
+      await this.ensureEncryptedStorageAvailable(accessClass)
       const encrypted = await this.encryptContent(content, options.accessPolicy)
       uploadContent = encrypted.data
       encryptionKeyId = encrypted.keyId
@@ -406,10 +414,14 @@ export class MultiBackendManager {
       createdAt: Date.now(),
       sha256,
       addresses,
-      encrypted: tier === 'private',
+      accessClass,
+      encrypted: accessClass !== 'SYSTEM_PUBLIC',
       encryptionKeyId,
       accessPolicy: options.accessPolicy,
+      encryptionMode: accessClass === 'SYSTEM_PUBLIC' ? 'none' : 'kms',
       audit,
+      requestedMinReplicas,
+      targetReplicas: requestedMinReplicas,
       accessCount: 0,
     }
 
@@ -447,6 +459,10 @@ export class MultiBackendManager {
       arweaveTxId: addresses.arweaveTxId,
       encrypted: metadata.encrypted,
       encryptionKeyId,
+      accessClass,
+      encryptionMode: metadata.encryptionMode,
+      requestedMinReplicas,
+      effectiveReplicaCount: addresses.backends.length,
     }
   }
 
@@ -457,6 +473,14 @@ export class MultiBackendManager {
     content: Buffer,
     options: UploadOptions = {},
   ): Promise<UploadResult> {
+    const tier = options.tier ?? this.config.defaultTier
+    const accessClass = this.resolveAccessClass(options, tier)
+    if (accessClass !== 'SYSTEM_PUBLIC') {
+      throw new Error(
+        'Permanent uploads currently support SYSTEM_PUBLIC content only',
+      )
+    }
+
     const result = await this.arweaveBackend.upload(content, {
       filename: options.filename,
       contentType: options.contentType,
@@ -737,15 +761,86 @@ export class MultiBackendManager {
 
   // Encryption (KMS Integration)
 
+  async getEncryptionHealth(): Promise<{
+    configured: boolean
+    healthy: boolean
+    mode: 'kms' | 'none'
+    accessClasses: StorageAccessClass[]
+  }> {
+    if (!this.kmsEndpoint) {
+      return {
+        configured: false,
+        healthy: false,
+        mode: 'none',
+        accessClasses: ['SYSTEM_PUBLIC'],
+      }
+    }
+
+    try {
+      const response = await fetch(`${this.kmsEndpoint}/health`)
+      if (!response.ok) {
+        return {
+          configured: true,
+          healthy: false,
+          mode: 'kms',
+          accessClasses: ['SYSTEM_PUBLIC'],
+        }
+      }
+
+      const data = (await response.json()) as {
+        healthy?: boolean
+      }
+
+      return {
+        configured: true,
+        healthy: data.healthy === true,
+        mode: 'kms',
+        accessClasses:
+          data.healthy === true
+            ? ['SYSTEM_PUBLIC', 'PRIVATE_OWNER', 'MANAGED_EXECUTION']
+            : ['SYSTEM_PUBLIC'],
+      }
+    } catch {
+      return {
+        configured: true,
+        healthy: false,
+        mode: 'kms',
+        accessClasses: ['SYSTEM_PUBLIC'],
+      }
+    }
+  }
+
+  async assertStartupEncryptionHealth(): Promise<void> {
+    const health = await this.getEncryptionHealth()
+    if (!health.configured || !health.healthy) {
+      throw new Error(
+        'Encrypted storage classes require a healthy KMS endpoint at startup',
+      )
+    }
+  }
+
+  private async ensureEncryptedStorageAvailable(
+    accessClass: StorageAccessClass,
+  ): Promise<void> {
+    const health = await this.getEncryptionHealth()
+    if (!health.configured) {
+      throw new Error(
+        `${accessClass} uploads require KMS, but no KMS endpoint is configured`,
+      )
+    }
+    if (!health.healthy) {
+      throw new Error(
+        `${accessClass} uploads require KMS, but the KMS endpoint is unhealthy`,
+      )
+    }
+  }
+
   private async encryptContent(
     content: Buffer,
     accessPolicy?: string,
   ): Promise<{ data: Buffer; keyId: string }> {
     if (!this.kmsEndpoint) {
-      // Fallback: simple AES encryption
-      const keyId = bytesToHex(hash256(crypto.randomUUID())).slice(2, 34)
-      // In production, use actual KMS encryption
-      return { data: content, keyId }
+      throw new Error('KMS endpoint required for encryption')
     }
 
     const response = await fetch(`${this.kmsEndpoint}/encrypt`, {
@@ -802,6 +897,28 @@ export class MultiBackendManager {
   }
 
   // Helpers
+
+  private resolveAccessClass(
+    options: UploadOptions,
+    tier: ContentTier,
+  ): StorageAccessClass {
+    if (options.accessClass) {
+      return options.accessClass
+    }
+
+    if (tier === 'system') return 'SYSTEM_PUBLIC'
+    if (tier === 'private' || options.encrypt === true) return 'PRIVATE_OWNER'
+    return 'SYSTEM_PUBLIC'
+  }
+
+  private resolveRequestedReplicaCount(options: UploadOptions): number {
+    const requested =
+      options.minReplicas ?? options.replicationFactor ?? STORAGE_DEFAULT_MIN_REPLICAS
+    return Math.max(
+      STORAGE_MIN_REPLICAS_MIN,
+      Math.min(STORAGE_MIN_REPLICAS_MAX, requested),
+    )
+  }
 
   private getBackendsForTier(
     tier: ContentTier,
@@ -917,6 +1034,17 @@ export function getMultiBackendManager(
 ): MultiBackendManager {
   if (!globalMultiBackend) {
     globalMultiBackend = new MultiBackendManager(config)
+    if (
+      process.env.JEJU_STORAGE_KMS_STARTUP_CHECK !== 'false' &&
+      (config?.kmsEndpoint ?? process.env.KMS_ENDPOINT)
+    ) {
+      void globalMultiBackend.assertStartupEncryptionHealth().catch((error) => {
+        console.error(
+          '[MultiBackend] Encrypted storage startup health check failed:',
+          error instanceof Error ? error.message : String(error),
+        )
+      })
+    }
   }
   return globalMultiBackend
 }

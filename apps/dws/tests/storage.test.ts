@@ -25,7 +25,10 @@ import {
   type BackendManager,
   createBackendManager,
 } from '../api/storage/backends'
-import { resetMultiBackendManager } from '../api/storage/multi-backend'
+import {
+  getMultiBackendManager,
+  resetMultiBackendManager,
+} from '../api/storage/multi-backend'
 import { SKIP as INFRA_SKIP } from './infra-check'
 import { dwsRequest } from './setup'
 
@@ -330,6 +333,43 @@ describe('BackendManager', () => {
       const health = await backend.healthCheck()
       expect(health).toHaveProperty('local')
       expect(health.local).toBe(true)
+    })
+  })
+
+  describe('Encryption Enforcement', () => {
+    test('fails closed for encrypted uploads when KMS is unavailable', async () => {
+      resetMultiBackendManager()
+      const storage = getMultiBackendManager({ kmsEndpoint: undefined })
+
+      await expect(
+        storage.upload(Buffer.from('secret'), {
+          tier: 'private',
+          accessClass: 'PRIVATE_OWNER',
+          preferredBackends: ['local'],
+        }),
+      ).rejects.toThrow('KMS')
+    })
+
+    test('tracks access class, replica policy, and 1 MiB audit chunking', async () => {
+      resetMultiBackendManager()
+      const storage = getMultiBackendManager({ kmsEndpoint: undefined })
+
+      const result = await storage.upload(Buffer.from('public content'), {
+        tier: 'system',
+        accessClass: 'SYSTEM_PUBLIC',
+        minReplicas: 6,
+        preferredBackends: ['local'],
+      })
+
+      expect(result.accessClass).toBe('SYSTEM_PUBLIC')
+      expect(result.requestedMinReplicas).toBe(6)
+      expect(result.encryptionMode).toBe('none')
+      expect(result.effectiveReplicaCount).toBe(1)
+
+      const metadata = storage.getMetadata(result.cid)
+      expect(metadata?.accessClass).toBe('SYSTEM_PUBLIC')
+      expect(metadata?.audit?.chunkSize).toBe(1024 * 1024)
+      expect(metadata?.targetReplicas).toBe(6)
     })
   })
 })

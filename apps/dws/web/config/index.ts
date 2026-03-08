@@ -77,6 +77,14 @@ export const CONTRACTS = {
   nodeStakingMigrationHandlerV3: optionalAddr(
     contracts.nodeStaking?.migrationHandlerV3,
   ),
+  storageProviderRegistryV2: optionalAddr(
+    contracts.dws?.storageProviderRegistryV2,
+  ),
+  storageRegistryV2: optionalAddr(contracts.dws?.storageRegistryV2),
+  storageEscrowV2: optionalAddr(contracts.dws?.storageEscrowV2),
+  storageRecoveryManagerV2: optionalAddr(
+    contracts.dws?.storageRecoveryManagerV2,
+  ),
   entryPointDeployed: optionalAddr(
     contracts.accountAbstraction?.entryPointDeployed ||
       contracts.accountAbstraction?.entryPointV07,

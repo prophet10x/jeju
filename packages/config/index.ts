@@ -1062,6 +1062,18 @@ export function getFrontendContracts(network?: NetworkType) {
     // DWS (Decentralized Web Services)
     dwsStorageManager: tryGetContract('dws', 'storageManager', net),
     dwsWorkerRegistry: tryGetContract('dws', 'workerRegistry', net),
+    dwsStorageProviderRegistryV2: tryGetContract(
+      'dws',
+      'storageProviderRegistryV2',
+      net,
+    ),
+    dwsStorageRegistryV2: tryGetContract('dws', 'storageRegistryV2', net),
+    dwsStorageEscrowV2: tryGetContract('dws', 'storageEscrowV2', net),
+    dwsStorageRecoveryManagerV2: tryGetContract(
+      'dws',
+      'storageRecoveryManagerV2',
+      net,
+    ),
     cdnRegistry: tryGetContract('cdn', 'registry', net),
 
     // Payments
@@ -2641,6 +2653,42 @@ export function getDWSWorkerRegistryAddress(network?: NetworkType): string {
   return (
     process.env.DWS_WORKER_REGISTRY_ADDRESS ??
     tryGetContract('dws', 'workerRegistry', network)
+  )
+}
+
+/** Get DWS Storage Provider Registry V2 address */
+export function getDWSStorageProviderRegistryV2Address(
+  network?: NetworkType,
+): string {
+  return (
+    process.env.DWS_STORAGE_PROVIDER_REGISTRY_V2_ADDRESS ??
+    tryGetContract('dws', 'storageProviderRegistryV2', network)
+  )
+}
+
+/** Get DWS Storage Registry V2 address */
+export function getDWSStorageRegistryV2Address(network?: NetworkType): string {
+  return (
+    process.env.DWS_STORAGE_REGISTRY_V2_ADDRESS ??
+    tryGetContract('dws', 'storageRegistryV2', network)
+  )
+}
+
+/** Get DWS Storage Escrow V2 address */
+export function getDWSStorageEscrowV2Address(network?: NetworkType): string {
+  return (
+    process.env.DWS_STORAGE_ESCROW_V2_ADDRESS ??
+    tryGetContract('dws', 'storageEscrowV2', network)
+  )
+}
+
+/** Get DWS Storage Recovery Manager V2 address */
+export function getDWSStorageRecoveryManagerV2Address(
+  network?: NetworkType,
+): string {
+  return (
+    process.env.DWS_STORAGE_RECOVERY_MANAGER_V2_ADDRESS ??
+    tryGetContract('dws', 'storageRecoveryManagerV2', network)
   )
 }
 

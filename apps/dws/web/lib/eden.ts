@@ -208,9 +208,35 @@ export async function uploadFile(
   endpoint: string,
   file: File,
   address?: string,
-): Promise<{ cid: string; size?: number; contentType?: string }> {
+  options?: {
+    storageClass?: 'SYSTEM_PUBLIC' | 'PRIVATE_OWNER' | 'MANAGED_EXECUTION'
+    minReplicas?: number
+    tier?: 'system' | 'popular' | 'private'
+    category?: string
+  },
+): Promise<{
+  cid: string
+  size?: number
+  contentType?: string
+  accessClass?: 'SYSTEM_PUBLIC' | 'PRIVATE_OWNER' | 'MANAGED_EXECUTION'
+  encryptionMode?: 'none' | 'kms'
+  requestedMinReplicas?: number
+  effectiveReplicaCount?: number
+}> {
   const formData = new FormData()
   formData.append('file', file)
+  if (options?.storageClass) {
+    formData.append('storageClass', options.storageClass)
+  }
+  if (options?.minReplicas !== undefined) {
+    formData.append('minReplicas', String(options.minReplicas))
+  }
+  if (options?.tier) {
+    formData.append('tier', options.tier)
+  }
+  if (options?.category) {
+    formData.append('category', options.category)
+  }
 
   const headers: Record<string, string> = {}
   if (address) {

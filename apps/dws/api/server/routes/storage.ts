@@ -53,6 +53,7 @@ import {
 } from '../../storage/payments'
 import type {
   ContentCategory,
+  StorageAccessClass,
   ContentTier,
   ContentAuditCommitment,
   StorageBackendType,
@@ -268,6 +269,75 @@ function getQueryInt(
 
 function requiresStoragePayment(tier?: ContentTier): boolean {
   return tier !== 'system'
+}
+
+function resolveAccessClass(
+  requested: string | undefined,
+  tier: ContentTier | undefined,
+  encrypt: boolean,
+): StorageAccessClass {
+  if (requested === 'SYSTEM_PUBLIC') return requested
+  if (requested === 'PRIVATE_OWNER') return requested
+  if (requested === 'MANAGED_EXECUTION') return requested
+
+  if (tier === 'private' || encrypt) {
+    return 'PRIVATE_OWNER'
+  }
+
+  return 'SYSTEM_PUBLIC'
+}
+
+function resolveTier(
+  requestedTier: ContentTier | undefined,
+  accessClass: StorageAccessClass,
+): ContentTier {
+  if (accessClass === 'SYSTEM_PUBLIC') {
+    if (requestedTier === 'popular') {
+      return 'popular'
+    }
+    return 'system'
+  }
+
+  return 'private'
+}
+
+function clampReplicaRequest(requested: number | undefined): number | undefined {
+  if (requested === undefined || !Number.isFinite(requested)) {
+    return undefined
+  }
+
+  const rounded = Math.floor(requested)
+  if (rounded <= 0) {
+    return undefined
+  }
+
+  return Math.max(4, Math.min(10, rounded))
+}
+
+function parseOptionalInt(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function isKmsFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes('KMS') || error.message.includes('encrypted'))
+  )
+}
+
+function toUploadErrorResponse(
+  set: { status?: number | string },
+  error: unknown,
+): { error: string } {
+  if (error instanceof Error) {
+    set.status = isKmsFailure(error) ? 503 : 400
+    return { error: error.message }
+  }
+
+  set.status = 500
+  return { error: 'Unexpected storage error' }
 }
 
 function paymentRequiredResponse(
@@ -512,6 +582,7 @@ export function createStorageRouter(_backend?: BackendManager) {
       .get('/health', async () => {
         const backends = storageManager.listBackends()
         const health = await storageManager.healthCheck()
+        const encryption = await storageManager.getEncryptionHealth()
         const stats = storageManager.getNodeStats()
 
         return {
@@ -519,6 +590,7 @@ export function createStorageRouter(_backend?: BackendManager) {
           status: 'healthy' as const,
           backends,
           health,
+          encryption,
           stats,
         }
       })
@@ -565,14 +637,26 @@ export function createStorageRouter(_backend?: BackendManager) {
         // (Blob uploads may not have .name set in some environments)
         const filename = file.name || 'upload'
 
-        const tier = getFormStringOr(formData, 'tier', 'popular')
+        const requestedTier = getFormString(formData, 'tier') as
+          | ContentTier
+          | undefined
         const category = getFormStringOr(formData, 'category', 'data')
         const encrypt = formData.get('encrypt') === 'true'
         const permanent = formData.get('permanent') === 'true'
         const backendsStr = getFormString(formData, 'backends')
         const accessPolicy = getFormString(formData, 'accessPolicy')
+        const requestedAccessClass = getFormString(formData, 'storageClass')
+        const minReplicas = clampReplicaRequest(
+          parseOptionalInt(getFormString(formData, 'minReplicas')),
+        )
         const senderAddress = request.headers.get('x-sender-address')
         const paymentHeader = request.headers.get('x-payment')
+        const accessClass = resolveAccessClass(
+          requestedAccessClass,
+          requestedTier,
+          encrypt,
+        )
+        const tier = resolveTier(requestedTier, accessClass)
 
         const content = Buffer.from(await file.arrayBuffer())
 
@@ -607,7 +691,7 @@ export function createStorageRouter(_backend?: BackendManager) {
           set,
           paymentHeader,
           userAddress: senderAddress,
-          tier: tier as ContentTier,
+          tier,
           operation: permanent ? 'permanent-upload' : 'upload',
           sizeBytes: content.length,
           resource: `/storage/upload`,
@@ -621,19 +705,35 @@ export function createStorageRouter(_backend?: BackendManager) {
           | undefined
 
         const result = permanent
-          ? await storageManager.uploadPermanent(content, {
-              filename,
-              tier: tier as ContentTier,
-              category: category as ContentCategory,
-            })
-          : await storageManager.upload(content, {
-              filename,
-              tier: tier as ContentTier,
-              category: category as ContentCategory,
-              encrypt,
-              preferredBackends,
-              accessPolicy: accessPolicy ?? undefined,
-            })
+          ? await storageManager
+              .uploadPermanent(content, {
+                filename,
+                tier,
+                category: category as ContentCategory,
+                accessClass,
+                minReplicas,
+              })
+              .catch((error: unknown) => {
+                return toUploadErrorResponse(set, error)
+              })
+          : await storageManager
+              .upload(content, {
+                filename,
+                tier,
+                category: category as ContentCategory,
+                encrypt,
+                preferredBackends,
+                accessPolicy: accessPolicy ?? undefined,
+                accessClass,
+                minReplicas,
+              })
+              .catch((error: unknown) => {
+                return toUploadErrorResponse(set, error)
+              })
+
+        if ('error' in result) {
+          return result
+        }
 
         await persistStoredUpload({
           storageManager,
@@ -641,7 +741,7 @@ export function createStorageRouter(_backend?: BackendManager) {
           filename,
           sizeBytes: result.size,
           backend: result.backends[0],
-          tier: tier as ContentTier,
+          tier,
           category: category as ContentCategory,
           senderAddress,
           permanent,
@@ -654,8 +754,23 @@ export function createStorageRouter(_backend?: BackendManager) {
       // Raw upload (simple body as content)
       .post('/upload/raw', async ({ request, query, set }) => {
         const filename = request.headers.get('x-filename') || 'upload'
-        const tier = (query.tier as ContentTier) || 'popular'
+        const requestedTier = query.tier as ContentTier | undefined
         const category = (query.category as ContentCategory) || 'data'
+        const requestedAccessClass =
+          typeof query.storageClass === 'string' ? query.storageClass : undefined
+        const minReplicas = clampReplicaRequest(
+          getQueryInt(
+            query as Record<string, string | undefined>,
+            'minReplicas',
+            0,
+          ) || undefined,
+        )
+        const accessClass = resolveAccessClass(
+          requestedAccessClass,
+          requestedTier,
+          query.encrypt === 'true',
+        )
+        const tier = resolveTier(requestedTier, accessClass)
         const senderAddress = request.headers.get('x-sender-address')
         const paymentHeader = request.headers.get('x-payment')
 
@@ -694,11 +809,21 @@ export function createStorageRouter(_backend?: BackendManager) {
           return payment.response
         }
 
-        const result = await storageManager.upload(content, {
-          filename,
-          tier,
-          category,
-        })
+        const result = await storageManager
+          .upload(content, {
+            filename,
+            tier,
+            category,
+            accessClass,
+            minReplicas,
+          })
+          .catch((error: unknown) => {
+            return toUploadErrorResponse(set, error)
+          })
+
+        if ('error' in result) {
+          return result
+        }
 
         await persistStoredUpload({
           storageManager,
@@ -719,12 +844,22 @@ export function createStorageRouter(_backend?: BackendManager) {
       .post(
         '/upload/json',
         async ({ body, request, set }) => {
-          const { data, name, tier, category, encrypt } = body as {
+          const {
+            data,
+            name,
+            tier,
+            category,
+            encrypt,
+            storageClass,
+            minReplicas,
+          } = body as {
             data: unknown
             name?: string
             tier?: string
             category?: string
             encrypt?: boolean
+            storageClass?: string
+            minReplicas?: number
           }
           const content = Buffer.from(JSON.stringify(data))
           const filename = name ?? 'data.json'
@@ -749,8 +884,15 @@ export function createStorageRouter(_backend?: BackendManager) {
           }
           // ========================================
 
-          const resolvedTier =
-            (tier as ContentTier | undefined) ?? 'popular'
+          const accessClass = resolveAccessClass(
+            storageClass,
+            tier as ContentTier | undefined,
+            encrypt ?? false,
+          )
+          const resolvedTier = resolveTier(
+            tier as ContentTier | undefined,
+            accessClass,
+          )
           const resolvedCategory =
             (category as ContentCategory | undefined) ?? 'data'
 
@@ -767,12 +909,22 @@ export function createStorageRouter(_backend?: BackendManager) {
             return payment.response
           }
 
-          const result = await storageManager.upload(content, {
-            filename,
-            tier: resolvedTier,
-            category: resolvedCategory,
-            encrypt,
-          })
+          const result = await storageManager
+            .upload(content, {
+              filename,
+              tier: resolvedTier,
+              category: resolvedCategory,
+              encrypt,
+              accessClass,
+              minReplicas: clampReplicaRequest(minReplicas),
+            })
+            .catch((error: unknown) => {
+              return toUploadErrorResponse(set, error)
+            })
+
+          if ('error' in result) {
+            return result
+          }
 
           await persistStoredUpload({
             storageManager,
@@ -795,6 +947,8 @@ export function createStorageRouter(_backend?: BackendManager) {
             tier: t.Optional(t.String()),
             category: t.Optional(t.String()),
             encrypt: t.Optional(t.Boolean()),
+            storageClass: t.Optional(t.String()),
+            minReplicas: t.Optional(t.Number()),
           }),
         },
       )
@@ -810,9 +964,21 @@ export function createStorageRouter(_backend?: BackendManager) {
         }
 
         const filename = file.name || 'upload'
-        const tier = getFormStringOr(formData, 'tier', 'popular')
+        const requestedTier = getFormString(formData, 'tier') as
+          | ContentTier
+          | undefined
         const category = getFormStringOr(formData, 'category', 'data')
         const content = Buffer.from(await file.arrayBuffer())
+        const requestedAccessClass = getFormString(formData, 'storageClass')
+        const accessClass = resolveAccessClass(
+          requestedAccessClass,
+          requestedTier,
+          false,
+        )
+        const tier = resolveTier(requestedTier, accessClass)
+        const minReplicas = clampReplicaRequest(
+          parseOptionalInt(getFormString(formData, 'minReplicas')),
+        )
         const senderAddress = request.headers.get('x-sender-address')
         const paymentHeader = request.headers.get('x-payment')
 
@@ -840,7 +1006,7 @@ export function createStorageRouter(_backend?: BackendManager) {
           set,
           paymentHeader,
           userAddress: senderAddress,
-          tier: tier as ContentTier,
+          tier,
           operation: 'permanent-upload',
           sizeBytes: content.length,
           resource: '/storage/upload/permanent',
@@ -849,11 +1015,21 @@ export function createStorageRouter(_backend?: BackendManager) {
           return payment.response
         }
 
-        const result = await storageManager.uploadPermanent(content, {
-          filename,
-          tier: tier as ContentTier,
-          category: category as ContentCategory,
-        })
+        const result = await storageManager
+          .uploadPermanent(content, {
+            filename,
+            tier,
+            category: category as ContentCategory,
+            accessClass,
+            minReplicas,
+          })
+          .catch((error: unknown) => {
+            return toUploadErrorResponse(set, error)
+          })
+
+        if ('error' in result) {
+          return result
+        }
 
         await persistStoredUpload({
           storageManager,
@@ -861,7 +1037,7 @@ export function createStorageRouter(_backend?: BackendManager) {
           filename,
           sizeBytes: result.size,
           backend: result.backends[0],
-          tier: tier as ContentTier,
+          tier,
           category: category as ContentCategory,
           senderAddress,
           permanent: true,

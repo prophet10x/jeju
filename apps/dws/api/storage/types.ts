@@ -19,6 +19,11 @@ export type ContentTier =
   | 'popular' // Incentivized, nodes earn for serving hot content
   | 'private' // Paid, encrypted, access-controlled
 
+export type StorageAccessClass =
+  | 'SYSTEM_PUBLIC'
+  | 'PRIVATE_OWNER'
+  | 'MANAGED_EXECUTION'
+
 export type ContentCategory =
   | 'app-bundle' // Compiled frontend apps
   | 'app-manifest' // jeju-manifest.json files
@@ -66,10 +71,14 @@ export interface ContentMetadata {
   addresses: ContentAddress
 
   // Access control
+  accessClass?: StorageAccessClass
   encrypted?: boolean
   encryptionKeyId?: string
   accessPolicy?: string // KMS policy ID
+  encryptionMode?: 'none' | 'kms'
   audit?: ContentAuditCommitment
+  requestedMinReplicas?: number
+  targetReplicas?: number
 
   // Stats
   accessCount: number
@@ -147,6 +156,9 @@ export interface UploadOptions {
   encrypt?: boolean
   encryptionKeyId?: string
   accessPolicy?: string
+  accessClass?: StorageAccessClass
+  minReplicas?: number
+  strictEncryption?: boolean
 
   // Arweave-specific
   permanent?: boolean // User-selected Arweave storage
@@ -167,6 +179,10 @@ export interface UploadResult {
   arweaveTxId?: string
   encrypted?: boolean
   encryptionKeyId?: string
+  accessClass?: StorageAccessClass
+  encryptionMode?: 'none' | 'kms'
+  requestedMinReplicas?: number
+  effectiveReplicaCount?: number
 }
 
 export interface DownloadOptions {

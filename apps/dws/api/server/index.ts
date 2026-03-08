@@ -154,6 +154,7 @@ import { createStorageRouter } from './routes/storage'
 import { createVPNRouter } from './routes/vpn'
 import { createDefaultWorkerdRouter } from './routes/workerd'
 import { createWorkersRouter } from './routes/workers'
+import { isFrontendSpaPath } from './frontend-routes'
 
 // Config injection for workerd compatibility
 export interface DWSServerConfig {
@@ -1262,6 +1263,26 @@ app.get('/stats', () => {
 // This must come after all API routes but before 404 fallback
 // Only serves index.html for paths that look like frontend routes (not API endpoints)
 app.get('/*', async ({ path, set }) => {
+  if (isFrontendSpaPath(path)) {
+    const decentralizedResponse =
+      await decentralized.frontend.serveAsset('index.html')
+    if (decentralizedResponse) return decentralizedResponse
+
+    const file = Bun.file('./dist/index.html')
+    if (await file.exists()) {
+      const html = await file.text()
+      return new Response(html, {
+        headers: {
+          'Content-Type': 'text/html',
+          'X-DWS-Source': 'local',
+        },
+      })
+    }
+
+    set.status = 404
+    return { error: 'Frontend not available' }
+  }
+
   // Skip API-like paths that should return 404 if not handled
   // Include both with and without trailing slash for exact matches
   const apiPrefixes = [

@@ -85,6 +85,10 @@
       "cronOrchestrator": "0x6d712cb50297b97b79de784d10f487c00d7f8c2c",
       "containerRegistry": "0x04f339ec4d75cf2833069e6e61b60ef56461cd7c",
       "storageProviderRegistry": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
+      "storageProviderRegistryV2": "",
+      "storageRegistryV2": "",
+      "storageEscrowV2": "",
+      "storageRecoveryManagerV2": "",
       "identityRegistry": "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707"
     },
     "payments": {
@@ -302,6 +306,10 @@
       "containerRegistry": "0xc351628EB244ec633d5f21fBD6621e1a683B1181",
       "cronOrchestrator": "0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A",
       "providerRegistry": "0x0e801d84fa97b50751dbf25036d067dcf18858bf",
+      "storageProviderRegistryV2": "",
+      "storageRegistryV2": "",
+      "storageEscrowV2": "",
+      "storageRecoveryManagerV2": "",
       "billing": "0x8f86403a4de0bb5791fa46b8e795c547942fe4cf",
       "serviceProvisioning": "0x9d4454b023096f34b160d6b654540c56a1f81688"
     },
@@ -528,7 +536,11 @@
       "managedDatabaseRegistry": "",
       "cacheManager": "",
       "containerRegistry": "",
-      "cronOrchestrator": ""
+      "cronOrchestrator": "",
+      "storageProviderRegistryV2": "",
+      "storageRegistryV2": "",
+      "storageEscrowV2": "",
+      "storageRecoveryManagerV2": ""
     },
     "payments": {
       "paymasterFactory": "",
