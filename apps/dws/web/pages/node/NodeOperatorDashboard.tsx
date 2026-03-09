@@ -2,6 +2,7 @@ import {
   NODE_SERVICE_DEFINITIONS,
   type NodeServiceId,
 } from "@jejunetwork/shared";
+import { useJejuAuth } from "@jejunetwork/auth/react";
 import {
   TransactionStatusModal,
   type TransactionStatusResult,
@@ -200,6 +201,7 @@ function AgentReference({
 
 export default function NodeOperatorDashboard() {
   const { isConnected, address } = useAccount();
+  const { authenticated, walletAddress, loading: authLoading } = useJejuAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const { showSuccess, showError } = useToast();
   const confirm = useConfirm();
@@ -516,13 +518,22 @@ export default function NodeOperatorDashboard() {
       ? (nodes.length / networkDisplayTotalNodes) * 100
       : Number(stats?.operator.networkSharePercent ?? "0");
 
-  if (!isConnected || !address) {
+  const hasAuthenticatedSession = Boolean(authenticated && walletAddress);
+
+  if (!isConnected || !address || !hasAuthenticatedSession) {
     return (
       <div className="empty-state" style={{ paddingTop: "4rem" }}>
         <Server size={64} />
-        <h3>Connect wallet to view your nodes</h3>
+        <h3>
+          {!isConnected || !address
+            ? "Connect wallet to view your nodes"
+            : authLoading
+              ? "Checking authentication..."
+              : "Sign in to view your nodes"}
+        </h3>
         <p style={{ marginBottom: "1rem" }}>
-          View your registered nodes, earnings, and performance
+          View your registered nodes, earnings, and performance after wallet
+          authentication
         </p>
         <WalletButton />
       </div>

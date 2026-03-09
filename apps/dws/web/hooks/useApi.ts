@@ -1066,19 +1066,23 @@ interface OperatorStats {
 }
 
 export function useProviderStats() {
-  const { address } = useAccount()
+  const { authenticated, walletAddress } = useJejuAuth()
   const publicClient = usePublicClient()
   const gasless = useGaslessSmartAccount()
   const stakingContracts = getNodeStakingContracts()
+  const ownerAddress =
+    authenticated && walletAddress
+      ? (walletAddress as `0x${string}`)
+      : undefined
   const { data: predictedSmartAccountAddress } = useQuery({
     queryKey: [
       'provider-stats',
       'predicted-smart-account',
-      address,
+      ownerAddress,
       CONTRACTS.simpleAccountFactory,
     ],
     queryFn: async () => {
-      if (!address || !publicClient) return null
+      if (!ownerAddress || !publicClient) return null
       const factoryAddress = getConfiguredAddress(
         CONTRACTS.simpleAccountFactory,
       )
@@ -1087,22 +1091,24 @@ export function useProviderStats() {
         return await predictSimpleAccountAddress({
           publicClient,
           factoryAddress,
-          ownerAddress: address,
+          ownerAddress,
         })
       } catch {
         return null
       }
     },
-    enabled: Boolean(address && publicClient),
+    enabled: Boolean(ownerAddress && publicClient),
     staleTime: 60_000,
   })
-  const operatorAddresses = Array.from(
-    new Set(
-      [address, gasless.smartAccountAddress, predictedSmartAccountAddress]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => value.toLowerCase()),
-    ),
-  )
+  const operatorAddresses = ownerAddress
+    ? Array.from(
+        new Set(
+          [ownerAddress, gasless.smartAccountAddress, predictedSmartAccountAddress]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => value.toLowerCase()),
+        ),
+      )
+    : []
   return useQuery({
     queryKey: ['provider-stats', operatorAddresses, stakingContracts],
     queryFn: async () => {
@@ -1231,6 +1237,7 @@ export function useClaimRewards() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['provider-stats'] })
     },
+    enabled: operatorAddresses.length > 0,
   })
 }
 

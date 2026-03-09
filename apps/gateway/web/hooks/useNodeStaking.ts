@@ -246,6 +246,7 @@ export function useNodeStaking() {
   }, [probeAtomicNodeIdentityRegistrationSupport])
 
   const operatorAddresses = useMemo(() => {
+    if (!ownerAddressForLookup) return []
     const addresses = [
       ownerAddressForLookup,
       gasless.smartAccountAddress,

@@ -1,6 +1,7 @@
 import { Globe, type LucideProps, Server, TrendingUp } from 'lucide-react'
 import { type ComponentType, useState } from 'react'
 import { useAccount } from 'wagmi'
+import { useJejuAuth } from '@jejunetwork/auth/react'
 import { ConnectPrompt } from './ConnectPrompt'
 import MyNodesCard from './MyNodesCard'
 import NetworkStatsCard from './NetworkStatsCard'
@@ -12,9 +13,11 @@ const TrendingUpIcon = TrendingUp as ComponentType<LucideProps>
 
 export default function NodeStakingTab() {
   const { isConnected } = useAccount()
+  const { authenticated, walletAddress, loading } = useJejuAuth()
   const [activeSection, setActiveSection] = useState<
     'overview' | 'register' | 'my-nodes'
   >('overview')
+  const hasAuthenticatedSession = Boolean(authenticated && walletAddress)
 
   return (
     <div className="animate-fade-in">
@@ -53,21 +56,33 @@ export default function NodeStakingTab() {
       </div>
       {activeSection === 'overview' && <NetworkStatsCard />}
       {activeSection === 'my-nodes' &&
-        (isConnected ? (
+        (hasAuthenticatedSession ? (
           <MyNodesCard />
         ) : (
           <ConnectPrompt
-            message="Connect to view your nodes"
-            action="See your registered nodes, staking rewards, and status"
+            message={
+              loading
+                ? 'Checking authentication...'
+                : isConnected
+                  ? 'Sign in to view your nodes'
+                  : 'Connect and sign in to view your nodes'
+            }
+            action="See your registered nodes, staking rewards, and status after authentication"
           />
         ))}
       {activeSection === 'register' &&
-        (isConnected ? (
+        (hasAuthenticatedSession ? (
           <RegisterNodeForm />
         ) : (
           <ConnectPrompt
-            message="Connect to register a node"
-            action="Stake tokens, join the network, and start earning rewards"
+            message={
+              loading
+                ? 'Checking authentication...'
+                : isConnected
+                  ? 'Sign in to register a node'
+                  : 'Connect and sign in to register a node'
+            }
+            action="Stake tokens, join the network, and start earning rewards after authentication"
           />
         ))}
     </div>

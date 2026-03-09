@@ -1,6 +1,5 @@
 import { AuthProvider } from '@jejunetwork/auth'
 import { LoginModal, useJejuAuth } from '@jejunetwork/auth/react'
-import { useAccount } from 'wagmi'
 import {
   BarChart3,
   Bell,
@@ -320,11 +319,9 @@ export default function Layout({ children }: LayoutProps) {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
   const { authenticated, loading, walletAddress } = useJejuAuth()
-  const { isConnected, address: wagmiAddress } = useAccount()
 
-  // Use wagmi wallet as fallback when OAuth3 isn't authenticated
-  const displayAddress = walletAddress ?? (isConnected ? wagmiAddress : null)
-  const isLoggedIn = (authenticated && walletAddress) || isConnected
+  const displayAddress = walletAddress ?? null
+  const isLoggedIn = Boolean(authenticated && walletAddress)
 
   // Close sidebar when route changes (mobile)
   const prevPathRef = useRef(location.pathname)

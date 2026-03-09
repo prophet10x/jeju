@@ -180,6 +180,10 @@ function useResolvedOperatorAddresses() {
     staleTime: 60_000,
   });
 
+  if (!ownerAddress) {
+    return [];
+  }
+
   return Array.from(
     new Set(
       [ownerAddress, gasless.smartAccountAddress, predictedSmartAccountAddress]
