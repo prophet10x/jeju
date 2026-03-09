@@ -850,6 +850,7 @@ export async function waitForAgentWallet(params: {
   expectedWallet: Address
   attempts?: number
   delayMs?: number
+  requestTimeoutMs?: number
 }): Promise<Address | null> {
   const {
     publicClient,
@@ -858,14 +859,25 @@ export async function waitForAgentWallet(params: {
     expectedWallet,
     attempts = 15,
     delayMs = 1500,
+    requestTimeoutMs = 4000,
   } = params
 
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const currentWallet = await fetchAgentWallet({
+  const readWithTimeout = async (): Promise<Address | null> => {
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(resolve, requestTimeoutMs),
+    )
+
+    const read = fetchAgentWallet({
       publicClient,
       registryAddress,
       agentId,
-    })
+    }).catch(() => null)
+
+    return Promise.race([read, timeout])
+  }
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const currentWallet = await readWithTimeout()
 
     if (
       currentWallet &&

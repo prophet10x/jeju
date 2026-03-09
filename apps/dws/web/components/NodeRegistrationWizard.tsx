@@ -857,6 +857,14 @@ export default function NodeRegistrationWizard() {
           txHash,
           explorerUrl: EXPLORER_URL,
         })
+
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: txHash,
+        })
+        if (receipt.status !== 'success') {
+          throw new Error('Authorization transaction was reverted on-chain')
+        }
+
         setAuthorizeResult({
           status: 'info',
           title: 'Waiting for delegated wallet update',
@@ -870,6 +878,9 @@ export default function NodeRegistrationWizard() {
           registryAddress: CONTRACTS.identityRegistry,
           agentId: selectedAgentId,
           expectedWallet: proofChallenge.nodeWalletAddress,
+          attempts: 25,
+          delayMs: 1500,
+          requestTimeoutMs: 4000,
         })
 
         if (
