@@ -12,6 +12,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAccount } from 'wagmi'
 import { SkeletonStatCard } from '../../components/Skeleton'
 import { useConfirm, useToast } from '../../context/AppContext'
@@ -296,13 +297,13 @@ export default function EarningsPage() {
               <Server size={48} />
               <h4>No nodes registered</h4>
               <p>Register a node to start earning rewards</p>
-              <a
-                href="/provider/node/register"
+              <Link
+                to="/provider/node/register"
                 className="btn btn-primary"
                 style={{ marginTop: '1rem' }}
               >
                 <Download size={16} /> Register Node
-              </a>
+              </Link>
             </div>
           ) : (
             <div className="table-container">

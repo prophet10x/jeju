@@ -19,9 +19,14 @@ import { type Address, getAddress } from 'viem'
 export const NETWORK: NetworkType = getCurrentNetwork()
 
 function getDwsBasePath(): string {
-  if (typeof window === 'undefined') return ''
-  return window.location.pathname === '/dws' ||
-    window.location.pathname.startsWith('/dws/')
+  const runtimePathname =
+    typeof (globalThis as { location?: { pathname?: unknown } }).location
+      ?.pathname === 'string'
+      ? ((globalThis as { location?: { pathname?: string } }).location
+          ?.pathname ?? '')
+      : ''
+  return runtimePathname === '/dws' ||
+    runtimePathname.startsWith('/dws/')
     ? '/dws'
     : ''
 }
@@ -31,25 +36,31 @@ export const CHAIN_ID = getChainId(NETWORK)
 // Use the configured RPC URL for the current network
 export const RPC_URL = getRpcUrl(NETWORK)
 export const DWS_BASE_PATH = getDwsBasePath()
+export function withDwsBase(path: string): string {
+  const basePath = getDwsBasePath()
+  const normalizedPath =
+    path.length === 0 ? '/' : path.startsWith('/') ? path : `/${path}`
+  return `${basePath}${normalizedPath}`
+}
 // DWS frontend is always served from the DWS API server itself,
 // so use relative paths instead of absolute URLs from services.json.
 // This works regardless of domain/IP (e.g., 52.206.203.24, dws.testnet.jejunetwork.org, localhost).
-export const DWS_API_URL = DWS_BASE_PATH
+export const DWS_API_URL = getDwsBasePath()
 const APP_ORIGIN = typeof window !== 'undefined' ? window.location.origin : ''
 // OAuth3 is served by DWS itself at /oauth3/*, so use origin-relative URL
 // (empty string is falsy and treated as "not configured" by the OAuth3 client)
 export const OAUTH3_AGENT_URL = APP_ORIGIN
-  ? `${APP_ORIGIN}${DWS_BASE_PATH}/oauth3`
-  : `${DWS_BASE_PATH}/oauth3`
+  ? `${APP_ORIGIN}${withDwsBase('/oauth3')}`
+  : withDwsBase('/oauth3')
 export const DWS_IPFS_GATEWAY_URL = APP_ORIGIN
-  ? `${APP_ORIGIN}${DWS_BASE_PATH}/storage/ipfs`
-  : `${DWS_BASE_PATH}/storage/ipfs`
+  ? `${APP_ORIGIN}${withDwsBase('/storage/ipfs')}`
+  : withDwsBase('/storage/ipfs')
 export const DWS_STORAGE_API_URL = APP_ORIGIN
-  ? `${APP_ORIGIN}${DWS_BASE_PATH}/storage`
-  : `${DWS_BASE_PATH}/storage`
+  ? `${APP_ORIGIN}${withDwsBase('/storage')}`
+  : withDwsBase('/storage')
 export const DWS_IPFS_API_URL = APP_ORIGIN
-  ? `${APP_ORIGIN}${DWS_BASE_PATH}/storage/api/v0`
-  : `${DWS_BASE_PATH}/storage/api/v0`
+  ? `${APP_ORIGIN}${withDwsBase('/storage/api/v0')}`
+  : withDwsBase('/storage/api/v0')
 
 // Contract addresses from config
 const contracts = getContractsConfig(NETWORK)

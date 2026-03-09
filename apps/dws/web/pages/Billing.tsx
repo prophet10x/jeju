@@ -11,6 +11,7 @@ import {
   Server,
 } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAccount } from 'wagmi'
 import { SkeletonStatCard, SkeletonTable } from '../components/Skeleton'
 import { useToast } from '../context/AppContext'
@@ -331,9 +332,9 @@ export default function BillingPage() {
             View your node earnings, pending rewards, and payout history in the
             Provider section.
           </p>
-          <a href="/provider/earnings" className="btn btn-primary">
+          <Link to="/provider/earnings" className="btn btn-primary">
             <DollarSign size={16} /> View Earnings
-          </a>
+          </Link>
         </div>
       </div>
 

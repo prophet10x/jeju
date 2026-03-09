@@ -69,6 +69,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, erc20Abi, formatEther } from 'viem'
+import { Link } from 'react-router-dom'
 import {
   usePublicClient,
   useSignMessage,
@@ -84,6 +85,7 @@ import {
 import { useAgentId } from '../hooks/useAgentId'
 import { useGaslessBootstrap } from '../hooks/useGaslessBootstrap'
 import { useGaslessSmartAccount } from '../hooks/useGaslessSmartAccount'
+import { toDwsPath } from '../lib/dws-path'
 
 type WizardStep =
   | 'connect'
@@ -755,7 +757,7 @@ export default function NodeRegistrationWizard() {
     setProofVerification(null)
 
     try {
-      const response = await fetch('/node-registration/challenge', {
+      const response = await fetch(toDwsPath('/node-registration/challenge'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -957,7 +959,7 @@ export default function NodeRegistrationWizard() {
         explorerUrl: EXPLORER_URL,
       })
 
-      const response = await fetch('/node-registration/verify', {
+      const response = await fetch(toDwsPath('/node-registration/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1654,9 +1656,9 @@ export default function NodeRegistrationWizard() {
           Node registration now expects an ERC-8004 operator identity. Create an
           agent identity first, then come back to stake and register the node.
           <div style={{ marginTop: '0.75rem' }}>
-            <a href="/agents?tab=register" className="btn btn-secondary btn-sm">
+            <Link to="/agents?tab=register" className="btn btn-secondary btn-sm">
               Open Agent Registration
-            </a>
+            </Link>
           </div>
         </div>
       )}
@@ -3145,13 +3147,13 @@ export default function NodeRegistrationWizard() {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
-        <a href="/provider/nodes" className="btn btn-primary">
+        <Link to="/provider/nodes" className="btn btn-primary">
           <Server size={18} />
           View My Nodes
-        </a>
-        <a href="/provider/node#downloads" className="btn btn-secondary">
+        </Link>
+        <Link to="/provider/node#downloads" className="btn btn-secondary">
           Download App
-        </a>
+        </Link>
       </div>
     </div>
   )

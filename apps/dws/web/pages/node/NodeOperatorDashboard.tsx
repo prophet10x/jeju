@@ -25,7 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { type Address, type Hex, keccak256, parseUnits, toBytes } from "viem";
 import { useAccount, usePublicClient } from "wagmi";
 import { SkeletonStatCard } from "../../components/Skeleton";
@@ -619,12 +619,9 @@ export default function NodeOperatorDashboard() {
             <h3 className="card-title">
               <HardDrive size={18} /> Your Nodes
             </h3>
-            <a
-              href="/provider/node/register"
-              className="btn btn-sm btn-primary"
-            >
+            <Link to="/provider/node/register" className="btn btn-sm btn-primary">
               <Server size={14} /> Register Node
-            </a>
+            </Link>
           </div>
 
           {nodes.length === 0 ? (
@@ -640,15 +637,15 @@ export default function NodeOperatorDashboard() {
                   ? "On-chain node activity exists for this operator, but details are still syncing."
                   : "No nodes are registered on the current manager yet. Register a node to start earning rewards. Legacy managers are hidden from this default view."}
               </p>
-              <a
-                href="/provider/node/register"
+              <Link
+                to="/provider/node/register"
                 className="btn btn-primary"
                 style={{ marginTop: "1rem" }}
               >
                 {hasStakingActivity
                   ? "Register another node"
                   : "Register Your First Node"}
-              </a>
+              </Link>
             </div>
           ) : (
             <div className="table-container">

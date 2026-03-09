@@ -38,8 +38,10 @@ import {
   Zap,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import HardwareDetection from '../../components/HardwareDetection'
 import { useNetworkStats } from '../../hooks/useStaking'
+import { toDwsPath } from '../../lib/dws-path'
 
 const SERVICES = [
   {
@@ -336,7 +338,7 @@ export default function RunNodePage() {
     setDetected(platform)
     setSelectedPlatform(platform.os)
 
-    fetch('/releases/node/latest')
+    fetch(toDwsPath('/releases/node/latest'))
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch releases')
         return res.json()
@@ -647,12 +649,12 @@ export default function RunNodePage() {
             into the setup guide.
           </p>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            <a href="/provider/node/register" className="btn btn-primary">
+            <Link to="/provider/node/register" className="btn btn-primary">
               Register Node <ArrowRight size={16} />
-            </a>
-            <a href="/provider/nodes" className="btn btn-secondary">
+            </Link>
+            <Link to="/provider/nodes" className="btn btn-secondary">
               View My Nodes
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -1249,12 +1251,12 @@ export default function RunNodePage() {
           infrastructure.
         </p>
         <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
-          <a href="/provider/nodes" className="btn btn-primary">
+          <Link to="/provider/nodes" className="btn btn-primary">
             <Server size={18} /> My Nodes <ArrowRight size={16} />
-          </a>
-          <a href="/provider/earnings" className="btn btn-secondary">
+          </Link>
+          <Link to="/provider/earnings" className="btn btn-secondary">
             <DollarSign size={18} /> View Earnings
-          </a>
+          </Link>
         </div>
       </div>
     </div>

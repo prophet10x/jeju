@@ -37,6 +37,7 @@ import {
   useWalletClient,
 } from 'wagmi'
 import { BUNDLER_URL, CONTRACTS, TOKENS } from '../config'
+import { toDwsPath } from '../lib/dws-path'
 
 const PAYMENT_TOKEN_JEJU = 0 as const
 const DEFAULT_GASLESS_OVERPAYMENT = DEFAULT_GASLESS_PAYMENT_AMOUNT
@@ -449,7 +450,7 @@ export function useGaslessSmartAccount() {
       }
 
       const bootstrapSmartAccount = async () => {
-        const response = await fetch('/gasless/bootstrap', {
+        const response = await fetch(toDwsPath('/gasless/bootstrap'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

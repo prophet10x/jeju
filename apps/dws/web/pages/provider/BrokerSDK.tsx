@@ -14,6 +14,7 @@ import {
   Terminal,
   Zap,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 const BROKER_FEATURES = [
   {
@@ -589,9 +590,9 @@ export default function BrokerSDKPage() {
             <GitBranch size={18} /> View Documentation{' '}
             <ExternalLink size={14} />
           </a>
-          <a href="/marketplace/browse" className="btn btn-secondary">
+          <Link to="/marketplace/browse" className="btn btn-secondary">
             <HardDrive size={18} /> Browse Marketplace <ArrowRight size={16} />
-          </a>
+          </Link>
         </div>
       </div>
     </div>

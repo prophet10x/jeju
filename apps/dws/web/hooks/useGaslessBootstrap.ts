@@ -3,6 +3,7 @@ import type {
   GaslessBootstrapResponse,
 } from '@jejunetwork/shared/gasless'
 import { useCallback, useMemo, useState } from 'react'
+import { toDwsPath } from '../lib/dws-path'
 import type { useGaslessSmartAccount } from './useGaslessSmartAccount'
 
 interface UseGaslessBootstrapParams {
@@ -39,7 +40,9 @@ export function useGaslessBootstrap({ gasless }: UseGaslessBootstrapParams) {
       setError(null)
 
       try {
-        const response = await fetch(params.endpoint ?? '/gasless/bootstrap', {
+        const response = await fetch(
+          params.endpoint ?? toDwsPath('/gasless/bootstrap'),
+          {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -50,7 +53,8 @@ export function useGaslessBootstrap({ gasless }: UseGaslessBootstrapParams) {
             purpose: params.purpose,
             requiredStakeAmount: params.requiredStakeAmount.toString(),
           }),
-        })
+          },
+        )
 
         const text = await response.text()
         const payload = text

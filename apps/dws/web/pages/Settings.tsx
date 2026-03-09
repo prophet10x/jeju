@@ -12,6 +12,7 @@ import {
   User,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Address } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
 import { Skeleton } from '../components/Skeleton'
@@ -380,12 +381,9 @@ export default function SettingsPage() {
                       <div style={{ marginBottom: '0.75rem' }}>
                         No agent registered
                       </div>
-                      <a
-                        href="/agents?tab=register"
-                        className="btn btn-primary btn-sm"
-                      >
+                      <Link to="/agents?tab=register" className="btn btn-primary btn-sm">
                         <Plus size={14} /> Register Agent
-                      </a>
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -507,9 +505,9 @@ export default function SettingsPage() {
                       Manage your API keys for programmatic access
                     </div>
                   </div>
-                  <a href="/security/keys" className="btn btn-secondary btn-sm">
+                  <Link to="/security/keys" className="btn btn-secondary btn-sm">
                     <Key size={14} /> Manage
-                  </a>
+                  </Link>
                 </div>
 
                 <div
@@ -630,12 +628,9 @@ export default function SettingsPage() {
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>
                   Provider Nodes
                 </h3>
-                <a
-                  href="/provider/node/register"
-                  className="btn btn-primary btn-sm"
-                >
+                <Link to="/provider/node/register" className="btn btn-primary btn-sm">
                   <Plus size={14} /> Register Node
-                </a>
+                </Link>
               </div>
 
               {nodesLoading ? (
@@ -656,10 +651,10 @@ export default function SettingsPage() {
                       ? 'On-chain node activity exists for this operator, but details are still syncing.'
                       : 'Register a node to start earning rewards'}
                   </p>
-                  <a href="/provider/node/register" className="btn btn-primary">
+                  <Link to="/provider/node/register" className="btn btn-primary">
                     <Plus size={16} />{' '}
                     {hasStakingActivity ? 'Refresh later' : 'Register Node'}
-                  </a>
+                  </Link>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: '1rem' }}>
@@ -806,13 +801,13 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ))}
-                  <a
-                    href="/node"
+                  <Link
+                    to="/node"
                     className="btn btn-secondary"
                     style={{ justifySelf: 'start' }}
                   >
                     View Full Dashboard
-                  </a>
+                  </Link>
                 </div>
               )}
             </div>
