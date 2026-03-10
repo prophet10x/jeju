@@ -42,6 +42,7 @@ async function clickByButtonText(
   actionName: string,
   buttonNames: string[],
 ): Promise<FlowAction> {
+  await dismissBlockingModals(page)
   for (const buttonName of buttonNames) {
     const locator = page.getByRole('button', {
       name: new RegExp(buttonName, 'i'),
@@ -88,6 +89,169 @@ async function clickByButtonText(
   }
 }
 
+async function dismissBlockingModals(page: Page) {
+  const closeButtons = page.getByRole('button', {
+    name: /close transaction status|close/i,
+  })
+  const count = await closeButtons.count().catch(() => 0)
+  for (let i = 0; i < count; i += 1) {
+    const button = closeButtons.nth(i)
+    const visible = await button.isVisible().catch(() => false)
+    if (!visible) continue
+    await button.click({ timeout: 2_000 }).catch(() => {})
+    await page.waitForTimeout(150)
+  }
+  await page.keyboard.press('Escape').catch(() => {})
+}
+
+async function clickIfEnabled(
+  page: Page,
+  actionName: string,
+  buttonNames: string[],
+): Promise<boolean> {
+  const result = await clickByButtonText(page, actionName, buttonNames)
+  return result.clicked
+}
+
+async function ensureStepReadyForProof(page: Page) {
+  for (let i = 0; i < 8; i += 1) {
+    await ensureRpcInput(page)
+
+    const prepareProofButton = page.getByRole('button', {
+      name: /prepare proof|prepare ownership proof/i,
+    })
+    if ((await prepareProofButton.count()) > 0) {
+      const visible = await prepareProofButton.first().isVisible().catch(() => false)
+      if (visible) return
+    }
+
+    // Service step helper.
+    await clickIfEnabled(page, 'pick-all-services', ['Pick all'])
+
+    // Generic wizard progression.
+    const progressed = await clickIfEnabled(page, 'continue-step', [
+      '^Continue$',
+      '^Next$',
+    ])
+    if (!progressed) {
+      await page.waitForTimeout(700)
+      continue
+    }
+
+    await page.waitForTimeout(1200)
+  }
+}
+
+async function tryDismissOnboarding(page: Page) {
+  const dismissNames = ['Skip tour', 'Skip', 'Close']
+  for (const name of dismissNames) {
+    const button = page.getByRole('button', {
+      name: new RegExp(name, 'i'),
+    })
+    if ((await button.count()) === 0) continue
+    const first = button.first()
+    if (!(await first.isVisible().catch(() => false))) continue
+    await first.click({ timeout: 5_000 }).catch(() => {})
+    await page.waitForTimeout(500)
+  }
+
+  await page.keyboard.press('Escape').catch(() => {})
+  await page.waitForTimeout(500)
+}
+
+async function ensureRegistrationContext(page: Page) {
+  await tryDismissOnboarding(page)
+  if (APP_TARGET === 'gateway') {
+    await clickByButtonText(page, 'open-register-tab', ['Register'])
+  } else {
+    await clickByButtonText(page, 'open-register-route', [
+      'Run a Node',
+      'Register Node',
+      'Register',
+    ])
+  }
+  await page.waitForTimeout(1_000)
+
+  // Force canonical registration URL after auth redirects.
+  if (page.url() !== BASE_URL) {
+    await page.goto(BASE_URL, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30_000,
+    })
+    await page.waitForTimeout(1_000)
+  }
+  await tryDismissOnboarding(page)
+}
+
+async function ensureRpcInput(page: Page) {
+  const endpoint = `${new URL(BASE_URL).origin}/`
+  const byLabel = page.getByLabel(/rpc|endpoint/i)
+  const byUrlInput = page.locator('input[type="url"]')
+  const byHttpsPlaceholder = page.locator('input[placeholder*="https://"]')
+  const candidates = [byLabel, byUrlInput, byHttpsPlaceholder]
+
+  for (const locator of candidates) {
+    const count = await locator.count().catch(() => 0)
+    for (let i = 0; i < count; i += 1) {
+      const candidate = locator.nth(i)
+      const visible = await candidate.isVisible().catch(() => false)
+      if (!visible) continue
+      await candidate.fill(endpoint).catch(() => {})
+      await page.waitForTimeout(200)
+    }
+  }
+
+  return endpoint
+}
+
+async function ensureAuthenticated(page: Page) {
+  for (let i = 0; i < 5; i += 1) {
+    await dismissBlockingModals(page)
+    const headerSignIn = page.getByRole('button', { name: /^sign in$/i }).first()
+    const signInVisible = await headerSignIn.isVisible().catch(() => false)
+
+    if (signInVisible) {
+      await headerSignIn.click({ timeout: 8_000 }).catch(() => {})
+      await page.waitForTimeout(1_000)
+    }
+
+    const connectWalletButton = page
+      .getByRole('button', { name: /^connect wallet$/i })
+      .first()
+    if (await connectWalletButton.isVisible().catch(() => false)) {
+      await connectWalletButton.click({ timeout: 8_000 }).catch(() => {})
+      await page.waitForTimeout(1_200)
+    } else {
+      const walletConnector = page
+        .getByRole('button')
+        .filter({
+          hasText: /guest|test wallet|wallet|injected|metamask|rabby/i,
+        })
+      if ((await walletConnector.count().catch(() => 0)) > 0) {
+        const target = walletConnector.first()
+        const label = (await target.innerText().catch(() => '')).toLowerCase()
+        if (
+          !/google|github|discord|twitter|email|password|farcaster/.test(label)
+        ) {
+          await target.click({ timeout: 8_000 }).catch(() => {})
+          await page.waitForTimeout(1_200)
+        }
+      }
+    }
+
+    await tryDismissOnboarding(page)
+    await page.waitForTimeout(800)
+
+    const gateText = await page
+      .getByText(/sign in to register a node/i)
+      .first()
+      .isVisible()
+      .catch(() => false)
+    const stillHasSignIn = await headerSignIn.isVisible().catch(() => false)
+    if (!gateText && !stillHasSignIn) return
+  }
+}
+
 async function run() {
   await mkdir(outputDir, { recursive: true })
 
@@ -131,11 +295,17 @@ async function run() {
   try {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
     await page.waitForTimeout(2_000)
+    await ensureRegistrationContext(page)
     await capture(page, '01-loaded')
 
     actions.push(
-      await clickByButtonText(page, 'connect-wallet', ['Connect Wallet']),
+      await clickByButtonText(page, 'open-sign-in', ['^Sign In$']),
     )
+    await page.waitForTimeout(2_000)
+    await ensureAuthenticated(page)
+    await ensureRegistrationContext(page)
+    await ensureRpcInput(page)
+    await ensureStepReadyForProof(page)
     await capture(page, '02-after-connect')
 
     actions.push(
@@ -160,6 +330,7 @@ async function run() {
         'Verify Proof',
       ]),
     )
+    await ensureStepReadyForProof(page)
     await capture(page, '05-after-verify')
 
     actions.push(

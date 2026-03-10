@@ -12,6 +12,7 @@
 
 import { HexSchema } from '@jejunetwork/types'
 import { type Address, type Hex, toHex } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import { z } from 'zod'
 
 /**
@@ -33,6 +34,56 @@ function generateUUID(): string {
   bytes[8] = (bytes[8] & 0x3f) | 0x80 // Variant 1
   const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+function readRuntimeEnv(key: string): string | undefined {
+  try {
+    const importMeta = import.meta as unknown as {
+      env?: Record<string, string | undefined>
+    }
+    const value =
+      importMeta?.env?.[key] ??
+      importMeta?.env?.[`VITE_${key}`] ??
+      importMeta?.env?.[`PUBLIC_${key}`]
+    if (value && value.length > 0) return value
+  } catch {
+    // Ignore import.meta access failures outside Vite contexts.
+  }
+
+  if (typeof process !== 'undefined' && process.env) {
+    const value =
+      process.env[key] ??
+      process.env[`VITE_${key}`] ??
+      process.env[`PUBLIC_${key}`]
+    if (value && value.length > 0) return value
+  }
+
+  return undefined
+}
+
+function getConfiguredTestWalletPrivateKey(): Hex | undefined {
+  const enabled = (readRuntimeEnv('ENABLE_TEST_WALLET') ?? '').toLowerCase()
+  if (!['1', 'true', 'yes', 'on'].includes(enabled)) return undefined
+
+  const privateKey = readRuntimeEnv('TEST_WALLET_PRIVATE_KEY')?.trim()
+  if (!privateKey || !/^0x[a-fA-F0-9]{64}$/.test(privateKey)) return undefined
+
+  // Require explicit hostname allowlist so test wallet cannot run unexpectedly.
+  const hostAllowlist = (readRuntimeEnv('TEST_WALLET_HOST_ALLOWLIST') ?? '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter((host) => host.length > 0)
+
+  if (hostAllowlist.length === 0) return undefined
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const currentHost = window.location.hostname.toLowerCase()
+    if (!hostAllowlist.includes(currentHost)) return undefined
+  } else {
+    return undefined
+  }
+
+  return privateKey as Hex
 }
 
 function arrayBufferToBase64url(buffer: ArrayBuffer): string {
@@ -512,27 +563,38 @@ export class OAuth3Client {
   }
 
   private async loginWithWallet(): Promise<OAuth3Session> {
-    const provider = this.getEVMProvider()
-
-    const accounts = (await provider.request({
-      method: 'eth_requestAccounts',
-    })) as Address[]
-
-    if (!accounts[0]) {
-      throw new Error('No accounts returned from wallet')
-    }
-    const address = accounts[0]
+    const fallbackPrivateKey = getConfiguredTestWalletPrivateKey()
+    let address: Address
+    let signature: Hex
     const nonce = generateUUID()
 
-    const message = this.createSignInMessage(address, nonce)
+    if (fallbackPrivateKey) {
+      const account = privateKeyToAccount(fallbackPrivateKey)
+      address = account.address
+      const message = this.createSignInMessage(address, nonce)
+      signature = await account.signMessage({ message })
+    } else {
+      const provider = this.getEVMProvider()
 
-    const signature = (await provider.request({
-      method: 'personal_sign',
-      params: [message, address],
-    })) as Hex
+      const accounts = (await provider.request({
+        method: 'eth_requestAccounts',
+      })) as Address[]
+
+      if (!accounts[0]) {
+        throw new Error('No accounts returned from wallet')
+      }
+      address = accounts[0]
+      const message = this.createSignInMessage(address, nonce)
+
+      signature = (await provider.request({
+        method: 'personal_sign',
+        params: [message, address],
+      })) as Hex
+    }
 
     const teeAgentUrl = this.getTeeAgentUrl()
     const appId = this.discoveredApp?.appId ?? this.config.appId
+    const message = this.createSignInMessage(address, nonce)
 
     const response = await fetch(`${teeAgentUrl}/auth/wallet`, {
       method: 'POST',
