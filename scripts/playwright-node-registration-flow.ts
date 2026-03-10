@@ -130,7 +130,7 @@ async function ensureStepReadyForProof(page: Page) {
 
     // Generic wizard progression.
     const progressed = await clickIfEnabled(page, 'continue-step', [
-      '^Continue$',
+      '^Continue(?!\\s+with)',
       '^Next$',
     ])
     if (!progressed) {
@@ -139,6 +139,34 @@ async function ensureStepReadyForProof(page: Page) {
     }
 
     await page.waitForTimeout(1200)
+  }
+}
+
+async function ensureRegisterStepReady(page: Page) {
+  const registerButtonNames = [
+    'Stake and Register Node',
+    'Stake & Register Node',
+    'Register Node',
+    'Confirm & Stake',
+  ]
+
+  for (let i = 0; i < 8; i += 1) {
+    await dismissBlockingModals(page)
+
+    for (const buttonName of registerButtonNames) {
+      const locator = page.getByRole('button', {
+        name: new RegExp(buttonName, 'i'),
+      })
+      if ((await locator.count().catch(() => 0)) === 0) continue
+      const visible = await locator.first().isVisible().catch(() => false)
+      if (visible) return
+    }
+
+    await clickIfEnabled(page, 'continue-to-register', [
+      '^Continue(?!\\s+with)',
+      '^Next$',
+    ])
+    await page.waitForTimeout(1_000)
   }
 }
 
@@ -207,21 +235,33 @@ async function ensureRpcInput(page: Page) {
 async function ensureAuthenticated(page: Page) {
   for (let i = 0; i < 5; i += 1) {
     await dismissBlockingModals(page)
-    const headerSignIn = page.getByRole('button', { name: /^sign in$/i }).first()
-    const signInVisible = await headerSignIn.isVisible().catch(() => false)
-
-    if (signInVisible) {
-      await headerSignIn.click({ timeout: 8_000 }).catch(() => {})
+    const connectWalletButtons = page.getByRole('button', {
+      name: /^connect wallet$/i,
+    })
+    const connectCount = await connectWalletButtons.count().catch(() => 0)
+    let clickedConnect = false
+    for (let j = 0; j < connectCount; j += 1) {
+      const button = connectWalletButtons.nth(j)
+      const visible = await button.isVisible().catch(() => false)
+      if (!visible) continue
+      await button.click({ timeout: 8_000 }).catch(() => {})
       await page.waitForTimeout(1_000)
+      clickedConnect = true
+      break
     }
 
-    const connectWalletButton = page
-      .getByRole('button', { name: /^connect wallet$/i })
-      .first()
-    if (await connectWalletButton.isVisible().catch(() => false)) {
-      await connectWalletButton.click({ timeout: 8_000 }).catch(() => {})
-      await page.waitForTimeout(1_200)
-    } else {
+    if (!clickedConnect) {
+      const headerSignIn = page
+        .getByRole('button', { name: /^sign in$/i })
+        .first()
+      const signInVisible = await headerSignIn.isVisible().catch(() => false)
+      if (signInVisible) {
+        await headerSignIn.click({ timeout: 8_000 }).catch(() => {})
+        await page.waitForTimeout(1_000)
+      }
+    }
+
+    {
       const walletConnector = page
         .getByRole('button')
         .filter({
@@ -242,6 +282,7 @@ async function ensureAuthenticated(page: Page) {
     await tryDismissOnboarding(page)
     await page.waitForTimeout(800)
 
+    const headerSignIn = page.getByRole('button', { name: /^sign in$/i }).first()
     const gateText = await page
       .getByText(/sign in to register a node/i)
       .first()
@@ -297,11 +338,10 @@ async function run() {
     await page.waitForTimeout(2_000)
     await ensureRegistrationContext(page)
     await capture(page, '01-loaded')
-
     actions.push(
-      await clickByButtonText(page, 'open-sign-in', ['^Sign In$']),
+      await clickByButtonText(page, 'connect-wallet', ['^Connect Wallet$']),
     )
-    await page.waitForTimeout(2_000)
+    await page.waitForTimeout(1_500)
     await ensureAuthenticated(page)
     await ensureRegistrationContext(page)
     await ensureRpcInput(page)
@@ -330,7 +370,7 @@ async function run() {
         'Verify Proof',
       ]),
     )
-    await ensureStepReadyForProof(page)
+    await ensureRegisterStepReady(page)
     await capture(page, '05-after-verify')
 
     actions.push(
