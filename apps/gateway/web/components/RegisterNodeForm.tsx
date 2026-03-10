@@ -380,6 +380,7 @@ export default function RegisterNodeForm() {
       !publicClient ||
       parsedOperatorAgentId == null ||
       !proofChallenge ||
+      !proofChallenge.requiresDelegatedWalletUpdate ||
       selectedOperatorOwnedBySmartAccount
     ) {
       return
@@ -404,6 +405,9 @@ export default function RegisterNodeForm() {
           registryAddress: CONTRACTS.identityRegistry,
           agentId: parsedOperatorAgentId,
           expectedWallet: proofChallenge.nodeWalletAddress,
+          attempts: 25,
+          delayMs: 1500,
+          requestTimeoutMs: 4000,
         })
 
         if (

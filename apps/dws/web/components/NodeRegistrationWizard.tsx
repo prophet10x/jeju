@@ -1084,6 +1084,7 @@ export default function NodeRegistrationWizard() {
       !publicClient ||
       selectedAgentId === undefined ||
       !proofChallenge ||
+      !proofChallenge.requiresDelegatedWalletUpdate ||
       selectedAgentOwnedBySmartAccount
     ) {
       return
@@ -1108,6 +1109,9 @@ export default function NodeRegistrationWizard() {
           registryAddress: CONTRACTS.identityRegistry,
           agentId: selectedAgentId,
           expectedWallet: proofChallenge.nodeWalletAddress,
+          attempts: 25,
+          delayMs: 1500,
+          requestTimeoutMs: 4000,
         })
 
         if (
