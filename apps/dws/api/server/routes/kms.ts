@@ -22,8 +22,14 @@ import { expectValid } from '@jejunetwork/types'
 import { secp256k1 } from '@noble/curves/secp256k1'
 import { Elysia } from 'elysia'
 import type { Address, Hex } from 'viem'
-import { keccak256, recoverMessageAddress, toBytes, toHex } from 'viem'
-import { privateKeyToAccount } from 'viem/accounts'
+import {
+  hashMessage,
+  keccak256,
+  recoverMessageAddress,
+  serializeSignature,
+  toBytes,
+  toHex,
+} from 'viem'
 import { z } from 'zod'
 import {
   createKmsKeyRequestSchema,
@@ -391,22 +397,6 @@ function getCoordinatorShares(coordinator: FROSTCoordinator): FROSTKeyShare[] {
   return Array.from(shareMap.values()).sort((a, b) => a.index - b.index)
 }
 
-function reconstructCoordinatorPrivateKey(
-  coordinator: FROSTCoordinator,
-  threshold: number,
-): Hex {
-  const shares = getCoordinatorShares(coordinator)
-  const secret = reconstructSecretFromShares(
-    shares.map((share) => ({
-      index: share.index,
-      secretShare: share.secretShare,
-    })),
-    threshold,
-  )
-
-  return `0x${secret.toString(16).padStart(64, '0')}` as Hex
-}
-
 function serializeKeyState(
   key: StoredKey,
   coordinator: FROSTCoordinator,
@@ -717,15 +707,13 @@ export async function signMessageWithServiceKey(
     throw new Error(`FROST coordinator not found for service key: ${serviceId}`)
   }
 
-  // Service-key proofs must produce a standard Ethereum message signature so
-  // downstream verifyMessage() succeeds consistently.
-  const account = privateKeyToAccount(
-    reconstructCoordinatorPrivateKey(
-      coordinator,
-      keys.get(key.keyId)?.threshold ?? MPC_CONFIG.defaultThreshold,
-    ),
-  )
-  const signature = await account.signMessage({ message })
+  const digest = hashMessage(message)
+  const frostSig = await coordinator.sign(digest)
+  const signature = serializeSignature({
+    r: frostSig.r,
+    s: frostSig.s,
+    v: BigInt(frostSig.v),
+  })
 
   return {
     keyId: key.keyId,
@@ -1325,19 +1313,16 @@ export function createKMSRouter() {
           throw new Error('FROST coordinator not found for this key')
         }
 
-        // For Ethereum flows we need a recoverable hash signature that viem can verify/recover.
-        // The coordinator key is still the source of truth; we derive the same signing key material.
-        const privateKey = reconstructCoordinatorPrivateKey(
-          coordinator,
-          key.threshold,
-        )
-        const account = privateKeyToAccount(privateKey)
-
         const digest =
           validBody.encoding === 'hex'
             ? (validBody.messageHash as Hex)
             : (keccak256(toBytes(validBody.messageHash)) as Hex)
-        const signature = await account.sign({ hash: digest })
+        const frostSig = await coordinator.sign(digest)
+        const signature = serializeSignature({
+          r: frostSig.r,
+          s: frostSig.s,
+          v: BigInt(frostSig.v),
+        })
 
         return {
           signature,

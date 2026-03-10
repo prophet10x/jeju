@@ -223,6 +223,7 @@ export default function NodeRegistrationWizard() {
   const { hasAgent, agentId, agents, isLoading: isAgentLoading } = useAgentId()
   const gasless = useGaslessSmartAccount()
   const gaslessBootstrap = useGaslessBootstrap({ gasless })
+  const operatorAddressForStats = gasless.smartAccountAddress ?? address
 
   // Get staking manager address from config
   const stakingManagerAddress = resolveNodeStakingWriteAddress(
@@ -248,11 +249,12 @@ export default function NodeRegistrationWizard() {
     isAtomicNodeIdentitySupportKnown,
     previewNextNodeId,
     getNextOperatorNonce,
+    operatorNodes,
     isRegistering,
     registrationHash,
   } = useNodeStaking(
     stakingManagerAddress,
-    address,
+    operatorAddressForStats,
     stakingApprovalSpenderAddress,
   )
   const { data: registrationReceipt } = useWaitForTransactionReceipt({
@@ -319,6 +321,10 @@ export default function NodeRegistrationWizard() {
     useSignMessage()
 
   const selectedServices = services.filter((s) => s.selected)
+  const maxNodes = 5
+  const currentNodes = operatorNodes?.length ?? 0
+  const canAddMore = currentNodes < maxNodes
+  const nodeCapError = `You've reached the maximum of ${maxNodes} nodes per operator. Deregister a node before adding more.`
   const selectedServiceIds = useMemo(
     () => selectedServices.map((service) => service.id as NodeServiceId),
     [selectedServices],
@@ -451,6 +457,10 @@ export default function NodeRegistrationWizard() {
     } else if (step === 'services' && selectedServices.length > 0) {
       setStep('stake')
     } else if (step === 'stake') {
+      if (!canAddMore) {
+        setError(nodeCapError)
+        return
+      }
       if (!isOwnershipVerified) {
         setError(
           'Verify delegated node ownership at the claimed endpoint before continuing.',
@@ -469,6 +479,8 @@ export default function NodeRegistrationWizard() {
     isConnected,
     isOwnershipVerified,
     selectedAgentId,
+    canAddMore,
+    nodeCapError,
     selectedServices.length,
     useGasless,
   ])
@@ -506,6 +518,10 @@ export default function NodeRegistrationWizard() {
     }
     if (!normalizedNodeRpcUrl) {
       setError('Please enter your node RPC URL')
+      return
+    }
+    if (!canAddMore) {
+      setError(nodeCapError)
       return
     }
     if (selectedAgentId === undefined) {
@@ -602,12 +618,20 @@ export default function NodeRegistrationWizard() {
     }
     const nodeProfileDocument =
       buildNodeProfileDocument(profileSeedNodeIdentity)
-    const metadataCid = await uploadJSONToIPFS(
-      DWS_STORAGE_API_URL,
-      nodeProfileDocument,
-      `node-profile-${previewNodeId}.json`,
-    )
-    const metadataURI = toIpfsMetadataUri(metadataCid)
+    let metadataURI: string
+    try {
+      const metadataCid = await uploadJSONToIPFS(
+        DWS_STORAGE_API_URL,
+        nodeProfileDocument,
+        `node-profile-${previewNodeId}.json`,
+      )
+      metadataURI = toIpfsMetadataUri(metadataCid)
+    } catch (uploadError) {
+      metadataURI = `ipfs://pending-${previewNodeId.slice(2)}`
+      setNodeIdentityError(
+        `Node profile upload failed before staking (${uploadError instanceof Error ? uploadError.message : String(uploadError)}). Continuing with a placeholder metadata URI. Save Metadata URI after registration to finalize profile.`,
+      )
+    }
     const nodeIdentityPayload: NodeIdentityMetadata = {
       ...profileSeedNodeIdentity,
       metadataURI,
@@ -694,6 +718,8 @@ export default function NodeRegistrationWizard() {
   }, [
     stakingManagerAddress,
     normalizedNodeRpcUrl,
+    canAddMore,
+    nodeCapError,
     selectedAgentId,
     requiredStake,
     selectedRegion,
@@ -1892,6 +1918,21 @@ export default function NodeRegistrationWizard() {
         </p>
 
         {/* Node Name */}
+        {!canAddMore && (
+          <div
+            style={{
+              marginBottom: '1.5rem',
+              padding: '1rem',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--warning)',
+              background: 'var(--warning-soft)',
+              color: 'var(--warning)',
+            }}
+          >
+            ⚠️ {nodeCapError}
+          </div>
+        )}
+
         <div style={{ marginBottom: '1.5rem' }}>
           <label
             htmlFor="node-name"
@@ -2510,7 +2551,7 @@ export default function NodeRegistrationWizard() {
             type="button"
             className="btn btn-primary"
             onClick={handleNextStep}
-            disabled={!nodeRpcUrl || !isOwnershipVerified}
+            disabled={!nodeRpcUrl || !isOwnershipVerified || !canAddMore}
           >
             Continue <ArrowRight size={16} />
           </button>
@@ -2950,7 +2991,7 @@ export default function NodeRegistrationWizard() {
           type="button"
           className="btn btn-primary"
           onClick={handleRegister}
-          disabled={isRegistering || isRegisteringNodeIdentity}
+          disabled={isRegistering || isRegisteringNodeIdentity || !canAddMore}
         >
           {isRegisteringNodeIdentity ? (
             <>
