@@ -184,6 +184,62 @@ contract NodeStakingManagerV2BootstrapTest is Test {
         assertEq(manager.bootstrapOwnershipCapExemptionNodeThreshold(), 20);
     }
 
+    function test_DefaultOperatorNodeLimit_TierAtOneThousandUSD_IsTwentyNodes() public {
+        vm.prank(alice);
+        manager.registerNode(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-cap-1.jeju.test",
+            INodeStakingManager.Region.NorthAmerica
+        );
+
+        assertEq(manager.getOperatorNodeLimit(alice), 20);
+    }
+
+    function test_DefaultOperatorNodeLimit_TierAtOneHundredThousandUSD_IsEightyNodes() public {
+        vm.startPrank(alice);
+        bytes32 nodeId = manager.registerNode(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-cap-2.jeju.test",
+            INodeStakingManager.Region.NorthAmerica
+        );
+        manager.increaseStake(nodeId, 99_000 ether);
+        vm.stopPrank();
+
+        assertEq(manager.getOperatorNodeLimit(alice), 80);
+    }
+
+    function test_SetOperatorNodeCapTiers_UpdatesGovernedLimits() public {
+        uint256[] memory thresholds = new uint256[](2);
+        thresholds[0] = 1_000 ether;
+        thresholds[1] = 10_000 ether;
+
+        uint256[] memory multipliers = new uint256[](2);
+        multipliers[0] = 2;
+        multipliers[1] = 3;
+
+        manager.setOperatorNodeCapTiers(thresholds, multipliers);
+
+        vm.startPrank(alice);
+        bytes32 nodeId = manager.registerNode(
+            address(token),
+            STAKE_AMOUNT,
+            address(token),
+            "https://node-cap-3.jeju.test",
+            INodeStakingManager.Region.NorthAmerica
+        );
+        vm.stopPrank();
+
+        assertEq(manager.getOperatorNodeLimit(alice), 10);
+
+        vm.prank(alice);
+        manager.increaseStake(nodeId, 9_000 ether);
+        assertEq(manager.getOperatorNodeLimit(alice), 15);
+    }
+
     function test_DisablingBootstrapExemption_RestoresOwnershipCap() public {
         vm.prank(alice);
         manager.registerNode(

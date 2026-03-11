@@ -6,6 +6,7 @@ export const NODE_STAKING_MANAGER_ABI = [
     name: 'Region',
     inputs: [],
     outputs: [{ type: 'uint8' }],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -295,6 +296,30 @@ export const NODE_STAKING_MANAGER_ABI = [
           { name: 'lifetimeRewardsUSD', type: 'uint256' },
         ],
       },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getOperatorNodeLimit',
+    inputs: [{ name: 'operator', type: 'address' }],
+    outputs: [{ name: 'maxNodes', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getOperatorNodeLimitForStakeUSD',
+    inputs: [{ name: 'operatorStakeUSD', type: 'uint256' }],
+    outputs: [{ name: 'maxNodes', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getOperatorNodeCapTiers',
+    inputs: [],
+    outputs: [
+      { name: 'stakeThresholdsUSD', type: 'uint256[]' },
+      { name: 'multipliers', type: 'uint256[]' },
     ],
     stateMutability: 'view',
   },

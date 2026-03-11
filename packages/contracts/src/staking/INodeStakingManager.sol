@@ -155,9 +155,22 @@ interface INodeStakingManager {
 
     function getOperatorStats(address operator) external view returns (OperatorStats memory);
 
+    function getOperatorNodeLimit(address operator) external view returns (uint256 maxNodes);
+
+    function getOperatorNodeLimitForStakeUSD(uint256 operatorStakeUSD) external view returns (uint256 maxNodes);
+
+    function getOperatorNodeCapTiers()
+        external
+        view
+        returns (uint256[] memory stakeThresholdsUSD, uint256[] memory multipliers);
+
     // ============ Admin Functions ============
 
     function setMinStakeUSD(uint256 newMinimum) external;
+
+    function setBaseNodesPerOperator(uint256 newBaseNodesPerOperator) external;
+
+    function setOperatorNodeCapTiers(uint256[] calldata stakeThresholdsUSD, uint256[] calldata multipliers) external;
 
     function setPaymasterFees(uint256 rewardCutBPS, uint256 stakeCutBPS) external;
 

@@ -72,7 +72,28 @@ contract MockNodeStakingManagerForOracle is INodeStakingManager {
         return stats;
     }
 
+    function getOperatorNodeLimit(address) external pure returns (uint256 maxNodes) {
+        return maxNodes;
+    }
+
+    function getOperatorNodeLimitForStakeUSD(uint256) external pure returns (uint256 maxNodes) {
+        return maxNodes;
+    }
+
+    function getOperatorNodeCapTiers()
+        external
+        pure
+        returns (uint256[] memory stakeThresholdsUSD, uint256[] memory multipliers)
+    {
+        stakeThresholdsUSD = new uint256[](0);
+        multipliers = new uint256[](0);
+    }
+
     function setMinStakeUSD(uint256) external pure {}
+
+    function setBaseNodesPerOperator(uint256) external pure {}
+
+    function setOperatorNodeCapTiers(uint256[] calldata, uint256[] calldata) external pure {}
 
     function setPaymasterFees(uint256, uint256) external pure {}
 

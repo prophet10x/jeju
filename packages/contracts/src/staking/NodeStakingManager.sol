@@ -45,7 +45,10 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     uint256 public rewardPayoutBPS = 10000;
     uint256 public paymasterRewardCutBPS = 500;
     uint256 public paymasterStakeCutBPS = 200;
+    // NOTE: Kept for backward compatibility; now treated as the base node count before multiplier tiers.
     uint256 public maxNodesPerOperator = 5;
+    uint256[] internal _operatorNodeCapStakeThresholdsUSD;
+    uint256[] internal _operatorNodeCapMultipliers;
     uint256 public maxNetworkOwnershipBPS = 2000; // SECURITY: 20% max per operator for decentralization
     uint256 public uptimeMultiplierMin = 5000;
     uint256 public uptimeMultiplierMax = 20000;
@@ -88,6 +91,8 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     error GovernedByRewardParameters();
     error InvalidRewardPayoutBPS(uint256 provided);
     error InvalidMinStakingPeriod(uint256 provided);
+    error InvalidBaseNodesPerOperator(uint256 provided);
+    error InvalidOperatorNodeCapTierConfig();
 
     error InvalidAddress();
     error ZeroStake();
@@ -133,6 +138,9 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     event SlashAuthorityUpdated(address indexed oldAuthority, address indexed newAuthority);
     event RewardVaultUpdated(address indexed oldVault, address indexed newVault);
     event RewardParametersUpdated(address indexed oldParameters, address indexed newParameters);
+    event OperatorNodeCapTiersUpdated(
+        uint256 baseNodesPerOperator, uint256[] stakeThresholdsUSD, uint256[] multipliers
+    );
 
     constructor(
         address _tokenRegistry,
@@ -151,6 +159,8 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         priceOracle = IPriceOracle(_priceOracle);
         performanceOracles.push(_performanceOracle);
         isPerformanceOracle[_performanceOracle] = true;
+
+        _setOperatorNodeCapTiers(_defaultOperatorNodeCapStakeThresholdsUSD(), _defaultOperatorNodeCapMultipliers());
     }
 
     error NotSlashAuthority();
@@ -244,8 +254,9 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
             revert InsufficientStakeValue(stakeValueUSD, minStakeUSD);
         }
 
-        if (operatorStats[operator].totalNodesActive >= maxNodesPerOperator) {
-            revert TooManyNodes(operatorStats[operator].totalNodesActive, maxNodesPerOperator);
+        uint256 operatorNodeLimit = _getOperatorNodeLimit(operatorStats[operator].totalStakedUSD + stakeValueUSD);
+        if (operatorStats[operator].totalNodesActive >= operatorNodeLimit) {
+            revert TooManyNodes(operatorStats[operator].totalNodesActive, operatorNodeLimit);
         }
 
         _enforceOwnershipCap(operator, stakeValueUSD);
@@ -585,6 +596,23 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         return operatorStats[operator];
     }
 
+    function getOperatorNodeLimit(address operator) public view returns (uint256 maxNodes) {
+        return _getOperatorNodeLimit(operatorStats[operator].totalStakedUSD);
+    }
+
+    function getOperatorNodeLimitForStakeUSD(uint256 operatorStakeUSD) public view returns (uint256 maxNodes) {
+        return _getOperatorNodeLimit(operatorStakeUSD);
+    }
+
+    function getOperatorNodeCapTiers()
+        external
+        view
+        returns (uint256[] memory stakeThresholdsUSD, uint256[] memory multipliers)
+    {
+        stakeThresholdsUSD = _operatorNodeCapStakeThresholdsUSD;
+        multipliers = _operatorNodeCapMultipliers;
+    }
+
     function getAllNodes() external view returns (bytes32[] memory) {
         return allNodeIds;
     }
@@ -610,6 +638,20 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
         uint256 oldValue = minStakeUSD;
         minStakeUSD = newMinimum;
         emit ParameterUpdated("minStakeUSD", oldValue, newMinimum);
+    }
+
+    function setBaseNodesPerOperator(uint256 newBaseNodesPerOperator) external onlyOwner {
+        if (newBaseNodesPerOperator == 0) revert InvalidBaseNodesPerOperator(newBaseNodesPerOperator);
+        uint256 oldValue = maxNodesPerOperator;
+        maxNodesPerOperator = newBaseNodesPerOperator;
+        emit ParameterUpdated("maxNodesPerOperator", oldValue, newBaseNodesPerOperator);
+    }
+
+    function setOperatorNodeCapTiers(uint256[] calldata stakeThresholdsUSD, uint256[] calldata multipliers)
+        external
+        onlyOwner
+    {
+        _setOperatorNodeCapTiers(stakeThresholdsUSD, multipliers);
     }
 
     function setMinStakingPeriod(uint256 newMinimumStakingPeriod) external onlyOwner {
@@ -862,6 +904,75 @@ contract NodeStakingManager is INodeStakingManager, Ownable, Pausable, Reentranc
     /// @notice Legacy withdrawEmergency - now requires timelock
     function withdrawEmergency(address token, uint256 amount) external onlyOwner {
         proposeEmergencyWithdrawal(token, amount);
+    }
+
+    function _getOperatorNodeLimit(uint256 operatorStakeUSD) internal view returns (uint256) {
+        uint256 multiplier = _deriveOperatorNodeCapMultiplier(operatorStakeUSD);
+        return maxNodesPerOperator * multiplier;
+    }
+
+    function _deriveOperatorNodeCapMultiplier(uint256 operatorStakeUSD) internal view returns (uint256 multiplier) {
+        multiplier = 1;
+        uint256 tierCount = _operatorNodeCapStakeThresholdsUSD.length;
+        for (uint256 i = tierCount; i > 0; i--) {
+            uint256 index = i - 1;
+            if (operatorStakeUSD >= _operatorNodeCapStakeThresholdsUSD[index]) {
+                return _operatorNodeCapMultipliers[index];
+            }
+        }
+    }
+
+    function _setOperatorNodeCapTiers(uint256[] memory stakeThresholdsUSD, uint256[] memory multipliers) internal {
+        if (
+            stakeThresholdsUSD.length == 0 || stakeThresholdsUSD.length != multipliers.length || multipliers[0] == 0
+        ) {
+            revert InvalidOperatorNodeCapTierConfig();
+        }
+
+        uint256 previousThreshold = 0;
+        for (uint256 i = 0; i < stakeThresholdsUSD.length; i++) {
+            if (stakeThresholdsUSD[i] == 0 || multipliers[i] == 0) {
+                revert InvalidOperatorNodeCapTierConfig();
+            }
+            if (i > 0 && stakeThresholdsUSD[i] <= previousThreshold) {
+                revert InvalidOperatorNodeCapTierConfig();
+            }
+            previousThreshold = stakeThresholdsUSD[i];
+        }
+
+        delete _operatorNodeCapStakeThresholdsUSD;
+        delete _operatorNodeCapMultipliers;
+
+        for (uint256 i = 0; i < stakeThresholdsUSD.length; i++) {
+            _operatorNodeCapStakeThresholdsUSD.push(stakeThresholdsUSD[i]);
+            _operatorNodeCapMultipliers.push(multipliers[i]);
+        }
+
+        emit OperatorNodeCapTiersUpdated(maxNodesPerOperator, stakeThresholdsUSD, multipliers);
+    }
+
+    function _defaultOperatorNodeCapStakeThresholdsUSD() internal pure returns (uint256[] memory thresholds) {
+        thresholds = new uint256[](8);
+        thresholds[0] = 10 ether;
+        thresholds[1] = 100 ether;
+        thresholds[2] = 1_000 ether;
+        thresholds[3] = 10_000 ether;
+        thresholds[4] = 100_000 ether;
+        thresholds[5] = 1_000_000 ether;
+        thresholds[6] = 10_000_000 ether;
+        thresholds[7] = 100_000_000 ether;
+    }
+
+    function _defaultOperatorNodeCapMultipliers() internal pure returns (uint256[] memory multipliers) {
+        multipliers = new uint256[](8);
+        multipliers[0] = 1;
+        multipliers[1] = 2;
+        multipliers[2] = 4;
+        multipliers[3] = 8;
+        multipliers[4] = 16;
+        multipliers[5] = 160;
+        multipliers[6] = 320;
+        multipliers[7] = 640;
     }
 
     function _effectiveBaseRewardPerMonthUSD() internal view returns (uint256) {

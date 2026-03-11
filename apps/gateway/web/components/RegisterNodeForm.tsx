@@ -26,6 +26,7 @@ import { ZERO_ADDRESS } from '@jejunetwork/types'
 import {
   TransactionStatusModal,
   type TransactionStatusResult,
+  useWallet,
 } from '@jejunetwork/ui/wallet'
 import { useEffect, useMemo, useState } from 'react'
 import { type Address, encodeFunctionData, formatUnits, parseEther } from 'viem'
@@ -35,7 +36,12 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { CONTRACTS, EXPLORER_URL, IPFS_API_URL } from '../../lib/config'
+import {
+  CONTRACTS,
+  EXPLORER_URL,
+  IPFS_API_URL,
+  resolveNodeStakingWriteAddress,
+} from '../../lib/config'
 import {
   calculateMonthlyRewardEstimate,
   REGION_NAMES,
@@ -57,6 +63,16 @@ const IDENTITY_REGISTRY_ABI = [
     ],
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+] as const
+
+const NODE_STAKING_OPERATOR_ABI = [
+  {
+    name: 'getOperatorNodeLimit',
+    type: 'function',
+    inputs: [{ name: 'operator', type: 'address' }],
+    outputs: [{ name: 'maxNodes', type: 'uint256' }],
+    stateMutability: 'view',
   },
 ] as const
 
@@ -91,6 +107,7 @@ type RegistrationStep =
   | 'complete'
 
 export default function RegisterNodeForm() {
+  const wallet = useWallet()
   const publicClient = usePublicClient()
   const { tokens } = useProtocolTokens()
   const {
@@ -119,6 +136,7 @@ export default function RegisterNodeForm() {
   const [memoryGb, setMemoryGb] = useState('')
   const [diskGb, setDiskGb] = useState('')
   const [selectedServices, setSelectedServices] = useState<string[]>([])
+  const [operatorNodeLimit, setOperatorNodeLimit] = useState(5)
   const [operatorAgentId, setOperatorAgentId] = useState('')
   const [useGasless, setUseGasless] = useState(true)
   const [step, setStep] = useState<RegistrationStep>('identity')
@@ -160,14 +178,35 @@ export default function RegisterNodeForm() {
     isLoading: isSetAgentWalletConfirming,
   } = useWaitForTransactionReceipt({ hash: setAgentWalletHash })
 
-  const tokenOptions = tokens.map((t) => ({
-    symbol: t.symbol,
-    name: t.name,
-    address: t.address,
-    decimals: t.decimals,
-    priceUSD: t.priceUSD,
-    logoUrl: t.logoUrl,
-  }))
+  const tokenOptions = useMemo(() => {
+    const configured = tokens.map((token) => ({
+      symbol: token.symbol,
+      name: token.name,
+      address: token.address,
+      decimals: token.decimals,
+      priceUSD: token.priceUSD,
+      logoUrl: token.logoUrl,
+    }))
+
+    if (configured.length > 0) {
+      return configured
+    }
+
+    if (CONTRACTS.jeju !== ZERO_ADDRESS) {
+      return [
+        {
+          symbol: 'JEJU',
+          name: 'Jeju',
+          address: CONTRACTS.jeju,
+          decimals: 18,
+          priceUSD: 1,
+          logoUrl: undefined,
+        },
+      ] satisfies TokenOption[]
+    }
+
+    return []
+  }, [tokens])
 
   const stakeValueUSD = useMemo(() => {
     if (!stakingToken || !stakeAmount) return 0
@@ -218,12 +257,34 @@ export default function RegisterNodeForm() {
   const gaslessSupportsSelectedToken =
     !stakingToken ||
     stakingToken.address.toLowerCase() === CONTRACTS.jeju.toLowerCase()
+  const operatorWalletAddress = gasless.ownerAddress ?? wallet.address ?? null
+  const isWalletConnectionPending = wallet.isConnecting
 
   const gaslessReadiness = gasless.getReadiness(parsedStakeAmount)
 
   const currentNodes = Number(operatorStats?.totalNodesActive ?? 0n)
-  const maxNodes = 5
+  const maxNodes = operatorNodeLimit
   const canAddMore = currentNodes < maxNodes
+
+  useEffect(() => {
+    if (tokenOptions.length === 0) return
+
+    setStakingToken((current) => {
+      if (!current) return tokenOptions[0]
+      const stillExists = tokenOptions.some(
+        (option) => option.address.toLowerCase() === current.address.toLowerCase(),
+      )
+      return stillExists ? current : tokenOptions[0]
+    })
+
+    setRewardToken((current) => {
+      if (!current) return tokenOptions[0]
+      const stillExists = tokenOptions.some(
+        (option) => option.address.toLowerCase() === current.address.toLowerCase(),
+      )
+      return stillExists ? current : tokenOptions[0]
+    })
+  }, [tokenOptions])
 
   const selectedOperatorAgent = useMemo(
     () =>
@@ -266,8 +327,53 @@ export default function RegisterNodeForm() {
     if (useGasless) {
       return gasless.smartAccountAddress
     }
-    return gasless.ownerAddress
-  }, [gasless.ownerAddress, gasless.smartAccountAddress, useGasless])
+    return operatorWalletAddress ?? undefined
+  }, [gasless.smartAccountAddress, operatorWalletAddress, useGasless])
+  const stakingManagerAddress = useMemo(
+    () => resolveNodeStakingWriteAddress(registrationSenderAddress),
+    [registrationSenderAddress],
+  )
+
+  useEffect(() => {
+    if (!publicClient || !registrationSenderAddress) {
+      setOperatorNodeLimit(5)
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const onChainLimit = (await publicClient.readContract({
+          address: stakingManagerAddress,
+          abi: NODE_STAKING_OPERATOR_ABI,
+          functionName: 'getOperatorNodeLimit',
+          args: [registrationSenderAddress],
+        })) as bigint
+
+        if (cancelled) return
+
+        if (onChainLimit <= 0n) {
+          setOperatorNodeLimit(5)
+          return
+        }
+
+        const normalizedLimit =
+          onChainLimit > BigInt(Number.MAX_SAFE_INTEGER)
+            ? Number.MAX_SAFE_INTEGER
+            : Number(onChainLimit)
+        setOperatorNodeLimit(normalizedLimit)
+      } catch {
+        if (!cancelled) {
+          setOperatorNodeLimit(5)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, registrationSenderAddress, stakingManagerAddress])
 
   const disabledReason = useMemo(() => {
     if (!canAddMore) return `Maximum of ${maxNodes} nodes reached`
@@ -478,7 +584,7 @@ export default function RegisterNodeForm() {
       })
     }
 
-    if (!gasless.ownerAddress || parsedOperatorAgentId == null) {
+    if (!operatorWalletAddress || parsedOperatorAgentId == null) {
       blockPrepare('Connect the operator wallet and select an agent first.')
       return
     }
@@ -516,7 +622,7 @@ export default function RegisterNodeForm() {
         },
         body: JSON.stringify({
           endpoint: rpcUrl,
-          operatorAddress: gasless.ownerAddress,
+          operatorAddress: operatorWalletAddress,
           operatorAgentId: Number(parsedOperatorAgentId),
         }),
       })
@@ -872,12 +978,20 @@ export default function RegisterNodeForm() {
       }
       const nodeProfileDocument =
         buildNodeProfileDocument(profileSeedNodeIdentity)
-      const metadataCid = await uploadJSONToIPFS(
-        IPFS_API_URL,
-        nodeProfileDocument,
-        `node-profile-${previewNodeId}.json`,
-      )
-      const metadataURI = toIpfsMetadataUri(metadataCid)
+      let metadataURI: string
+      try {
+        const metadataCid = await uploadJSONToIPFS(
+          IPFS_API_URL,
+          nodeProfileDocument,
+          `node-profile-${previewNodeId}.json`,
+        )
+        metadataURI = toIpfsMetadataUri(metadataCid)
+      } catch (uploadError) {
+        metadataURI = `ipfs://pending-${previewNodeId.slice(2)}`
+        setNodeIdentityError(
+          `Node profile upload failed before staking (${uploadError instanceof Error ? uploadError.message : String(uploadError)}). Continuing with a placeholder metadata URI. Save Metadata URI after registration to finalize profile.`,
+        )
+      }
       const nodeIdentityPayload: NodeIdentityMetadata = {
         ...profileSeedNodeIdentity,
         metadataURI,
@@ -994,7 +1108,7 @@ export default function RegisterNodeForm() {
   const selectedOperatorReady =
     parsedOperatorAgentId !== null && parsedOperatorAgentId !== undefined
   const identityStepReady =
-    Boolean(gasless.ownerAddress) && selectedOperatorReady
+    Boolean(operatorWalletAddress) && selectedOperatorReady
   const stakeStepReady =
     Boolean(stakingToken) &&
     Boolean(rewardToken) &&
@@ -1103,9 +1217,22 @@ export default function RegisterNodeForm() {
             gap: '0.5rem',
           }}
         >
+          {!operatorWalletAddress ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => wallet.connect()}
+              disabled={isWalletConnectionPending}
+              style={{ width: 'fit-content' }}
+            >
+              {isWalletConnectionPending
+                ? 'Connecting wallet...'
+                : 'Connect operator wallet'}
+            </button>
+          ) : null}
           <div>
             <strong>Owner wallet (EOA):</strong>{' '}
-            {gasless.ownerAddress ?? 'Unavailable'}
+            {operatorWalletAddress ?? 'Unavailable'}
           </div>
           <div>
             <strong>Gasless wallet (SimpleAccount):</strong>{' '}
@@ -1564,7 +1691,7 @@ export default function RegisterNodeForm() {
             disabled={
               !rpcUrl.startsWith('http') ||
               isPreparingProof ||
-              !gasless.ownerAddress ||
+              !operatorWalletAddress ||
               parsedOperatorAgentId == null
             }
           >

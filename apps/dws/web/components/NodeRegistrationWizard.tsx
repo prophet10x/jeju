@@ -194,6 +194,23 @@ const NODE_STAKING_REGISTRATION_ABI = [
   },
 ] as const
 
+const NODE_STAKING_OPERATOR_ABI = [
+  {
+    name: 'getOperatorNodes',
+    type: 'function',
+    inputs: [{ name: 'operator', type: 'address' }],
+    outputs: [{ name: '', type: 'bytes32[]' }],
+    stateMutability: 'view',
+  },
+  {
+    name: 'getOperatorNodeLimit',
+    type: 'function',
+    inputs: [{ name: 'operator', type: 'address' }],
+    outputs: [{ name: 'maxNodes', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const
+
 interface NodeProofChallenge {
   challengeId: string
   expiresAt: number
@@ -223,12 +240,17 @@ export default function NodeRegistrationWizard() {
   const { hasAgent, agentId, agents, isLoading: isAgentLoading } = useAgentId()
   const gasless = useGaslessSmartAccount()
   const gaslessBootstrap = useGaslessBootstrap({ gasless })
-  const operatorAddressForStats = gasless.smartAccountAddress ?? address
+  const [useGasless, setUseGasless] = useState(true)
+  const operatorAddressForStats = useMemo(() => {
+    if (useGasless) {
+      return gasless.smartAccountAddress ?? address
+    }
+    return address
+  }, [address, gasless.smartAccountAddress, useGasless])
 
   // Get staking manager address from config
-  const stakingManagerAddress = resolveNodeStakingWriteAddress(
-    gasless.smartAccountAddress ?? address,
-  )
+  const stakingManagerAddress =
+    resolveNodeStakingWriteAddress(operatorAddressForStats)
   const stakingApprovalSpenderAddress =
     stakingManagerAddress === CONTRACTS.nodeStakingRouter &&
     CONTRACTS.nodeStakingVault !== ZERO_ADDRESS
@@ -265,6 +287,7 @@ export default function NodeRegistrationWizard() {
   const [services, setServices] = useState<ServiceOption[]>(() =>
     createDefaultServices(),
   )
+  const [operatorNodeLimit, setOperatorNodeLimit] = useState(5)
   const [error, setError] = useState<string | null>(null)
   const [selectedRegion, setSelectedRegion] = useState<RegionValue>(
     Region.NorthAmerica,
@@ -276,7 +299,6 @@ export default function NodeRegistrationWizard() {
   const [memoryGb, setMemoryGb] = useState('')
   const [diskGb, setDiskGb] = useState('')
   const [customStakeAmount, setCustomStakeAmount] = useState('')
-  const [useGasless, setUseGasless] = useState(true)
   const [selectedAgentIdState, setSelectedAgentIdState] = useState<
     number | null
   >(null)
@@ -321,7 +343,7 @@ export default function NodeRegistrationWizard() {
     useSignMessage()
 
   const selectedServices = services.filter((s) => s.selected)
-  const maxNodes = 5
+  const maxNodes = operatorNodeLimit
   const currentNodes = operatorNodes?.length ?? 0
   const canAddMore = currentNodes < maxNodes
   const nodeCapError = `You've reached the maximum of ${maxNodes} nodes per operator. Deregister a node before adding more.`
@@ -362,6 +384,47 @@ export default function NodeRegistrationWizard() {
     }
     return address
   }, [address, gasless.smartAccountAddress, useGasless])
+
+  useEffect(() => {
+    if (!publicClient || !registrationSenderAddress) {
+      setOperatorNodeLimit(5)
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const onChainLimit = (await publicClient.readContract({
+          address: stakingManagerAddress,
+          abi: NODE_STAKING_OPERATOR_ABI,
+          functionName: 'getOperatorNodeLimit',
+          args: [registrationSenderAddress],
+        })) as bigint
+
+        if (cancelled) return
+
+        if (onChainLimit <= 0n) {
+          setOperatorNodeLimit(5)
+          return
+        }
+
+        const normalizedLimit =
+          onChainLimit > BigInt(Number.MAX_SAFE_INTEGER)
+            ? Number.MAX_SAFE_INTEGER
+            : Number(onChainLimit)
+        setOperatorNodeLimit(normalizedLimit)
+      } catch {
+        if (!cancelled) {
+          setOperatorNodeLimit(5)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, registrationSenderAddress, stakingManagerAddress])
 
   // Calculate minimum required stake from contract's minStakeUSD
   const minimumStake = useMemo(() => {
@@ -574,6 +637,57 @@ export default function NodeRegistrationWizard() {
       return
     }
 
+    if (!publicClient) {
+      setError('Public client is not available.')
+      return
+    }
+
+    try {
+      const liveOperatorNodes = (await publicClient.readContract({
+        address: stakingManagerAddress,
+        abi: NODE_STAKING_OPERATOR_ABI,
+        functionName: 'getOperatorNodes',
+        args: [registrationSenderAddress],
+      })) as readonly `0x${string}`[]
+
+      let liveNodeLimit = maxNodes
+      try {
+        const liveNodeLimitRaw = (await publicClient.readContract({
+          address: stakingManagerAddress,
+          abi: NODE_STAKING_OPERATOR_ABI,
+          functionName: 'getOperatorNodeLimit',
+          args: [registrationSenderAddress],
+        })) as bigint
+
+        if (liveNodeLimitRaw > 0n) {
+          liveNodeLimit = Number(
+            liveNodeLimitRaw > BigInt(Number.MAX_SAFE_INTEGER)
+              ? BigInt(Number.MAX_SAFE_INTEGER)
+              : liveNodeLimitRaw,
+          )
+        }
+      } catch {
+        // Compatibility fallback for legacy managers without getOperatorNodeLimit().
+      }
+
+      setOperatorNodeLimit(liveNodeLimit)
+
+      if (liveOperatorNodes.length >= liveNodeLimit) {
+        setError(
+          `You've reached the maximum of ${liveNodeLimit} nodes per operator. Deregister a node before adding more.`,
+        )
+        return
+      }
+    } catch (capacityError) {
+      setError(
+        describeNodeRegistrationError(
+          capacityError,
+          'Failed to validate operator node capacity',
+        ),
+      )
+      return
+    }
+
     if (!supportsAtomicNodeIdentityRegistration) {
       const message =
         'Selected staking manager does not support atomic node identity registration. Registration blocked.'
@@ -733,7 +847,9 @@ export default function NodeRegistrationWizard() {
     supportsAtomicNodeIdentityRegistration,
     supportsStrictAtomicProfileRegistration,
     registrationSenderAddress,
+    publicClient,
     useGasless,
+    maxNodes,
     cpuCores,
     diskGb,
     memoryGb,
